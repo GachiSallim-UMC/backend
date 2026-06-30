@@ -1,0 +1,26 @@
+name: 기능 요청
+description: 새로운 기능 또는 동작 변경을 제안합니다.
+title: '[기능]: '
+labels: ['feature']
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 해결할 문제
+      description: 어떤 사용자 또는 시스템 문제를 해결해야 하나요?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 제안
+      description: 원하는 동작을 설명해 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 완료 기준
+      description: 완료로 판단할 수 있는 구체적인 조건을 작성해 주세요.
+    validations:
+      required: true
