@@ -35,25 +35,40 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
-      const message = exception.message;
 
       return {
         statusCode: status,
         data: null,
         error: {
           code: `COMMON_${status}`,
-          message: typeof message === 'string' ? message : ErrorCode.BAD_REQUEST.message,
+          message: this.extractMessage(exception),
         },
       };
     }
 
     return {
-      statusCode: ErrorCode.INTERNAL_SERVER_ERROR.status,
+      statusCode: ErrorCode.COMMON_INTERNAL_SERVER_ERROR.status,
       data: null,
       error: {
-        code: ErrorCode.INTERNAL_SERVER_ERROR.code,
-        message: ErrorCode.INTERNAL_SERVER_ERROR.message,
+        code: ErrorCode.COMMON_INTERNAL_SERVER_ERROR.code,
+        message: ErrorCode.COMMON_INTERNAL_SERVER_ERROR.message,
       },
     };
+  }
+
+  private extractMessage(exception: HttpException): string {
+    const response = exception.getResponse();
+
+    if (typeof response === 'string') {
+      return response;
+    }
+
+    if (typeof response === 'object' && response !== null && 'message' in response) {
+      const { message } = response as { message: string | string[] };
+
+      return Array.isArray(message) ? message.join(', ') : message;
+    }
+
+    return exception.message;
   }
 }
