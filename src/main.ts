@@ -6,6 +6,7 @@ import compression from 'compression';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
+import { validationExceptionFactory } from './common/exceptions/validation-exception.factory';
 import { parseCorsOrigin } from './config/cors';
 
 async function bootstrap(): Promise<void> {
@@ -24,6 +25,7 @@ async function bootstrap(): Promise<void> {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      exceptionFactory: validationExceptionFactory,
     }),
   );
 

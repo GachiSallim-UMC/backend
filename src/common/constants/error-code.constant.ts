@@ -1,0 +1,48 @@
+export const ErrorCode = {
+  // Common
+  COMMON_INTERNAL_SERVER_ERROR: {
+    status: 500,
+    code: 'COMMON_500',
+    message: '서버 오류가 발생했습니다. 관리자에게 문의해 주세요.',
+  },
+  COMMON_BAD_REQUEST: {
+    status: 400,
+    code: 'COMMON_400',
+    message: '잘못된 요청입니다.',
+  },
+  COMMON_INVALID_PARAMETER: {
+    status: 400,
+    code: 'COMMON_400_PARAM',
+    message: '요청 파라미터가 잘못되었습니다.',
+  },
+  COMMON_UNAUTHORIZED: {
+    status: 401,
+    code: 'COMMON_401',
+    message: '인증이 필요합니다.',
+  },
+  COMMON_FORBIDDEN: {
+    status: 403,
+    code: 'COMMON_403',
+    message: '접근 권한이 없습니다.',
+  },
+  COMMON_NOT_FOUND: {
+    status: 404,
+    code: 'COMMON_404',
+    message: '요청한 리소스를 찾을 수 없습니다.',
+  },
+  COMMON_CONFLICT: {
+    status: 409,
+    code: 'COMMON_409',
+    message: '요청이 현재 상태와 충돌합니다.',
+  },
+
+  // User
+  USER_NOT_FOUND: {
+    status: 404,
+    code: 'USER_404',
+    message: '존재하지 않는 사용자입니다.',
+  },
+} as const;
+
+export type ErrorCodeKey = keyof typeof ErrorCode;
+export type ErrorCodeEntry = (typeof ErrorCode)[ErrorCodeKey];
