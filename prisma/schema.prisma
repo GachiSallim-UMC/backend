@@ -7,10 +7,553 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// =====================================================
+// AUTH
+// =====================================================
+
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           BigInt   @id @default(autoincrement())
+  name         String   @db.VarChar(30)
+  nickname     String   @db.VarChar(30)
+  email        String   @unique @db.VarChar(100)
+  profileImage String?  @map("profile_image") @db.VarChar(512)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  authIdentities    UserAuthIdentity[]
+  termsAgreements   UserTermsAgreement[]
+  pushSubscriptions NotificationPushSubscription[]
+  ownedGroups       Group[]                        @relation("GroupCreator")
+  groupMembers      GroupMember[]
+  assignedChores    Chore[]                        @relation("ChoreAssignee")
+  completedChores   Chore[]                        @relation("ChoreCompleter")
+  createdChores     Chore[]                        @relation("ChoreCreator")
+  paidExpenses      Expense[]                      @relation("ExpensePayer")
+  createdExpenses   Expense[]                      @relation("ExpenseCreator")
+  expenseSplits     ExpenseSplit[]
+  expenseLogs       ExpenseLog[]
+  createdSupplies   Supply[]                       @relation("SupplyCreator")
+  assignedSupplies  Supply[]                       @relation("SupplyAssignee")
+  supplyLogs        SupplyLog[]
+  createdRules      Rule[]
+  ruleAgreements    RuleAgreement[]
+  ruleLogs          RuleLog[]
+  createdChatRooms  ChatRoom[]
+  chatRoomMembers   ChatRoomMember[]
+  sentMessages      Message[]
+  notifications     Notification[]
+  activityLogs      ActivityLog[]
+
+  @@map("users")
+}
+
+model UserAuthIdentity {
+  id                  BigInt       @id @default(autoincrement())
+  userId              BigInt       @map("user_id")
+  cognitoSub          String       @unique @map("cognito_sub") @db.VarChar(255)
+  provider            AuthProvider @default(COGNITO)
+  providerUserId      String?      @map("provider_user_id") @db.VarChar(255)
+  email               String       @db.VarChar(255)
+  linkedAt            DateTime     @default(now()) @map("linked_at")
+  lastAuthenticatedAt DateTime?    @map("last_authenticated_at")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_auth_identities")
+}
+
+model UserTermsAgreement {
+  id           BigInt   @id @default(autoincrement())
+  userId       BigInt   @map("user_id")
+  termsCode    String   @map("terms_code") @db.VarChar(50)
+  termsVersion String   @map("terms_version") @db.VarChar(20)
+  isRequired   Boolean  @default(true) @map("is_required")
+  agreedAt     DateTime @default(now()) @map("agreed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_terms_agreements")
+}
+
+model NotificationPushSubscription {
+  id         BigInt    @id @default(autoincrement())
+  userId     BigInt    @map("user_id")
+  endpoint   String    @unique @db.Text
+  p256dhKey  String    @map("p256dh_key") @db.Text
+  authKey    String    @map("auth_key") @db.Text
+  userAgent  String?   @map("user_agent") @db.Text
+  isActive   Boolean   @default(true) @map("is_active")
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_push_subscriptions")
+}
+
+// =====================================================
+// GROUP
+// =====================================================
+
+model Group {
+  id              BigInt   @id @default(autoincrement())
+  name            String   @db.VarChar(40)
+  description     String?  @db.VarChar(255)
+  inviteCode      String?  @unique @map("invite_code") @db.VarChar(10)
+  inviteExpiredAt DateTime @map("invite_expired_at")
+  currentMembers  Int      @default(1) @map("current_members")
+  maxMembers      Int      @default(2) @map("max_members")
+  createdBy       BigInt   @map("created_by")
+  isDeleted       Boolean  @default(false) @map("is_deleted")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  creator       User           @relation("GroupCreator", fields: [createdBy], references: [id])
+  members       GroupMember[]
+  chores        Chore[]
+  expenses      Expense[]
+  supplies      Supply[]
+  rules         Rule[]
+  chatRooms     ChatRoom[]
+  notifications Notification[]
+  activityLogs  ActivityLog[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id       BigInt    @id @default(autoincrement())
+  userId   BigInt    @map("user_id")
+  groupId  BigInt    @map("group_id")
+  role     GroupRole @default(MEMBER)
+  joinedAt DateTime  @default(now()) @map("joined_at")
+  leftAt   DateTime? @map("left_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@map("group_members")
+}
+
+// =====================================================
+// CHORE
+// =====================================================
+
+model Chore {
+  id          BigInt      @id @default(autoincrement())
+  parentId    BigInt?     @map("parent_id")
+  groupId     BigInt      @map("group_id")
+  title       String      @db.VarChar(100)
+  assigneeId  BigInt      @map("assignee_id")
+  startDate   DateTime    @map("start_date")
+  dueDate     DateTime?   @map("due_date")
+  repeatType  RepeatType  @default(NONE) @map("repeat_type")
+  status      ChoreStatus @default(PENDING)
+  completedBy BigInt?     @map("completed_by")
+  completedAt DateTime?   @map("completed_at")
+  createdBy   BigInt      @map("created_by")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  parent    Chore?  @relation("ChoreChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Chore[] @relation("ChoreChildren")
+  group     Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignee  User    @relation("ChoreAssignee", fields: [assigneeId], references: [id])
+  completer User?   @relation("ChoreCompleter", fields: [completedBy], references: [id])
+  creator   User    @relation("ChoreCreator", fields: [createdBy], references: [id])
+
+  @@map("chores")
+}
+
+// =====================================================
+// EXPENSE
+// =====================================================
+
+model ExpenseCategory {
+  id        BigInt   @id @default(autoincrement())
+  name      String   @unique @db.VarChar(20)
+  sortOrder Int      @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  expenses Expense[]
+
+  @@map("expense_categories")
+}
+
+model Expense {
+  id          BigInt        @id @default(autoincrement())
+  categoryId  BigInt?       @map("category_id")
+  groupId     BigInt        @map("group_id")
+  payerId     BigInt        @map("payer_id")
+  createdBy   BigInt        @map("created_by")
+  title       String        @db.VarChar(100)
+  totalAmount Int           @map("total_amount")
+  splitType   SplitType     @default(EQUAL) @map("split_type")
+  status      ExpenseStatus @default(PENDING)
+  receiptUrl  String?       @map("receipt_url") @db.VarChar(512)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  group    Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer    User             @relation("ExpensePayer", fields: [payerId], references: [id])
+  creator  User             @relation("ExpenseCreator", fields: [createdBy], references: [id])
+  splits   ExpenseSplit[]
+  logs     ExpenseLog[]
+  supplies Supply[]
+
+  @@map("expenses")
+}
+
+model ExpenseSplit {
+  id            BigInt             @id @default(autoincrement())
+  expenseId     BigInt             @map("expense_id")
+  userId        BigInt             @map("user_id")
+  amount        Int
+  status        ExpenseSplitStatus @default(REQUESTED)
+  transactionId String?            @unique @map("transaction_id") @db.VarChar(255)
+  completedAt   DateTime?          @map("completed_at")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  expense Expense      @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id])
+  logs    ExpenseLog[]
+
+  @@unique([expenseId, userId])
+  @@map("expense_splits")
+}
+
+model ExpenseLog {
+  id             BigInt        @id @default(autoincrement())
+  expenseId      BigInt        @map("expense_id")
+  expenseSplitId BigInt?       @map("expense_split_id")
+  userId         BigInt        @map("user_id")
+  action         ExpenseAction
+  prevStatus     String?       @map("prev_status") @db.VarChar(50)
+  nextStatus     String?       @map("next_status") @db.VarChar(50)
+  transactionId  String?       @map("transaction_id") @db.VarChar(255)
+  amount         Int?
+  note           String?       @db.VarChar(255)
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  expense      Expense       @relation(fields: [expenseId], references: [id])
+  expenseSplit ExpenseSplit? @relation(fields: [expenseSplitId], references: [id], onDelete: SetNull)
+  user         User          @relation(fields: [userId], references: [id])
+
+  @@map("expense_logs")
+}
+
+// =====================================================
+// SUPPLY
+// =====================================================
+
+model Supply {
+  id              BigInt       @id @default(autoincrement())
+  groupId         BigInt       @map("group_id")
+  name            String       @db.VarChar(100)
+  status          SupplyStatus @default(SUFFICIENT)
+  assigneeId      BigInt?      @map("assignee_id")
+  linkedExpenseId BigInt?      @map("linked_expense_id")
+  createdBy       BigInt       @map("created_by")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  group         Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignee      User?       @relation("SupplyAssignee", fields: [assigneeId], references: [id])
+  linkedExpense Expense?    @relation(fields: [linkedExpenseId], references: [id], onDelete: SetNull)
+  creator       User        @relation("SupplyCreator", fields: [createdBy], references: [id])
+  logs          SupplyLog[]
+
+  @@unique([groupId, name])
+  @@map("supplies")
+}
+
+model SupplyLog {
+  id         BigInt        @id @default(autoincrement())
+  supplyId   BigInt        @map("supply_id")
+  userId     BigInt        @map("user_id")
+  prevStatus SupplyStatus? @map("prev_status")
+  nextStatus SupplyStatus  @map("next_status")
+  note       String?       @db.VarChar(255)
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  supply Supply @relation(fields: [supplyId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("supply_logs")
+}
+
+// =====================================================
+// RULE
+// =====================================================
+
+model RuleCategory {
+  id        BigInt   @id @default(autoincrement())
+  name      String   @unique @db.VarChar(20)
+  sortOrder Int      @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  rules Rule[]
+
+  @@map("rule_categories")
+}
+
+model Rule {
+  id          BigInt     @id @default(autoincrement())
+  categoryId  BigInt?    @map("category_id")
+  groupId     BigInt     @map("group_id")
+  userId      BigInt     @map("user_id")
+  title       String     @db.VarChar(100)
+  description String?    @db.VarChar(512)
+  status      RuleStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  category   RuleCategory?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  group      Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  creator    User            @relation(fields: [userId], references: [id])
+  agreements RuleAgreement[]
+  logs       RuleLog[]
+
+  @@map("rules")
+}
+
+model RuleAgreement {
+  id          BigInt              @id @default(autoincrement())
+  ruleId      BigInt              @map("rule_id")
+  userId      BigInt              @map("user_id")
+  status      RuleAgreementStatus @default(PENDING)
+  confirmedAt DateTime?           @map("confirmed_at")
+
+  rule Rule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([ruleId, userId])
+  @@map("rule_agreements")
+}
+
+model RuleLog {
+  id        BigInt     @id @default(autoincrement())
+  ruleId    BigInt     @map("rule_id")
+  userId    BigInt     @map("user_id")
+  action    RuleAction
+  snapshot  String?    @db.VarChar(500)
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  rule Rule @relation(fields: [ruleId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("rule_logs")
+}
+
+// =====================================================
+// CHAT
+// =====================================================
+
+model ChatRoom {
+  id        BigInt   @id @default(autoincrement())
+  groupId   BigInt   @map("group_id")
+  name      String   @db.VarChar(100)
+  isDefault Boolean  @default(false) @map("is_default")
+  createdBy BigInt   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  group    Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  creator  User             @relation(fields: [createdBy], references: [id])
+  members  ChatRoomMember[]
+  messages Message[]
+
+  @@map("chat_rooms")
+}
+
+model ChatRoomMember {
+  id         BigInt    @id @default(autoincrement())
+  chatRoomId BigInt    @map("chat_room_id")
+  userId     BigInt    @map("user_id")
+  joinedAt   DateTime  @default(now()) @map("joined_at")
+  lastReadAt DateTime? @map("last_read_at")
+
+  chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@unique([chatRoomId, userId])
+  @@map("chat_room_members")
+}
+
+model Message {
+  id         BigInt      @id @default(autoincrement())
+  chatRoomId BigInt      @map("chat_room_id")
+  senderId   BigInt      @map("sender_id")
+  type       MessageType @default(TEXT)
+  content    String      @db.Text
+  refId      BigInt?     @map("ref_id")
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  sender   User     @relation(fields: [senderId], references: [id])
+
+  @@map("messages")
+}
+
+// =====================================================
+// NOTIFICATION
+// =====================================================
+
+model Notification {
+  id        BigInt           @id @default(autoincrement())
+  userId    BigInt           @map("user_id")
+  groupId   BigInt?          @map("group_id")
+  type      NotificationType
+  refId     BigInt?          @map("ref_id")
+  message   String           @db.VarChar(255)
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+// =====================================================
+// ACTIVITY
+// =====================================================
+
+model ActivityLog {
+  id          BigInt          @id @default(autoincrement())
+  userId      BigInt          @map("user_id")
+  groupId     BigInt          @map("group_id")
+  type        ActivityLogType
+  refId       BigInt?         @map("ref_id")
+  description String?         @db.VarChar(255)
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  group Group @relation(fields: [groupId], references: [id])
+
+  @@map("activity_logs")
+}
+
+// =====================================================
+// ENUMS
+// =====================================================
+
+enum AuthProvider {
+  COGNITO
+  GOOGLE
+  KAKAO
+  APPLE
+}
+
+enum GroupRole {
+  ADMIN
+  MEMBER
+}
+
+enum RepeatType {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum ChoreStatus {
+  PENDING
+  DONE
+}
+
+enum SplitType {
+  EQUAL
+  RATIO
+  CUSTOM
+}
+
+enum ExpenseStatus {
+  PENDING
+  PARTIAL
+  DONE
+}
+
+enum ExpenseSplitStatus {
+  REQUESTED
+  CONFIRMED
+  TRANSFER_PENDING
+  PROCESSING
+  DONE
+  PRE_PAID
+  FAILED
+  CANCELLED
+}
+
+enum ExpenseAction {
+  CREATED
+  SPLIT_REQUESTED
+  TRANSFER_STARTED
+  TRANSFER_DONE
+  MANUAL_DONE
+  CANCELLED
+  FAILED
+}
+
+enum SupplyStatus {
+  SUFFICIENT
+  LOW
+  EMPTY
+  PURCHASED
+}
+
+enum RuleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RuleAgreementStatus {
+  AGREED
+  DISAGREED
+  PENDING
+}
+
+enum RuleAction {
+  CREATED
+  UPDATED
+  AGREED
+  DISAGREED
+}
+
+enum MessageType {
+  TEXT
+  SYSTEM
+  CARD_CHORE
+  CARD_EXPENSE
+  CARD_SUPPLY
+  CARD_RULE
+}
+
+enum NotificationType {
+  CHORE_DUE
+  EXPENSE_REQUEST
+  SUPPLY_LOW
+  RULE_CHANGED
+  NEW_MESSAGE
+  GROUP_INVITE
+  EXPENSE_DONE
+}
+
+enum ActivityLogType {
+  CHORE_CREATED
+  CHORE_DONE
+  EXPENSE_CREATED
+  EXPENSE_DONE
+  SUPPLY_CHANGED
+  RULE_CREATED
+  RULE_EDITED
+  MEMBER_JOINED
 }
