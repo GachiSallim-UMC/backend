@@ -345,7 +345,7 @@ model RuleLog {
   ruleId    BigInt     @map("rule_id")
   userId    BigInt     @map("user_id")
   action    RuleAction
-  snapshot  String?    @db.VarChar(500)
+  snapshot  String?    @db.Text
   createdAt DateTime   @default(now()) @map("created_at")
 
   rule Rule @relation(fields: [ruleId], references: [id])
@@ -400,6 +400,7 @@ model Message {
   chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
   sender   User     @relation(fields: [senderId], references: [id])
 
+  @@index([chatRoomId, createdAt])
   @@map("messages")
 }
 
@@ -420,6 +421,7 @@ model Notification {
   user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   group Group? @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
+  @@index([userId, isRead])
   @@map("notifications")
 }
 
