@@ -1,18 +1,18 @@
 export const ErrorCode = {
   // Common
-  INTERNAL_SERVER_ERROR: {
+  COMMON_INTERNAL_SERVER_ERROR: {
     status: 500,
     code: 'COMMON_500',
     message: '서버 오류가 발생했습니다. 관리자에게 문의해 주세요.',
   },
-  BAD_REQUEST: {
+  COMMON_BAD_REQUEST: {
     status: 400,
     code: 'COMMON_400',
     message: '잘못된 요청입니다.',
   },
   COMMON_INVALID_PARAMETER: {
     status: 400,
-    code: 'COMMON_400',
+    code: 'COMMON_400_PARAM',
     message: '요청 파라미터가 잘못되었습니다.',
   },
   COMMON_UNAUTHORIZED: {
