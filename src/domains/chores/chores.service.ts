@@ -116,9 +116,7 @@ export class ChoresService {
     const chore = await this.findChoreOrThrow(choreId);
 
     if (chore.status === ChoreStatus.DONE) {
-      throw new BusinessException(ErrorCode.COMMON_CONFLICT, [
-        { field: 'status', value: chore.status, reason: '이미 완료된 집안일입니다.' },
-      ]);
+      throw new BusinessException(ErrorCode.CHORE_ALREADY_DONE);
     }
 
     const completedAt = new Date();
@@ -177,7 +175,7 @@ export class ChoresService {
     });
 
     if (!chore) {
-      throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
+      throw new BusinessException(ErrorCode.CHORE_NOT_FOUND);
     }
 
     return chore;

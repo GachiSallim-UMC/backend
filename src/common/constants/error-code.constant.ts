@@ -42,6 +42,18 @@ export const ErrorCode = {
     code: 'USER_404',
     message: '존재하지 않는 사용자입니다.',
   },
+
+  // Chore
+  CHORE_NOT_FOUND: {
+    status: 404,
+    code: 'CHORE_404',
+    message: '집안일을 찾을 수 없습니다.',
+  },
+  CHORE_ALREADY_DONE: {
+    status: 409,
+    code: 'CHORE_409',
+    message: '이미 완료된 집안일입니다.',
+  },
 } as const;
 
 export type ErrorCodeKey = keyof typeof ErrorCode;
