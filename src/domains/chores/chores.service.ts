@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ChoreStatus, Prisma, RepeatType } from '@prisma/client';
+import { ChoreStatus, GroupRole, Prisma, RepeatType } from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -73,6 +73,12 @@ export class ChoresService {
 
     this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate);
 
+    await this.assertAssigneeInGroup(
+      BigInt(dto.assigneeId),
+      BigInt(dto.groupId),
+      String(dto.assigneeId),
+    );
+
     const chore = await this.prisma.chore.create({
       data: {
         groupId: BigInt(dto.groupId),
@@ -90,12 +96,18 @@ export class ChoresService {
   }
 
   async updateChore(choreId: bigint, dto: UpdateChoreDto) {
-    await this.findChoreOrThrow(choreId);
+    const existing = await this.findChoreOrThrow(choreId);
 
     const startDate = new Date(dto.startDate);
     const dueDate = new Date(dto.dueDate);
 
     this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate);
+
+    await this.assertAssigneeInGroup(
+      BigInt(dto.assigneeId),
+      existing.groupId,
+      String(dto.assigneeId),
+    );
 
     const chore = await this.prisma.chore.update({
       where: { id: choreId },
@@ -166,6 +178,46 @@ export class ChoresService {
       completedAt: updated.completedAt ? toIsoNoMillis(updated.completedAt) : null,
       ...(nextOccurrence ? { nextOccurrence } : {}),
     };
+  }
+
+  async deleteChore(choreId: bigint, requesterId: bigint): Promise<{ choreId: number }> {
+    const chore = await this.findChoreOrThrow(choreId);
+
+    await this.assertDeletePermission(chore, requesterId);
+
+    await this.prisma.chore.delete({ where: { id: choreId } });
+
+    return { choreId: Number(chore.id) };
+  }
+
+  private async assertDeletePermission(chore: ChoreWithUsers, requesterId: bigint): Promise<void> {
+    if (chore.createdBy === requesterId) {
+      return;
+    }
+
+    const membership = await this.prisma.groupMember.findUnique({
+      where: { userId_groupId: { userId: requesterId, groupId: chore.groupId } },
+    });
+
+    if (!membership || membership.role !== GroupRole.ADMIN) {
+      throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+    }
+  }
+
+  private async assertAssigneeInGroup(
+    assigneeId: bigint,
+    groupId: bigint,
+    rawAssigneeId: string,
+  ): Promise<void> {
+    const membership = await this.prisma.groupMember.findUnique({
+      where: { userId_groupId: { userId: assigneeId, groupId } },
+    });
+
+    if (!membership || membership.leftAt) {
+      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+        { field: 'assigneeId', value: rawAssigneeId, reason: '담당자는 해당 그룹의 멤버여야 합니다.' },
+      ]);
+    }
   }
 
   private async findChoreOrThrow(choreId: bigint): Promise<ChoreWithUsers> {

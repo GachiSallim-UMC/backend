@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code.constant';
@@ -31,7 +31,14 @@ export class ChoresController {
   @Put(':choreId')
   @ApiOperation({ summary: '집안일 수정 (CHORE-EDIT-01)' })
   @ApiParam({ name: 'choreId', type: Number, example: 11 })
-  updateChore(@Param('choreId') choreId: string, @Body() dto: UpdateChoreDto) {
+  @ApiHeader({ name: 'x-user-id', required: true, description: '임시 인증 헤더: 요청자 ID (AUTH 도입 전까지)' })
+  updateChore(
+    @Param('choreId') choreId: string,
+    @Body() dto: UpdateChoreDto,
+    @Headers('x-user-id') userIdHeader?: string,
+  ) {
+    this.requireUserId(userIdHeader);
+
     return this.choresService.updateChore(this.parseId(choreId, 'choreId'), dto);
   }
 
@@ -43,6 +50,16 @@ export class ChoresController {
     const completedBy = this.requireUserId(userIdHeader);
 
     return this.choresService.completeChore(this.parseId(choreId, 'choreId'), completedBy);
+  }
+
+  @Delete(':choreId')
+  @ApiOperation({ summary: '집안일 삭제 (CHORE-DEL-01)' })
+  @ApiParam({ name: 'choreId', type: Number, example: 11 })
+  @ApiHeader({ name: 'x-user-id', required: true, description: '임시 인증 헤더: 요청자 ID (AUTH 도입 전까지)' })
+  deleteChore(@Param('choreId') choreId: string, @Headers('x-user-id') userIdHeader?: string) {
+    const requesterId = this.requireUserId(userIdHeader);
+
+    return this.choresService.deleteChore(this.parseId(choreId, 'choreId'), requesterId);
   }
 
   private parseId(value: string, field: string): bigint {
