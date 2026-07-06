@@ -3,7 +3,7 @@
   "info": {
     "title": "같이살림 API",
     "version": "1.0.0",
-    "description": "Notion API 명세서의 각 항목을 취합해 생성한 OpenAPI 문서입니다."
+    "description": "같이살림 API 명세서입니다."
   },
   "servers": [
     {
