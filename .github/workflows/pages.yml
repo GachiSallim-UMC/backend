@@ -21,12 +21,19 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+
+      - name: Fetch documentation branches
+        run: |
+          git fetch --no-tags --prune --depth=1 origin \
+            main:refs/remotes/origin/main \
+            develop:refs/remotes/origin/develop
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
