@@ -66,7 +66,7 @@ export class RulesService {
     };
   }
 
-  async createRule(dto: CreateRuleDto): Promise<RuleResponseDto> {
+  async createRule(dto: CreateRuleDto, currentUserId: bigint): Promise<RuleResponseDto> {
     const group = await this.prisma.group.findUnique({ where: { id: BigInt(dto.groupId) } });
     if (!group) {
       throw new BusinessException(ErrorCode.RULE_GROUP_NOT_FOUND);
@@ -81,7 +81,7 @@ export class RulesService {
       data: {
         groupId: BigInt(dto.groupId),
         categoryId: BigInt(dto.categoryId),
-        userId: 1n,
+        userId: currentUserId,
         title: dto.title,
         description: dto.description,
         status: 'ACTIVE',
@@ -91,10 +91,14 @@ export class RulesService {
     return { ruleId: Number(rule.id), title: rule.title };
   }
 
-  async updateRule(ruleId: number, dto: UpdateRuleDto): Promise<RuleResponseDto> {
+  async updateRule(ruleId: number, dto: UpdateRuleDto, currentUserId: bigint): Promise<RuleResponseDto> {
     const rule = await this.prisma.rule.findUnique({ where: { id: BigInt(ruleId) } });
     if (!rule) {
       throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
+    }
+
+    if (rule.userId !== currentUserId) {
+      throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
     }
 
     const category = await this.prisma.ruleCategory.findUnique({ where: { id: BigInt(dto.categoryId) } });

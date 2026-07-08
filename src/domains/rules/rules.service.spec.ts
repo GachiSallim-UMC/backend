@@ -29,10 +29,10 @@ describe('RulesService', () => {
       group: { findUnique: jest.fn<() => Promise<unknown>>() },
       ruleCategory: { findUnique: jest.fn<() => Promise<unknown>>() },
       rule: {
-        create: jest.fn<() => Promise<unknown>>() ,
-        findUnique: jest.fn<() => Promise<unknown>>() ,
-        update: jest.fn<() => Promise<unknown>>() ,
-        delete: jest.fn<() => Promise<unknown>>() ,
+        create: jest.fn<() => Promise<unknown>>(),
+        findUnique: jest.fn<() => Promise<unknown>>(),
+        update: jest.fn<() => Promise<unknown>>(),
+        delete: jest.fn<() => Promise<unknown>>(),
       },
     };
 
@@ -52,19 +52,22 @@ describe('RulesService', () => {
       status: 'ACTIVE',
     });
 
-    const result = await service.createRule({
-      groupId: 1,
-      categoryId: 1,
-      title: '밤 11시 이후 조용히 하기',
-      description: '늦은 시간에는 소음을 줄여주세요.',
-    });
+    const result = await service.createRule(
+      {
+        groupId: 1,
+        categoryId: 1,
+        title: '밤 11시 이후 조용히 하기',
+        description: '늦은 시간에는 소음을 줄여주세요.',
+      },
+      10n,
+    );
 
     expect(result).toEqual({ ruleId: 123, title: '밤 11시 이후 조용히 하기' });
     expect(prisma.rule.create).toHaveBeenCalledWith({
       data: {
         groupId: 1n,
         categoryId: 1n,
-        userId: 1n,
+        userId: 10n,
         title: '밤 11시 이후 조용히 하기',
         description: '늦은 시간에는 소음을 줄여주세요.',
         status: 'ACTIVE',
@@ -76,12 +79,15 @@ describe('RulesService', () => {
     prisma.group.findUnique.mockResolvedValue(null);
 
     await expect(
-      service.createRule({
-        groupId: 999,
-        categoryId: 1,
-        title: '테스트 규칙',
-        description: '설명',
-      }),
+      service.createRule(
+        {
+          groupId: 999,
+          categoryId: 1,
+          title: '테스트 규칙',
+          description: '설명',
+        },
+        10n,
+      ),
     ).rejects.toBeInstanceOf(BusinessException);
   });
 
