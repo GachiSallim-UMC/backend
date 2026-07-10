@@ -37,6 +37,8 @@ export class ChatService {
       throw new BusinessException(ErrorCode.GROUP_NOT_FOUND);
     }
 
+    await this.findActiveGroupMemberOrThrow(groupId, createdBy);
+
     return this.prisma.chatRoom.create({
       data: {
         groupId,
@@ -69,7 +71,8 @@ export class ChatService {
   }
 
   async inviteMember(roomId: bigint, userId: bigint) {
-    await this.findChatRoomOrThrow(roomId);
+    const chatRoom = await this.findChatRoomOrThrow(roomId);
+    await this.findActiveGroupMemberOrThrow(chatRoom.groupId, userId);
 
     const existingMember = await this.prisma.chatRoomMember.findUnique({
       where: { chatRoomId_userId: { chatRoomId: roomId, userId } },
@@ -170,6 +173,18 @@ export class ChatService {
 
     if (!member) {
       throw new BusinessException(ErrorCode.CHAT_ROOM_MEMBER_NOT_FOUND);
+    }
+
+    return member;
+  }
+
+  private async findActiveGroupMemberOrThrow(groupId: bigint, userId: bigint) {
+    const member = await this.prisma.groupMember.findUnique({
+      where: { userId_groupId: { userId, groupId } },
+    });
+
+    if (!member || member.leftAt) {
+      throw new BusinessException(ErrorCode.GROUP_MEMBER_NOT_FOUND);
     }
 
     return member;

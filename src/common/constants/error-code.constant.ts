@@ -49,6 +49,11 @@ export const ErrorCode = {
     code: 'GROUP_404',
     message: '존재하지 않는 그룹입니다.',
   },
+  GROUP_MEMBER_NOT_FOUND: {
+    status: 403,
+    code: 'GROUP_MEMBER_403',
+    message: '그룹에 속하지 않은 사용자입니다.',
+  },
 
   // Chat
   CHAT_ROOM_NOT_FOUND: {
