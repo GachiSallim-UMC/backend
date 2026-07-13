@@ -42,6 +42,35 @@ export const ErrorCode = {
     code: 'USER_404',
     message: '존재하지 않는 사용자입니다.',
   },
+
+  // Group
+  GROUP_NOT_FOUND: {
+    status: 404,
+    code: 'GROUP_404',
+    message: '존재하지 않는 그룹입니다.',
+  },
+  GROUP_MEMBER_NOT_FOUND: {
+    status: 403,
+    code: 'GROUP_MEMBER_403',
+    message: '그룹에 속하지 않은 사용자입니다.',
+  },
+
+  // Chat
+  CHAT_ROOM_NOT_FOUND: {
+    status: 404,
+    code: 'CHAT_ROOM_404',
+    message: '존재하지 않는 채팅방입니다.',
+  },
+  CHAT_ROOM_MEMBER_NOT_FOUND: {
+    status: 404,
+    code: 'CHAT_ROOM_MEMBER_404',
+    message: '채팅방에 속하지 않은 사용자입니다.',
+  },
+  CHAT_ROOM_MEMBER_ALREADY_JOINED: {
+    status: 409,
+    code: 'CHAT_ROOM_MEMBER_409',
+    message: '이미 채팅방에 참여 중인 사용자입니다.',
+  },
 } as const;
 
 export type ErrorCodeKey = keyof typeof ErrorCode;

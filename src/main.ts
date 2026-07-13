@@ -9,11 +9,22 @@ import { AppModule } from './app.module';
 import { validationExceptionFactory } from './common/exceptions/validation-exception.factory';
 import { parseCorsOrigin } from './config/cors';
 
+declare global {
+  interface BigInt {
+    toJSON(): string;
+  }
+}
+
+BigInt.prototype.toJSON = function (this: bigint): string {
+  return this.toString();
+};
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
   const corsOrigin = configService.getOrThrow<string>('CORS_ORIGIN');
 
+  app.setGlobalPrefix('api/v1');
   app.use(helmet());
   app.use(compression());
   app.enableCors({
