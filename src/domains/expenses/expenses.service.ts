@@ -23,7 +23,7 @@ export class ExpensesService {
         data: {
           groupId,
           categoryId,
-          payerId: userId,
+          payerId: userId, // TODO: 유저 도메인 머지 후 선지불자 분리 로직 반영 필요
           createdBy: userId,
           title,
           totalAmount,
