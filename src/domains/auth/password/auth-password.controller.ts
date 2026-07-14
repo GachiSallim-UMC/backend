@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
 
+import { ApiWrappedSuccessResponse } from '../../../common/decorators/api-wrapped-success-response.decorator';
 import { AlbAuthGuard } from '../core/alb-auth.guard';
 import { CurrentAccessToken } from '../core/current-auth.decorator';
 import { AuthPasswordService } from './auth-password.service';
@@ -18,7 +19,11 @@ export class AuthPasswordController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '비밀번호 변경' })
   @ApiBody({ type: ChangePasswordDto })
-  @ApiResponse({ status: 200, description: '비밀번호 변경 성공', type: ChangePasswordResponseDto })
+  @ApiWrappedSuccessResponse({
+    status: HttpStatus.OK,
+    description: '비밀번호 변경 성공',
+    type: ChangePasswordResponseDto,
+  })
   @ApiResponse({
     status: 400,
     description: '기존 비밀번호가 올바르지 않거나 새 비밀번호 정책을 위반했습니다.',
