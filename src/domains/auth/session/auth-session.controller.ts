@@ -45,14 +45,16 @@ export class AuthSessionController {
     @Headers('cookie') cookieHeader: string | undefined,
     @Res() response: Response,
   ): Promise<void> {
-    await this.cognitoAuthGateway.globalSignOut(accessToken);
-
     const expiredCookies = this.getAlbAuthCookieNames(cookieHeader).map(
       (cookieName) => `${cookieName}=; ${EXPIRED_COOKIE_ATTRIBUTES}`,
     );
 
-    if (expiredCookies.length > 0) {
-      response.setHeader('Set-Cookie', expiredCookies);
+    try {
+      await this.cognitoAuthGateway.globalSignOut(accessToken);
+    } finally {
+      if (expiredCookies.length > 0) {
+        response.setHeader('Set-Cookie', expiredCookies);
+      }
     }
 
     response.redirect(HttpStatus.FOUND, this.getCognitoLogoutUrl());

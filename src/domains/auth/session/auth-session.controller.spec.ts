@@ -130,7 +130,7 @@ describe('AuthSessionController', () => {
     );
   });
 
-  it('propagates Cognito provider failures without changing the browser session', async () => {
+  it('expires the ALB cookie when Cognito global sign-out fails', async () => {
     const providerError = new Error('provider failure');
     const setHeader = jest.fn();
     const redirect = jest.fn();
@@ -140,7 +140,9 @@ describe('AuthSessionController', () => {
     await expect(
       controller.logout('access-token', 'AWSELBAuthSessionCookie=value', response),
     ).rejects.toBe(providerError);
-    expect(setHeader).not.toHaveBeenCalled();
+    expect(setHeader).toHaveBeenCalledWith('Set-Cookie', [
+      'AWSELBAuthSessionCookie=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; Secure; HttpOnly; SameSite=None',
+    ]);
     expect(redirect).not.toHaveBeenCalled();
   });
 });
