@@ -108,7 +108,11 @@ export class CognitoAuthGateway {
     try {
       await this.client.send(new GlobalSignOutCommand({ AccessToken: accessToken }));
     } catch (error) {
-      this.throwMappedError(error, true);
+      if (this.getErrorName(error) === 'NotAuthorizedException') {
+        return;
+      }
+
+      this.throwMappedError(error);
     }
   }
 
