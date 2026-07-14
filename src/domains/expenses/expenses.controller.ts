@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, ParseBoolPipe, Patch } from '@nestjs/common';
 import { ExpensesService } from './expenses.service';
-import { CreateExpenseDto } from './create-expense.dto';
+import { CreateExpenseDto } from './dto/create-expense.dto';
 
 @Controller('api/v1/expenses')
 export class ExpensesController {
