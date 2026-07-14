@@ -66,6 +66,11 @@ export const ErrorCode = {
     code: 'GROUP_MEMBER_403',
     message: '그룹에 속하지 않은 사용자입니다.',
   },
+  GROUP_FORBIDDEN: {
+    status: 403,
+    code: 'GROUP_403',
+    message: '그룹 관리자만 수행할 수 있는 작업입니다.',
+  },
 
   // Chat
   CHAT_ROOM_NOT_FOUND: {

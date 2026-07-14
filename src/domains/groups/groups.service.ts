@@ -82,7 +82,7 @@ export class GroupsService {
     });
 
     if (!member || member.leftAt || member.role !== GroupRole.ADMIN) {
-      throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+      throw new BusinessException(ErrorCode.GROUP_FORBIDDEN);
     }
 
     return member;
