@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { Injectable, Logger } from '@nestjs/common';
 
 import { ErrorCode } from '../../../common/constants/error-code.constant';
 import { BusinessException } from '../../../common/exceptions/business.exception';
@@ -9,6 +10,8 @@ import { SignupDto } from './dto/signup.dto';
 
 @Injectable()
 export class AuthSignupService {
+  private readonly logger = new Logger(AuthSignupService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cognitoAuthGateway: CognitoAuthGateway,
@@ -59,11 +62,32 @@ export class AuthSignupService {
     } catch (error) {
       try {
         await this.cognitoAuthGateway.deleteAdminUser(dto.email);
-      } catch {
-        // Preserve the database failure that triggered compensation.
+      } catch (compensationError) {
+        this.logger.error(
+          `Failed to delete the compensated Cognito user for ${dto.email}.`,
+          compensationError instanceof Error ? compensationError.stack : undefined,
+        );
+      }
+
+      if (this.isEmailUniqueConstraintViolation(error)) {
+        throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
       }
 
       throw error;
     }
+  }
+
+  private isEmailUniqueConstraintViolation(error: unknown): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+      return false;
+    }
+
+    const target = error.meta?.target;
+
+    if (Array.isArray(target)) {
+      return target.some((field: unknown) => field === 'email');
+    }
+
+    return typeof target === 'string' && target.includes('email');
   }
 }

@@ -5,7 +5,7 @@ import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { AuthSignupController } from './auth-signup.controller';
 
 describe('AuthSignupController route', () => {
-  it('registers POST /api/v1/auth/signup under the global API prefix', () => {
+  it('registers POST /auth/signup controller metadata', () => {
     const signupHandler = Object.getOwnPropertyDescriptor(AuthSignupController.prototype, 'signup')
       ?.value as AuthSignupController['signup'];
 

@@ -1,5 +1,7 @@
 /// <reference types="jest" />
 import { jest } from '@jest/globals';
+import { Prisma } from '@prisma/client';
+import { Logger } from '@nestjs/common';
 import { validate } from 'class-validator';
 
 import { ErrorCode } from '../../../common/constants/error-code.constant';
@@ -47,6 +49,10 @@ describe('AuthSignupService', () => {
       prisma as unknown as PrismaService,
       cognitoAuthGateway as unknown as CognitoAuthGateway,
     );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('creates a confirmed Cognito user and the linked service account', async () => {
@@ -115,14 +121,35 @@ describe('AuthSignupService', () => {
     expect(cognitoAuthGateway.deleteAdminUser).not.toHaveBeenCalled();
   });
 
-  it('deletes the Cognito user and preserves the database failure', async () => {
+  it('logs a failed Cognito compensation and preserves the database failure', async () => {
     const databaseError = new Error('database unavailable');
+    const loggerError = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     prisma.user.findUnique.mockResolvedValue(null);
     cognitoAuthGateway.createConfirmedUser.mockResolvedValue('cognito-sub');
     prisma.user.create.mockRejectedValue(databaseError);
     cognitoAuthGateway.deleteAdminUser.mockRejectedValue(new Error('cleanup failed'));
 
     await expect(service.signup(SIGNUP_DTO)).rejects.toBe(databaseError);
+    expect(cognitoAuthGateway.deleteAdminUser).toHaveBeenCalledWith(SIGNUP_DTO.email);
+    expect(loggerError).toHaveBeenCalledWith(
+      expect.stringContaining(SIGNUP_DTO.email),
+      expect.any(String),
+    );
+  });
+
+  it('maps an email unique constraint race to the duplicate email contract', async () => {
+    const uniqueEmailError = new Prisma.PrismaClientKnownRequestError('duplicate email', {
+      code: 'P2002',
+      clientVersion: '5.22.0',
+      meta: { target: ['email'] },
+    });
+    prisma.user.findUnique.mockResolvedValue(null);
+    cognitoAuthGateway.createConfirmedUser.mockResolvedValue('cognito-sub');
+    prisma.user.create.mockRejectedValue(uniqueEmailError);
+
+    await expect(service.signup(SIGNUP_DTO)).rejects.toMatchObject({
+      code: ErrorCode.AUTH_EMAIL_ALREADY_EXISTS.code,
+    });
     expect(cognitoAuthGateway.deleteAdminUser).toHaveBeenCalledWith(SIGNUP_DTO.email);
   });
 
