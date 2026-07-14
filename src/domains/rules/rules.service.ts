@@ -1,4 +1,136 @@
 import { Injectable } from '@nestjs/common';
 
+import { ErrorCode } from '../../common/constants/error-code.constant';
+import { BusinessException } from '../../common/exceptions/business.exception';
+import { PrismaService } from '../../prisma/prisma.service';
+import { CreateRuleDto } from './dto/create-rule.dto';
+import { ListRulesQueryDto } from './dto/list-rules-query.dto';
+import { RuleListResponseDto } from './dto/rule-list-response.dto';
+import { RuleResponseDto } from './dto/rule-response.dto';
+import { UpdateRuleDto } from './dto/update-rule.dto';
+
 @Injectable()
-export class RulesService {}
+export class RulesService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async getRules(query: ListRulesQueryDto): Promise<RuleListResponseDto> {
+    const where = {
+      groupId: BigInt(query.groupId),
+      ...(query.status ? { status: query.status } : {}),
+    };
+
+    const rules = await this.prisma.rule.findMany({
+      where,
+      include: {
+        creator: {
+          select: {
+            id: true,
+            nickname: true,
+          },
+        },
+        agreements: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return {
+      rules: rules.map((rule) => {
+        const agreements = rule.agreements ?? [];
+        const agreedCount = agreements.filter((agreement) => agreement.status === 'AGREED').length;
+        const disagreedCount = agreements.filter((agreement) => agreement.status === 'DISAGREED').length;
+        const pendingCount = agreements.filter((agreement) => agreement.status === 'PENDING').length;
+
+        return {
+          ruleId: Number(rule.id),
+          groupId: Number(rule.groupId),
+          categoryId: rule.categoryId ? Number(rule.categoryId) : null,
+          title: rule.title,
+          description: rule.description,
+          status: rule.status,
+          createdBy: {
+            userId: Number(rule.creator.id),
+            nickname: rule.creator.nickname,
+          },
+          agreementSummary: {
+            totalCount: agreements.length,
+            agreedCount,
+            disagreedCount,
+            pendingCount,
+          },
+          createdAt: rule.createdAt.toISOString(),
+          updatedAt: rule.updatedAt.toISOString(),
+        };
+      }),
+    };
+  }
+
+  async createRule(dto: CreateRuleDto, currentUserId: bigint): Promise<RuleResponseDto> {
+    const group = await this.prisma.group.findUnique({ where: { id: BigInt(dto.groupId) } });
+    if (!group) {
+      throw new BusinessException(ErrorCode.RULE_GROUP_NOT_FOUND);
+    }
+
+    const category = await this.prisma.ruleCategory.findUnique({ where: { id: BigInt(dto.categoryId) } });
+    if (!category) {
+      throw new BusinessException(ErrorCode.RULE_CATEGORY_NOT_FOUND);
+    }
+
+    const rule = await this.prisma.rule.create({
+      data: {
+        groupId: BigInt(dto.groupId),
+        categoryId: BigInt(dto.categoryId),
+        userId: currentUserId,
+        title: dto.title,
+        description: dto.description,
+        status: 'ACTIVE',
+      },
+    });
+
+    return { ruleId: Number(rule.id), title: rule.title };
+  }
+
+  async updateRule(ruleId: number, dto: UpdateRuleDto, currentUserId: bigint): Promise<RuleResponseDto> {
+    const rule = await this.prisma.rule.findUnique({ where: { id: BigInt(ruleId) } });
+    if (!rule) {
+      throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
+    }
+
+    if (rule.userId !== currentUserId) {
+      throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+    }
+
+    const category = await this.prisma.ruleCategory.findUnique({ where: { id: BigInt(dto.categoryId) } });
+    if (!category) {
+      throw new BusinessException(ErrorCode.RULE_CATEGORY_NOT_FOUND);
+    }
+
+    const updatedRule = await this.prisma.rule.update({
+      where: { id: BigInt(ruleId) },
+      data: {
+        categoryId: BigInt(dto.categoryId),
+        title: dto.title,
+        description: dto.description,
+        status: dto.status,
+      },
+    });
+
+    return { ruleId: Number(updatedRule.id), title: updatedRule.title };
+  }
+
+  async deleteRule(ruleId: number, currentUserId: bigint): Promise<RuleResponseDto> {
+    const rule = await this.prisma.rule.findUnique({ where: { id: BigInt(ruleId) } });
+    if (!rule) {
+      throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
+    }
+
+    if (rule.userId !== currentUserId) {
+      throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+    }
+
+    const deletedRule = await this.prisma.rule.delete({ where: { id: BigInt(ruleId) } });
+
+    return { ruleId: Number(deletedRule.id), title: deletedRule.title };
+  }
+}
