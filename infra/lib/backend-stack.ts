@@ -34,11 +34,16 @@ export class BackendStack extends Stack {
       type: 'String',
       description: 'ARN of an ACM certificate for ApplicationDomain.',
     });
+    const logoutRedirectUri = new CfnParameter(this, 'LogoutRedirectUri', {
+      type: 'String',
+      description: 'Allowed browser destination after Cognito logout.',
+      allowedPattern: '^https?://.+$',
+    });
 
     const vpc = new ec2.Vpc(this, 'Vpc', {
       ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
       maxAzs: 2,
-      natGateways: 0,
+      natGateways: 1,
       subnetConfiguration: [
         {
           name: 'Ingress',
@@ -46,7 +51,12 @@ export class BackendStack extends Stack {
           cidrMask: 24,
         },
         {
-          name: 'Backend',
+          name: 'Application',
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+          cidrMask: 24,
+        },
+        {
+          name: 'Database',
           subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
           cidrMask: 24,
         },
@@ -70,6 +80,11 @@ export class BackendStack extends Stack {
       loadBalancerSecurityGroup,
       ec2.Port.tcp(APPLICATION_PORT),
     );
+    applicationSecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(443),
+      'Allows Cognito API and JWKS requests through the NAT gateway.',
+    );
     loadBalancerSecurityGroup.addEgressRule(
       applicationSecurityGroup,
       ec2.Port.tcp(APPLICATION_PORT),
@@ -91,11 +106,11 @@ export class BackendStack extends Stack {
     endpointSecurityGroup.addIngressRule(applicationSecurityGroup, ec2.Port.tcp(443));
     applicationSecurityGroup.addEgressRule(endpointSecurityGroup, ec2.Port.tcp(443));
 
-    const backendSubnets: ec2.SubnetSelection = {
+    const databaseSubnets: ec2.SubnetSelection = {
       subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
     };
     const applicationSubnet: ec2.SubnetSelection = {
-      subnets: [vpc.isolatedSubnets[0]],
+      subnets: [vpc.privateSubnets[0]],
     };
     vpc.addInterfaceEndpoint('SecretsManagerEndpoint', {
       service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
@@ -126,7 +141,7 @@ export class BackendStack extends Stack {
       credentials: rds.Credentials.fromGeneratedSecret('postgres'),
       databaseName: 'gachisallim',
       vpc,
-      vpcSubnets: backendSubnets,
+      vpcSubnets: databaseSubnets,
       securityGroups: [databaseSecurityGroup],
       allocatedStorage: 20,
       storageType: rds.StorageType.GP3,
@@ -183,9 +198,8 @@ export class BackendStack extends Stack {
 
     const userPool = new cognito.UserPool(this, 'UserPool', {
       userPoolName: 'gachisallim-users',
-      selfSignUpEnabled: true,
+      selfSignUpEnabled: false,
       signInAliases: { email: true },
-      autoVerify: { email: true },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       passwordPolicy: {
         minLength: 8,
@@ -210,10 +224,25 @@ export class BackendStack extends Stack {
       supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
       oAuth: {
         flows: { authorizationCodeGrant: true },
-        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
+        scopes: [
+          cognito.OAuthScope.OPENID,
+          cognito.OAuthScope.EMAIL,
+          cognito.OAuthScope.COGNITO_ADMIN,
+        ],
         callbackUrls: [callbackUrl],
+        logoutUrls: [logoutRedirectUri.valueAsString],
       },
     });
+    instanceRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'cognito-idp:AdminCreateUser',
+          'cognito-idp:AdminSetUserPassword',
+          'cognito-idp:AdminDeleteUser',
+        ],
+        resources: [userPool.userPoolArn],
+      }),
+    );
 
     const loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'LoadBalancer', {
       vpc,
@@ -234,7 +263,7 @@ export class BackendStack extends Stack {
       'Certificate',
       certificateArn.valueAsString,
     );
-    loadBalancer.addListener('HttpsListener', {
+    const httpsListener = loadBalancer.addListener('HttpsListener', {
       port: 443,
       protocol: elbv2.ApplicationProtocol.HTTPS,
       certificates: [certificate],
@@ -242,10 +271,18 @@ export class BackendStack extends Stack {
         userPool,
         userPoolClient,
         userPoolDomain,
-        scope: 'openid email',
+        scope: 'openid email aws.cognito.signin.user.admin',
         sessionTimeout: Duration.days(1),
         next: elbv2.ListenerAction.forward([targetGroup]),
       }),
+    });
+    httpsListener.addAction('PublicAuthActions', {
+      priority: 10,
+      conditions: [
+        elbv2.ListenerCondition.pathPatterns(['/api/v1/auth/signup', '/api/v1/auth/login']),
+        elbv2.ListenerCondition.httpRequestMethods(['POST']),
+      ],
+      action: elbv2.ListenerAction.forward([targetGroup]),
     });
 
     new CfnOutput(this, 'LoadBalancerDnsName', {
@@ -268,6 +305,9 @@ export class BackendStack extends Stack {
     });
     new CfnOutput(this, 'UserPoolClientId', {
       value: userPoolClient.userPoolClientId,
+    });
+    new CfnOutput(this, 'UserPoolDomainUrl', {
+      value: userPoolDomain.baseUrl(),
     });
     new CfnOutput(this, 'ApplicationLogGroupName', {
       value: applicationLogGroup.logGroupName,

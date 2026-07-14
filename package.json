@@ -27,6 +27,7 @@
     "cdk:deploy": "cdk deploy"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1086.0",
     "@nestjs/common": "^11.1.27",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.1.27",
@@ -36,6 +37,7 @@
     "@nestjs/terminus": "^11.1.1",
     "@nestjs/websockets": "^11.1.27",
     "@prisma/client": "^5.22.0",
+    "aws-jwt-verify": "^5.2.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "compression": "^1.7.5",

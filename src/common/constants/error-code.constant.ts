@@ -36,6 +36,28 @@ export const ErrorCode = {
     message: '요청이 현재 상태와 충돌합니다.',
   },
 
+  // Auth
+  AUTH_UNAUTHORIZED: {
+    status: 401,
+    code: 'AUTH_UNAUTHORIZED',
+    message: '인증이 필요합니다.',
+  },
+  AUTH_EMAIL_ALREADY_EXISTS: {
+    status: 409,
+    code: 'AUTH_EMAIL_ALREADY_EXISTS',
+    message: '이미 가입된 이메일입니다.',
+  },
+  AUTH_INVALID_PASSWORD: {
+    status: 400,
+    code: 'AUTH_INVALID_PASSWORD',
+    message: '비밀번호가 올바르지 않거나 정책에 맞지 않습니다.',
+  },
+  AUTH_PROVIDER_ERROR: {
+    status: 502,
+    code: 'AUTH_PROVIDER_ERROR',
+    message: '인증 제공자 요청에 실패했습니다.',
+  },
+
   // User
   USER_NOT_FOUND: {
     status: 404,
@@ -53,8 +75,7 @@ export const ErrorCode = {
     status: 404,
     code: 'RULE_404_CATEGORY',
     message: '존재하지 않는 규칙 카테고리입니다.',
-    
-  }, 
+  },
   // Group
   GROUP_NOT_FOUND: {
     status: 404,

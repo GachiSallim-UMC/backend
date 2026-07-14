@@ -16,6 +16,11 @@ describe('AppController (e2e)', () => {
     process.env.CORS_ORIGIN = 'http://localhost:3000';
     process.env.DATABASE_URL =
       'postgresql://postgres:postgres@localhost:5432/gachisallim?schema=public';
+    process.env.AWS_REGION = 'ap-northeast-2';
+    process.env.COGNITO_USER_POOL_ID = 'ap-northeast-2_example';
+    process.env.COGNITO_USER_POOL_CLIENT_ID = 'client-id';
+    process.env.COGNITO_DOMAIN = 'https://example.auth.ap-northeast-2.amazoncognito.com';
+    process.env.AUTH_LOGOUT_REDIRECT_URI = 'http://localhost:5173';
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],

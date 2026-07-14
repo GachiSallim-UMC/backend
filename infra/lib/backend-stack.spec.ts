@@ -20,7 +20,7 @@ describe('BackendStack', () => {
         Match.objectLike({
           Type: 'authenticate-cognito',
           AuthenticateCognitoConfig: Match.objectLike({
-            Scope: 'openid email',
+            Scope: 'openid email aws.cognito.signin.user.admin',
             SessionTimeout: '86400',
           }),
         }),
@@ -30,12 +30,34 @@ describe('BackendStack', () => {
     template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       AllowedOAuthFlows: ['code'],
       AllowedOAuthFlowsUserPoolClient: true,
+      AllowedOAuthScopes: Match.arrayWith(['openid', 'email', 'aws.cognito.signin.user.admin']),
       GenerateSecret: true,
+      LogoutURLs: [{ Ref: 'LogoutRedirectUri' }],
       SupportedIdentityProviders: ['COGNITO'],
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      AdminCreateUserConfig: Match.objectLike({ AllowAdminCreateUserOnly: true }),
+    });
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Priority: 10,
+      Conditions: Match.arrayWith([
+        Match.objectLike({
+          Field: 'path-pattern',
+          PathPatternConfig: {
+            Values: ['/api/v1/auth/signup', '/api/v1/auth/login'],
+          },
+        }),
+        Match.objectLike({
+          Field: 'http-request-method',
+          HttpRequestMethodConfig: { Values: ['POST'] },
+        }),
+      ]),
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
     });
   });
 
-  it('creates one private ARM instance with an 8 GiB root volume', () => {
+  it('creates one private ARM instance with NAT egress and an 8 GiB root volume', () => {
+    template.resourceCountIs('AWS::EC2::NatGateway', 1);
     template.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 't4g.small',
       ImageId: {
@@ -56,7 +78,7 @@ describe('BackendStack', () => {
         Match.objectLike({
           AssociatePublicIpAddress: false,
           SubnetId: {
-            Ref: Match.stringLikeRegexp('BackendSubnet'),
+            Ref: Match.stringLikeRegexp('ApplicationSubnet'),
           },
         }),
       ]),
@@ -93,6 +115,23 @@ describe('BackendStack', () => {
     template.hasResourceProperties('AWS::Logs::LogGroup', {
       LogGroupName: '/gachisallim/backend/application',
       RetentionInDays: 30,
+    });
+  });
+
+  it('allows the application instance to manage Cognito signup users', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: [
+              'cognito-idp:AdminCreateUser',
+              'cognito-idp:AdminSetUserPassword',
+              'cognito-idp:AdminDeleteUser',
+            ],
+            Effect: 'Allow',
+          }),
+        ]),
+      },
     });
   });
 
