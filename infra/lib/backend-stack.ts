@@ -51,13 +51,13 @@ export class BackendStack extends Stack {
           cidrMask: 24,
         },
         {
-          name: 'Application',
-          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+          name: 'Backend',
+          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
           cidrMask: 24,
         },
         {
-          name: 'Database',
-          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+          name: 'Application',
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
           cidrMask: 24,
         },
       ],
