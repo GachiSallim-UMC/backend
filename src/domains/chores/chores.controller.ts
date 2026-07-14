@@ -74,7 +74,7 @@ export class ChoresController {
 
   private requireUserId(value?: string): bigint {
     if (!value || !/^\d+$/.test(value)) {
-      throw new BusinessException(ErrorCode.COMMON_UNAUTHORIZED);
+      throw new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
     }
 
     return BigInt(value);

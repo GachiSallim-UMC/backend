@@ -200,7 +200,7 @@ export class ChoresService {
     });
 
     if (!membership || membership.role !== GroupRole.ADMIN) {
-      throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+      throw new BusinessException(ErrorCode.CHORE_FORBIDDEN);
     }
   }
 
@@ -235,7 +235,7 @@ export class ChoresService {
 
   private assertDueDateAfterStart(startDate: Date, dueDate: Date, rawDueDate: string): void {
     if (dueDate < startDate) {
-      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+      throw new BusinessException(ErrorCode.CHORE_INVALID_DATE, [
         { field: 'dueDate', value: rawDueDate, reason: '마감일은 시작일 이후여야 합니다.' },
       ]);
     }
