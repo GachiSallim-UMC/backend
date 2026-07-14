@@ -58,17 +58,17 @@ export const ErrorCode = {
   // Group
   GROUP_NOT_FOUND: {
     status: 404,
-    code: 'GROUP_404',
+    code: 'GROUP_NOT_FOUND',
     message: '존재하지 않는 그룹입니다.',
   },
   GROUP_MEMBER_NOT_FOUND: {
     status: 403,
-    code: 'GROUP_MEMBER_403',
+    code: 'GROUP_MEMBER_NOT_FOUND',
     message: '그룹에 속하지 않은 사용자입니다.',
   },
   GROUP_FORBIDDEN: {
     status: 403,
-    code: 'GROUP_403',
+    code: 'GROUP_FORBIDDEN',
     message: '그룹 관리자만 수행할 수 있는 작업입니다.',
   },
 
