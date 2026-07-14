@@ -878,8 +878,8 @@
                   "statusCode": 404,
                   "data": null,
                   "error": {
-                    "code": "COMMON_NOT_FOUND",
-                    "message": "요청한 리소스를 찾을 수 없습니다.",
+                    "code": "CHORE_404",
+                    "message": "존재하지 않는 집안일입니다.",
                     "errors": []
                   }
                 }
@@ -1117,8 +1117,8 @@
                   "statusCode": 404,
                   "data": null,
                   "error": {
-                    "code": "COMMON_NOT_FOUND",
-                    "message": "요청한 리소스를 찾을 수 없습니다.",
+                    "code": "CHORE_404",
+                    "message": "존재하지 않는 집안일입니다.",
                     "errors": []
                   }
                 }
@@ -1159,7 +1159,7 @@
                   "statusCode": 409,
                   "data": null,
                   "error": {
-                    "code": "COMMON_CONFLICT",
+                    "code": "CHORE_409",
                     "message": "이미 완료된 집안일입니다.",
                     "errors": []
                   }
@@ -1328,8 +1328,8 @@
                   "statusCode": 400,
                   "data": null,
                   "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "code": "CHORE_400_DATE",
+                    "message": "마감일은 시작일보다 빠를 수 없습니다.",
                     "errors": [
                       {
                         "field": "dueDate",
@@ -1717,6 +1717,90 @@
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "집안일"
+        ],
+        "summary": "집안일 삭제 (CHORE-DEL-01)",
+        "description": "집안일을 삭제합니다. 등록자(createdBy) 또는 관리자 권한을 확인한 후 hard delete합니다. 반복 부모 항목 삭제 시 자식 항목은 유지되며 parentId가 SetNull로 처리됩니다.",
+        "operationId": "deleteChoresChoreIdShare",
+        "parameters": [
+          {
+            "name": "choreId",
+            "in": "path",
+            "required": true,
+            "description": "삭제할 집안일 ID",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 11
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "집안일 삭제 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "choreId": 11
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "등록자도 관리자도 아님",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "CHORE_403",
+                    "message": "집안일을 삭제할 권한이 없습니다. (등록자 또는 관리자만 가능)",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "집안일 없음",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "CHORE_404",
+                    "message": "존재하지 않는 집안일입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -2738,8 +2822,8 @@
                   "statusCode": 409,
                   "data": null,
                   "error": {
-                    "code": "COMMON_CONFLICT",
-                    "message": "이미 등록된 물품입니다.",
+                    "code": "SUP_409",
+                    "message": "이미 등록된 공용물품입니다. (그룹 내 동일 물품명)",
                     "errors": []
                   }
                 }
@@ -3169,8 +3253,8 @@
                   "statusCode": 400,
                   "data": null,
                   "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "code": "SUP_400_CATEGORY",
+                    "message": "구매 완료 처리 시 정산 카테고리(categoryId)는 필수입니다.",
                     "errors": [
                       {
                         "field": "categoryId",
@@ -3259,8 +3343,8 @@
                   "statusCode": 404,
                   "data": null,
                   "error": {
-                    "code": "COMMON_NOT_FOUND",
-                    "message": "요청한 리소스를 찾을 수 없습니다.",
+                    "code": "SUP_404",
+                    "message": "존재하지 않는 공용물품입니다.",
                     "errors": []
                   }
                 }
@@ -3512,6 +3596,90 @@
             "$ref": "#/components/responses/ErrorResponse"
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "물품"
+        ],
+        "summary": "물품 삭제 (SUP-DEL-01)",
+        "description": "공용 물품을 삭제합니다. 등록자(createdBy) 또는 관리자 권한을 확인한 후 supply_logs 이력을 먼저 삭제하고 물품을 삭제합니다(트랜잭션). supply_logs.supplyId는 onDelete 기본값(Restrict)이므로 반드시 로그 먼저 삭제가 필요합니다. linkedExpenseId는 SetNull이므로 연결된 정산(Expense)은 유지됩니다.",
+        "operationId": "deleteSuppliesSupplyIdShare",
+        "parameters": [
+          {
+            "name": "supplyId",
+            "in": "path",
+            "required": true,
+            "description": "삭제할 물품 ID",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 21
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "물품 삭제 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "supplyId": 21
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "등록자도 관리자도 아님",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_403",
+                    "message": "공용물품을 삭제할 권한이 없습니다. (등록자 또는 관리자만 가능)",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "물품 없음",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_404",
+                    "message": "존재하지 않는 공용물품입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/supplies/{supplyId}/status": {
@@ -3540,6 +3708,22 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "존재하지 않는 공용물품",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_404",
+                    "message": "존재하지 않는 공용물품입니다.",
+                    "errors": []
+                  }
                 }
               }
             }
