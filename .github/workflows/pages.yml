@@ -31,9 +31,9 @@ jobs:
 
       - name: Fetch documentation branches
         run: |
-          git fetch --no-tags --prune --depth=1 origin \
-            main:refs/remotes/origin/main \
-            develop:refs/remotes/origin/develop
+          git fetch --no-tags --depth=1 origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/develop:refs/remotes/origin/develop
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -56,6 +56,12 @@ jobs:
           cp docs/swagger-ui/root.html _site/index.html
           prepare_branch_docs main
           prepare_branch_docs develop
+
+          if [ ! -s _site/develop/openapi.json ]; then
+            echo "::error::develop/openapi.json was not included in the Pages artifact"
+            exit 1
+          fi
+
           touch _site/.nojekyll
 
       - name: Upload artifact
