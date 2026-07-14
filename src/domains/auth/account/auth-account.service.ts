@@ -58,12 +58,10 @@ export class AuthAccountService {
     try {
       await this.cognitoAuthGateway.deleteUser(accessToken);
     } catch (error) {
-      await this.prisma.user
-        .update({
-          where: { id: user.id },
-          data: { isActive: true },
-        })
-        .catch(() => undefined);
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { isActive: true },
+      });
       throw error;
     }
 

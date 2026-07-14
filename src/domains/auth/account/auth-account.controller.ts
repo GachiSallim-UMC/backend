@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
 
+import { ApiWrappedSuccessResponse } from '../../../common/decorators/api-wrapped-success-response.decorator';
 import { AlbAuthGuard } from '../core/alb-auth.guard';
 import { AuthenticatedUser } from '../core/auth-context.interface';
 import { AuthUserResponseDto } from '../core/auth-user-response.dto';
@@ -28,7 +29,11 @@ export class AuthAccountController {
   @Get('me')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '내 정보 조회', description: '인증된 사용자의 계정 정보를 조회합니다.' })
-  @ApiResponse({ status: 200, description: '내 정보 조회 성공', type: AuthUserResponseDto })
+  @ApiWrappedSuccessResponse({
+    status: HttpStatus.OK,
+    description: '내 정보 조회 성공',
+    type: AuthUserResponseDto,
+  })
   @ApiResponse({ status: 401, description: '인증이 필요합니다.' })
   getMe(@CurrentUser() user: AuthenticatedUser): AuthUserResponseDto {
     return this.authAccountService.getMe(user);
@@ -38,7 +43,11 @@ export class AuthAccountController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '프로필 수정', description: '닉네임 또는 프로필 이미지를 수정합니다.' })
   @ApiBody({ type: UpdateAuthProfileDto })
-  @ApiResponse({ status: 200, description: '프로필 수정 성공', type: AuthUserResponseDto })
+  @ApiWrappedSuccessResponse({
+    status: HttpStatus.OK,
+    description: '프로필 수정 성공',
+    type: AuthUserResponseDto,
+  })
   @ApiResponse({ status: 400, description: '수정할 프로필 정보가 없거나 형식이 잘못되었습니다.' })
   @ApiResponse({ status: 401, description: '인증이 필요합니다.' })
   updateProfile(
@@ -54,7 +63,11 @@ export class AuthAccountController {
     summary: '회원 탈퇴',
     description: '사용자를 비활성화하고 Cognito 계정을 삭제합니다.',
   })
-  @ApiResponse({ status: 200, description: '회원 탈퇴 성공', type: WithdrawAuthAccountResponseDto })
+  @ApiWrappedSuccessResponse({
+    status: HttpStatus.OK,
+    description: '회원 탈퇴 성공',
+    type: WithdrawAuthAccountResponseDto,
+  })
   @ApiResponse({ status: 401, description: '인증이 필요합니다.' })
   @ApiResponse({ status: 502, description: '인증 제공자 요청에 실패했습니다.' })
   withdraw(

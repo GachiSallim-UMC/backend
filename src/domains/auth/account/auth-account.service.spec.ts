@@ -117,4 +117,17 @@ describe('AuthAccountService', () => {
       data: { isActive: true },
     });
   });
+
+  it('propagates a database error when reactivation fails', async () => {
+    const providerError = new Error('provider error');
+    const reactivationError = new Error('reactivation failed');
+    prisma.user.update.mockResolvedValueOnce(user).mockRejectedValueOnce(reactivationError);
+    cognitoAuthGateway.deleteUser.mockRejectedValue(providerError);
+
+    await expect(service.withdraw(user, 'access-token')).rejects.toBe(reactivationError);
+    expect(prisma.user.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 1n },
+      data: { isActive: true },
+    });
+  });
 });
