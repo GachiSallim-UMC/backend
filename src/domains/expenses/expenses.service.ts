@@ -1,7 +1,8 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
+import { ExpenseNotFoundException } from './expenses.exception'; 
 
 @Injectable()
 export class ExpensesService {
@@ -77,29 +78,47 @@ export class ExpensesService {
     });
 
     if (!expense) {
-      throw new NotFoundException('존재하지 않는 정산 내역입니다.');
+      throw new ExpenseNotFoundException(); 
     }
 
     return expense;
   }
 
   // 4. 지출 내역 수정
- async updateExpense(expenseId: number, updateExpenseDto: UpdateExpenseDto) {
-  const { title, totalAmount, categoryId, splitType } = updateExpenseDto;
+  async updateExpense(expenseId: number, updateExpenseDto: UpdateExpenseDto) {
+    const { title, totalAmount, categoryId, splitType } = updateExpenseDto;
 
-  return this.prisma.expense.update({
-    where: { id: expenseId },
-    data: {
-      ...(title && { title }),
-      ...(totalAmount !== undefined && { totalAmount }),
-      ...(categoryId && { categoryId }),
-      ...(splitType && { splitType }),
-    },
-  });
-}
+    // 수정 전 데이터 존재 여부 검증
+    const expense = await this.prisma.expense.findUnique({
+      where: { id: expenseId },
+    });
+
+    if (!expense) {
+      throw new ExpenseNotFoundException(); 
+    }
+
+    return this.prisma.expense.update({
+      where: { id: expenseId },
+      data: {
+        ...(title && { title }),
+        ...(totalAmount !== undefined && { totalAmount }),
+        ...(categoryId && { categoryId }),
+        ...(splitType && { splitType }),
+      },
+    });
+  }
 
   // 5. 지출 내역 삭제
   async deleteExpense(expenseId: number) {
+    // 삭제 전 데이터 존재 여부 검증
+    const expense = await this.prisma.expense.findUnique({
+      where: { id: expenseId },
+    });
+
+    if (!expense) {
+      throw new ExpenseNotFoundException(); 
+    }
+
     await this.prisma.expense.delete({
       where: { id: expenseId },
     });
