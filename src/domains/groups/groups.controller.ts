@@ -24,8 +24,8 @@ export class GroupsController {
   }
 
   @Get(':groupId')
-  getGroupDetail(@Param('groupId') groupId: string) {
-    return this.groupsService.getGroupDetail(parseBigIntId(groupId, 'groupId'));
+  getGroupDetail(@Headers('x-user-id') userId: string, @Param('groupId') groupId: string) {
+    return this.groupsService.getGroupDetail(parseBigIntId(groupId, 'groupId'), this.requireUserId(userId));
   }
 
   @Patch(':groupId')

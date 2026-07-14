@@ -38,8 +38,11 @@ export class GroupsService {
     });
   }
 
-  async getGroupDetail(groupId: bigint) {
-    return this.findGroupOrThrow(groupId);
+  async getGroupDetail(groupId: bigint, currentUserId: bigint) {
+    const group = await this.findGroupOrThrow(groupId);
+    await this.requireActiveMemberOrThrow(groupId, currentUserId);
+
+    return group;
   }
 
   async updateGroup(groupId: bigint, dto: UpdateGroupDto, currentUserId: bigint) {
@@ -77,12 +80,22 @@ export class GroupsService {
   }
 
   private async requireAdminOrThrow(groupId: bigint, userId: bigint) {
+    const member = await this.requireActiveMemberOrThrow(groupId, userId);
+
+    if (member.role !== GroupRole.ADMIN) {
+      throw new BusinessException(ErrorCode.GROUP_FORBIDDEN);
+    }
+
+    return member;
+  }
+
+  private async requireActiveMemberOrThrow(groupId: bigint, userId: bigint) {
     const member = await this.prisma.groupMember.findUnique({
       where: { userId_groupId: { userId, groupId } },
     });
 
-    if (!member || member.leftAt || member.role !== GroupRole.ADMIN) {
-      throw new BusinessException(ErrorCode.GROUP_FORBIDDEN);
+    if (!member || member.leftAt) {
+      throw new BusinessException(ErrorCode.GROUP_MEMBER_NOT_FOUND);
     }
 
     return member;
