@@ -90,6 +90,31 @@ describe('BackendStack', () => {
     });
   });
 
+  it('preserves the existing Backend subnets before adding Application subnets', () => {
+    const subnets = template.findResources('AWS::EC2::Subnet');
+    const backendSubnetIds = Object.keys(subnets).filter((logicalId) =>
+      /^VpcBackendSubnet[12]Subnet/.test(logicalId),
+    );
+    const applicationSubnetIds = Object.keys(subnets).filter((logicalId) =>
+      /^VpcApplicationSubnet[12]Subnet/.test(logicalId),
+    );
+
+    expect(backendSubnetIds).toHaveLength(2);
+    expect(applicationSubnetIds).toHaveLength(2);
+    for (const cidrBlock of ['10.0.2.0/24', '10.0.3.0/24']) {
+      template.hasResourceProperties('AWS::EC2::Subnet', {
+        CidrBlock: cidrBlock,
+        Tags: Match.arrayWith([{ Key: 'aws-cdk:subnet-name', Value: 'Backend' }]),
+      });
+    }
+    for (const cidrBlock of ['10.0.4.0/24', '10.0.5.0/24']) {
+      template.hasResourceProperties('AWS::EC2::Subnet', {
+        CidrBlock: cidrBlock,
+        Tags: Match.arrayWith([{ Key: 'aws-cdk:subnet-name', Value: 'Application' }]),
+      });
+    }
+  });
+
   it('creates a private Single-AZ PostgreSQL 16 database', () => {
     template.hasResourceProperties('AWS::RDS::DBInstance', {
       AllocatedStorage: '20',
