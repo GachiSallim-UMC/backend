@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
+import { UpdateExpenseDto } from './dto/update-expense.dto';
 
 @Injectable()
 export class ExpensesService {
@@ -83,12 +84,19 @@ export class ExpensesService {
   }
 
   // 4. 지출 내역 수정
-  async updateExpense(expenseId: number, updateExpenseDto: CreateExpenseDto) {
-    return this.prisma.expense.update({
-      where: { id: expenseId },
-      data: updateExpenseDto,
-    });
-  }
+ async updateExpense(expenseId: number, updateExpenseDto: UpdateExpenseDto) {
+  const { title, totalAmount, categoryId, splitType } = updateExpenseDto;
+
+  return this.prisma.expense.update({
+    where: { id: expenseId },
+    data: {
+      ...(title && { title }),
+      ...(totalAmount !== undefined && { totalAmount }),
+      ...(categoryId && { categoryId }),
+      ...(splitType && { splitType }),
+    },
+  });
+}
 
   // 5. 지출 내역 삭제
   async deleteExpense(expenseId: number) {
