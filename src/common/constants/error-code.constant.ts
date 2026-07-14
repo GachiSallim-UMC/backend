@@ -43,6 +43,18 @@ export const ErrorCode = {
     message: '존재하지 않는 사용자입니다.',
   },
 
+  // Rule
+  RULE_GROUP_NOT_FOUND: {
+    status: 404,
+    code: 'RULE_404_GROUP',
+    message: '존재하지 않는 그룹입니다.',
+  },
+  RULE_CATEGORY_NOT_FOUND: {
+    status: 404,
+    code: 'RULE_404_CATEGORY',
+    message: '존재하지 않는 규칙 카테고리입니다.',
+    
+  }, 
   // Group
   GROUP_NOT_FOUND: {
     status: 404,
