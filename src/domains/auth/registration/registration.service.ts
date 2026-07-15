@@ -1,5 +1,6 @@
 import {
   AdminDeleteUserCommand,
+  AdminGetUserCommand,
   CognitoIdentityProviderClient,
   ConfirmSignUpCommand,
   SignUpCommand,
@@ -48,6 +49,11 @@ export class AuthRegistrationService {
       }
       cognitoSub = response.UserSub;
     } catch (error) {
+      if (this.getErrorName(error) === 'LimitExceededException') {
+        await this.compensateSignup(userPoolId, dto.email);
+        throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+      }
+
       this.throwSignupError(error);
     }
 
@@ -109,7 +115,12 @@ export class AuthRegistrationService {
         }),
       );
     } catch (error) {
-      this.throwConfirmationError(error);
+      if (
+        this.getErrorName(error) !== 'NotAuthorizedException' ||
+        !(await this.isCognitoUserConfirmed(dto.email))
+      ) {
+        this.throwConfirmationError(error);
+      }
     }
 
     const user = await this.prisma.user.update({
@@ -125,8 +136,35 @@ export class AuthRegistrationService {
       await this.cognitoClient.send(
         new AdminDeleteUserCommand({ UserPoolId: userPoolId, Username: username }),
       );
-    } catch {
+    } catch (error) {
+      if (this.getErrorName(error) === 'UserNotFoundException') {
+        return;
+      }
+
       throw new BusinessException(ErrorCode.AUTH_COMPENSATION_FAILED);
+    }
+  }
+
+  private async isCognitoUserConfirmed(username: string): Promise<boolean> {
+    try {
+      const response = await this.cognitoClient.send(
+        new AdminGetUserCommand({
+          UserPoolId: this.configService.getOrThrow<string>('COGNITO_USER_POOL_ID'),
+          Username: username,
+        }),
+      );
+
+      return response.UserStatus === 'CONFIRMED' && response.Enabled === true;
+    } catch (error) {
+      switch (this.getErrorName(error)) {
+        case 'UserNotFoundException':
+          throw new BusinessException(ErrorCode.AUTH_ACCOUNT_NOT_FOUND);
+        case 'LimitExceededException':
+        case 'TooManyRequestsException':
+          throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+        default:
+          throw new BusinessException(ErrorCode.AUTH_PROVIDER_ERROR);
+      }
     }
   }
 
@@ -138,7 +176,6 @@ export class AuthRegistrationService {
       case 'InvalidPasswordException':
         throw new BusinessException(ErrorCode.AUTH_PASSWORD_POLICY_VIOLATION);
       case 'TooManyRequestsException':
-      case 'LimitExceededException':
         throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
       default:
         if (error instanceof BusinessException) {

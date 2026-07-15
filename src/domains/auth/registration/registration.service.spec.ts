@@ -1,5 +1,6 @@
 import {
   AdminDeleteUserCommand,
+  AdminGetUserCommand,
   CognitoIdentityProviderClient,
   ConfirmSignUpCommand,
   SignUpCommand,
@@ -105,6 +106,16 @@ describe('AuthRegistrationService', () => {
     expect(transaction).not.toHaveBeenCalled();
   });
 
+  it('deletes a Cognito user created before SignUp reaches the message limit', async () => {
+    send.mockRejectedValueOnce({ name: 'LimitExceededException' }).mockResolvedValueOnce({});
+
+    await expect(service.signup(signupDto)).rejects.toMatchObject({
+      code: 'AUTH_TOO_MANY_REQUESTS',
+    });
+    expect(send).toHaveBeenNthCalledWith(2, expect.any(AdminDeleteUserCommand));
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
   it('deletes the Cognito user when the database transaction fails', async () => {
     send.mockResolvedValueOnce({ UserSub: 'cognito-sub' }).mockResolvedValueOnce({});
     transaction.mockRejectedValueOnce({ code: 'P2002' });
@@ -145,6 +156,29 @@ describe('AuthRegistrationService', () => {
       where: { id: 1n },
       data: { isActive: true },
     });
+  });
+
+  it('reconciles local activation when a retry finds Cognito already confirmed', async () => {
+    findIdentity.mockResolvedValue({
+      userId: 1n,
+      email: signupDto.email,
+      user: { id: 1n, isActive: false },
+    });
+    send
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce({ name: 'NotAuthorizedException' })
+      .mockResolvedValueOnce({ UserStatus: 'CONFIRMED', Enabled: true });
+    updateUser
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockResolvedValueOnce({ id: 1n });
+
+    await expect(service.confirmSignup(confirmDto)).rejects.toThrow('database unavailable');
+    await expect(service.confirmSignup(confirmDto)).resolves.toEqual({
+      userId: 1,
+      email: signupDto.email,
+      confirmed: true,
+    });
+    expect(send).toHaveBeenNthCalledWith(3, expect.any(AdminGetUserCommand));
   });
 
   it.each([
