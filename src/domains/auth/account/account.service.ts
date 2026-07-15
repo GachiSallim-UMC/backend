@@ -49,10 +49,14 @@ export class AuthAccountService {
   ): Promise<DeleteAuthAccountResponseDto> {
     const account = await this.findActiveAccount(cognitoSub);
 
-    await this.prisma.user.update({
-      where: { id: account.user.id },
+    const transition = await this.prisma.user.updateMany({
+      where: { id: account.user.id, isActive: true },
       data: { isActive: false },
     });
+
+    if (transition.count !== 1) {
+      throw new BusinessException(ErrorCode.AUTH_ACCOUNT_INACTIVE);
+    }
 
     try {
       await this.cognitoClient.send(new DeleteUserCommand({ AccessToken: accessToken }));
@@ -83,10 +87,14 @@ export class AuthAccountService {
 
   private async restoreAccount(userId: bigint): Promise<void> {
     try {
-      await this.prisma.user.update({
-        where: { id: userId },
+      const transition = await this.prisma.user.updateMany({
+        where: { id: userId, isActive: false },
         data: { isActive: true },
       });
+
+      if (transition.count !== 1) {
+        throw new Error('Account state changed before compensation');
+      }
     } catch {
       throw new BusinessException(ErrorCode.AUTH_COMPENSATION_FAILED);
     }

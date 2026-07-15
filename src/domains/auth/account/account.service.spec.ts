@@ -11,6 +11,7 @@ type MockedPrisma = {
   };
   user: {
     update: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    updateMany: jest.MockedFunction<(args: unknown) => Promise<{ count: number }>>;
   };
 };
 
@@ -41,6 +42,7 @@ describe('AuthAccountService', () => {
       },
       user: {
         update: jest.fn<() => Promise<unknown>>(),
+        updateMany: jest.fn<() => Promise<{ count: number }>>().mockResolvedValue({ count: 1 }),
       },
     };
     cognitoClient = {
@@ -158,15 +160,14 @@ describe('AuthAccountService', () => {
 
   it('deactivates the account and deletes the Cognito user', async () => {
     prisma.userAuthIdentity.findUnique.mockResolvedValue(ACTIVE_ACCOUNT);
-    prisma.user.update.mockResolvedValue(ACTIVE_ACCOUNT.user);
     cognitoClient.send.mockResolvedValue({});
 
     await expect(service.deleteAccount('cognito-sub', 'access-token')).resolves.toEqual({
       userId: 7,
       deleted: true,
     });
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 7n },
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 7n, isActive: true },
       data: { isActive: false },
     });
     expect(cognitoClient.send).toHaveBeenCalledTimes(1);
@@ -177,31 +178,49 @@ describe('AuthAccountService', () => {
 
   it('reactivates the account when Cognito deletion fails', async () => {
     prisma.userAuthIdentity.findUnique.mockResolvedValue(ACTIVE_ACCOUNT);
-    prisma.user.update.mockResolvedValue(ACTIVE_ACCOUNT.user);
     cognitoClient.send.mockRejectedValue(new Error('Cognito unavailable'));
 
     await expect(service.deleteAccount('cognito-sub', 'access-token')).rejects.toMatchObject({
       code: 'AUTH_PROVIDER_ERROR',
     });
-    expect(prisma.user.update).toHaveBeenNthCalledWith(1, {
-      where: { id: 7n },
+    expect(prisma.user.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: 7n, isActive: true },
       data: { isActive: false },
     });
-    expect(prisma.user.update).toHaveBeenNthCalledWith(2, {
-      where: { id: 7n },
+    expect(prisma.user.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: 7n, isActive: false },
       data: { isActive: true },
     });
   });
 
   it('reports compensation failure when reactivation fails', async () => {
     prisma.userAuthIdentity.findUnique.mockResolvedValue(ACTIVE_ACCOUNT);
-    prisma.user.update
-      .mockResolvedValueOnce(ACTIVE_ACCOUNT.user)
+    prisma.user.updateMany
+      .mockResolvedValueOnce({ count: 1 })
       .mockRejectedValueOnce(new Error('Database unavailable'));
     cognitoClient.send.mockRejectedValue(new Error('Cognito unavailable'));
 
     await expect(service.deleteAccount('cognito-sub', 'access-token')).rejects.toMatchObject({
       code: 'AUTH_COMPENSATION_FAILED',
     });
+  });
+
+  it('lets only one concurrent deletion own the Cognito call and compensation', async () => {
+    prisma.userAuthIdentity.findUnique.mockResolvedValue(ACTIVE_ACCOUNT);
+    prisma.user.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    cognitoClient.send.mockResolvedValue({});
+
+    const results = await Promise.allSettled([
+      service.deleteAccount('cognito-sub', 'access-token'),
+      service.deleteAccount('cognito-sub', 'access-token'),
+    ]);
+
+    expect(results[0]).toEqual({ status: 'fulfilled', value: { userId: 7, deleted: true } });
+    expect(results[1]).toMatchObject({
+      status: 'rejected',
+      reason: { code: 'AUTH_ACCOUNT_INACTIVE' },
+    });
+    expect(cognitoClient.send).toHaveBeenCalledTimes(1);
+    expect(prisma.user.updateMany).toHaveBeenCalledTimes(2);
   });
 });
