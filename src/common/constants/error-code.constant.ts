@@ -12,7 +12,7 @@ export const ErrorCode = {
   },
   COMMON_INVALID_PARAMETER: {
     status: 400,
-    code: 'COMMON_400_PARAM',
+    code: 'COMMON_INVALID_PARAMETER',
     message: '요청 파라미터가 잘못되었습니다.',
   },
   COMMON_UNAUTHORIZED: {
@@ -36,6 +36,13 @@ export const ErrorCode = {
     message: '요청이 현재 상태와 충돌합니다.',
   },
 
+  // Auth
+  AUTH_UNAUTHORIZED: {
+    status: 401,
+    code: 'AUTH_UNAUTHORIZED',
+    message: '인증이 필요합니다.',
+  },
+
   // User
   USER_NOT_FOUND: {
     status: 404,
@@ -43,6 +50,28 @@ export const ErrorCode = {
     message: '존재하지 않는 사용자입니다.',
   },
 
+
+  // Chore
+  CHORE_INVALID_DATE: {
+    status: 400,
+    code: 'CHORE_400_DATE',
+    message: '마감일은 시작일보다 빠를 수 없습니다.',
+  },
+  CHORE_FORBIDDEN: {
+    status: 403,
+    code: 'CHORE_403',
+    message: '집안일을 삭제할 권한이 없습니다. (등록자 또는 관리자만 가능)',
+  },
+  CHORE_NOT_FOUND: {
+    status: 404,
+    code: 'CHORE_404',
+    message: '존재하지 않는 집안일입니다.',
+  },
+  CHORE_ALREADY_DONE: {
+    status: 409,
+    code: 'CHORE_409',
+    message: '이미 완료된 집안일입니다.',
+  },
   // Rule
   RULE_GROUP_NOT_FOUND: {
     status: 404,
@@ -87,6 +116,7 @@ export const ErrorCode = {
     status: 409,
     code: 'CHAT_ROOM_MEMBER_409',
     message: '이미 채팅방에 참여 중인 사용자입니다.',
+
   },
 } as const;
 
