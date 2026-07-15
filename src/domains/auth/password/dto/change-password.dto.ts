@@ -14,14 +14,14 @@ export class ChangePasswordDto {
   previousPassword!: string;
 
   @ApiProperty({
-    description: '새 비밀번호 (8~256자, 공백 없이 영문 대문자·소문자·숫자 포함)',
+    description: '새 비밀번호 (8~16자, 공백 없이 영문 대문자·소문자·숫자 포함)',
     example: 'NewPassword1',
     minLength: 8,
-    maxLength: 256,
+    maxLength: 16,
   })
   @IsString()
   @IsNotEmpty()
-  @MaxLength(256)
+  @MaxLength(16)
   @Matches(/^\S+$/)
   newPassword!: string;
 }

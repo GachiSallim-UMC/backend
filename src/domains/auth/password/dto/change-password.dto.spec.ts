@@ -6,7 +6,7 @@ describe('ChangePasswordDto', () => {
   it('accepts non-empty string passwords', async () => {
     const dto = Object.assign(new ChangePasswordDto(), {
       previousPassword: 'CurrentPass1',
-      newPassword: 'NewPassword1',
+      newPassword: 'Abcdefghijklmno1',
     });
 
     await expect(validate(dto)).resolves.toEqual([]);
@@ -35,9 +35,9 @@ describe('ChangePasswordDto', () => {
   it.each([
     ['previousPassword', 'a'.repeat(257)],
     ['previousPassword', 'Current Pass1'],
-    ['newPassword', 'a'.repeat(257)],
+    ['newPassword', 'A1'.concat('a'.repeat(15))],
     ['newPassword', 'New Pass1'],
-  ])('rejects an invalid Cognito %s boundary', async (property, value) => {
+  ])('rejects an invalid password %s boundary', async (property, value) => {
     const dto = Object.assign(new ChangePasswordDto(), {
       previousPassword: 'CurrentPass1',
       newPassword: 'NewPassword1',

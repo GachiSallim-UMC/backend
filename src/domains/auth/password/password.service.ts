@@ -45,8 +45,9 @@ export class PasswordService {
       throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER);
     }
 
+    // Keep these character requirements aligned with the User Pool policy in infra/lib/backend-stack.ts.
     const satisfiesPolicy =
-      /^\S{8,256}$/.test(newPassword) &&
+      /^\S{8,16}$/.test(newPassword) &&
       /[a-z]/.test(newPassword) &&
       /[A-Z]/.test(newPassword) &&
       /\d/.test(newPassword);

@@ -33,7 +33,7 @@ describe('PasswordService', () => {
     await expect(
       service.changePassword('access-token', {
         previousPassword: 'CurrentPass1',
-        newPassword: 'NewPassword1',
+        newPassword: 'Abcdefghijklmno1',
       }),
     ).resolves.toEqual({ changed: true });
 
@@ -42,7 +42,7 @@ describe('PasswordService', () => {
     expect(cognitoClient.send.mock.calls[0][0].input).toEqual({
       AccessToken: 'access-token',
       PreviousPassword: 'CurrentPass1',
-      ProposedPassword: 'NewPassword1',
+      ProposedPassword: 'Abcdefghijklmno1',
     });
   });
 
@@ -51,7 +51,7 @@ describe('PasswordService', () => {
     ['missing an uppercase letter', 'CurrentPass1', 'lowercase1'],
     ['missing a lowercase letter', 'CurrentPass1', 'UPPERCASE1'],
     ['missing a number', 'CurrentPass1', 'NoNumbers'],
-    ['longer than Cognito allows', 'CurrentPass1', `NewPassword1${'a'.repeat(245)}`],
+    ['longer than the service allows', 'CurrentPass1', `A1${'a'.repeat(15)}`],
     ['containing whitespace', 'CurrentPass1', 'New Password1'],
     ['the same as the current password', 'CurrentPass1', 'CurrentPass1'],
   ])('rejects a password that is %s', async (_caseName, previousPassword, newPassword) => {
