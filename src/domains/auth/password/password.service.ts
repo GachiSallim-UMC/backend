@@ -1,6 +1,7 @@
 import {
   ChangePasswordCommand,
   CognitoIdentityProviderClient,
+  GetUserCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { Inject, Injectable } from '@nestjs/common';
 
@@ -33,15 +34,19 @@ export class PasswordService {
         }),
       );
     } catch (error) {
-      throw this.mapCognitoError(error);
+      throw await this.mapCognitoError(error, accessToken);
     }
 
     return { changed: true };
   }
 
   private validatePasswordPolicy(previousPassword: string, newPassword: string): void {
+    if (!/^\S{1,256}$/.test(previousPassword)) {
+      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER);
+    }
+
     const satisfiesPolicy =
-      newPassword.length >= 8 &&
+      /^\S{8,256}$/.test(newPassword) &&
       /[a-z]/.test(newPassword) &&
       /[A-Z]/.test(newPassword) &&
       /\d/.test(newPassword);
@@ -51,12 +56,13 @@ export class PasswordService {
     }
   }
 
-  private mapCognitoError(error: unknown): BusinessException {
+  private async mapCognitoError(error: unknown, accessToken: string): Promise<BusinessException> {
     const errorName = error instanceof Error ? error.name : undefined;
 
     switch (errorName) {
       case 'NotAuthorizedException':
-        return new BusinessException(ErrorCode.AUTH_CURRENT_PASSWORD_INVALID);
+        return this.classifyNotAuthorized(accessToken);
+      case 'InvalidParameterException':
       case 'InvalidPasswordException':
       case 'PasswordHistoryPolicyViolationException':
         return new BusinessException(ErrorCode.AUTH_PASSWORD_POLICY_VIOLATION);
@@ -66,6 +72,24 @@ export class PasswordService {
         return new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
       default:
         return new BusinessException(ErrorCode.AUTH_PROVIDER_ERROR);
+    }
+  }
+
+  private async classifyNotAuthorized(accessToken: string): Promise<BusinessException> {
+    try {
+      await this.cognitoClient.send(new GetUserCommand({ AccessToken: accessToken }));
+      return new BusinessException(ErrorCode.AUTH_CURRENT_PASSWORD_INVALID);
+    } catch (error) {
+      switch (error instanceof Error ? error.name : undefined) {
+        case 'NotAuthorizedException':
+        case 'UserNotFoundException':
+          return new BusinessException(ErrorCode.AUTH_UNAUTHORIZED);
+        case 'LimitExceededException':
+        case 'TooManyRequestsException':
+          return new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+        default:
+          return new BusinessException(ErrorCode.AUTH_PROVIDER_ERROR);
+      }
     }
   }
 }

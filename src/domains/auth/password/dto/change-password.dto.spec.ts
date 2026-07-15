@@ -31,4 +31,21 @@ describe('ChangePasswordDto', () => {
     expect(errors).toHaveLength(2);
     expect(errors.every((error) => error.constraints?.isString !== undefined)).toBe(true);
   });
+
+  it.each([
+    ['previousPassword', 'a'.repeat(257)],
+    ['previousPassword', 'Current Pass1'],
+    ['newPassword', 'a'.repeat(257)],
+    ['newPassword', 'New Pass1'],
+  ])('rejects an invalid Cognito %s boundary', async (property, value) => {
+    const dto = Object.assign(new ChangePasswordDto(), {
+      previousPassword: 'CurrentPass1',
+      newPassword: 'NewPassword1',
+      [property]: value,
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.some((error) => error.property === property)).toBe(true);
+  });
 });

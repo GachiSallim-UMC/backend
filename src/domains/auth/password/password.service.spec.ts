@@ -1,12 +1,13 @@
 import {
   ChangePasswordCommand,
   CognitoIdentityProviderClient,
+  GetUserCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 
 import { PasswordService } from './password.service';
 
 type MockedCognitoClient = {
-  send: jest.MockedFunction<(command: ChangePasswordCommand) => Promise<unknown>>;
+  send: jest.MockedFunction<(command: ChangePasswordCommand | GetUserCommand) => Promise<unknown>>;
 };
 
 function cognitoError(name: string): Error {
@@ -21,7 +22,7 @@ describe('PasswordService', () => {
 
   beforeEach(() => {
     cognitoClient = {
-      send: jest.fn<Promise<unknown>, [ChangePasswordCommand]>(),
+      send: jest.fn<Promise<unknown>, [ChangePasswordCommand | GetUserCommand]>(),
     };
     service = new PasswordService(cognitoClient as unknown as CognitoIdentityProviderClient);
   });
@@ -50,6 +51,8 @@ describe('PasswordService', () => {
     ['missing an uppercase letter', 'CurrentPass1', 'lowercase1'],
     ['missing a lowercase letter', 'CurrentPass1', 'UPPERCASE1'],
     ['missing a number', 'CurrentPass1', 'NoNumbers'],
+    ['longer than Cognito allows', 'CurrentPass1', `NewPassword1${'a'.repeat(245)}`],
+    ['containing whitespace', 'CurrentPass1', 'New Password1'],
     ['the same as the current password', 'CurrentPass1', 'CurrentPass1'],
   ])('rejects a password that is %s', async (_caseName, previousPassword, newPassword) => {
     await expect(
@@ -59,7 +62,20 @@ describe('PasswordService', () => {
   });
 
   it.each([
-    ['NotAuthorizedException', 'AUTH_CURRENT_PASSWORD_INVALID'],
+    ['longer than Cognito allows', 'a'.repeat(257)],
+    ['containing whitespace', 'Current Pass1'],
+  ])('rejects a current password that is %s', async (_caseName, previousPassword) => {
+    await expect(
+      service.changePassword('access-token', {
+        previousPassword,
+        newPassword: 'NewPassword1',
+      }),
+    ).rejects.toMatchObject({ code: 'COMMON_400_PARAM' });
+    expect(cognitoClient.send).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['InvalidParameterException', 'AUTH_PASSWORD_POLICY_VIOLATION'],
     ['InvalidPasswordException', 'AUTH_PASSWORD_POLICY_VIOLATION'],
     ['PasswordHistoryPolicyViolationException', 'AUTH_PASSWORD_POLICY_VIOLATION'],
     ['LimitExceededException', 'AUTH_TOO_MANY_REQUESTS'],
@@ -75,6 +91,31 @@ describe('PasswordService', () => {
         newPassword: 'NewPassword1',
       }),
     ).rejects.toMatchObject({ code: expectedCode });
+  });
+
+  it('classifies NotAuthorized as an invalid current password when the token is active', async () => {
+    cognitoClient.send
+      .mockRejectedValueOnce(cognitoError('NotAuthorizedException'))
+      .mockResolvedValueOnce({});
+
+    await expect(
+      service.changePassword('access-token', {
+        previousPassword: 'WrongCurrent1',
+        newPassword: 'NewPassword1',
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_CURRENT_PASSWORD_INVALID' });
+    expect(cognitoClient.send.mock.calls[1][0]).toBeInstanceOf(GetUserCommand);
+  });
+
+  it('classifies NotAuthorized as unauthorized when Cognito also rejects the token', async () => {
+    cognitoClient.send.mockRejectedValue(cognitoError('NotAuthorizedException'));
+
+    await expect(
+      service.changePassword('revoked-token', {
+        previousPassword: 'CurrentPass1',
+        newPassword: 'NewPassword1',
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
   });
 
   it('maps non-Error failures to a provider error', async () => {
