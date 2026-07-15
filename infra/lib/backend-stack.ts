@@ -12,7 +12,6 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
-import * as elbv2Actions from 'aws-cdk-lib/aws-elasticloadbalancingv2-actions';
 import * as elbv2Targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
@@ -111,6 +110,13 @@ export class BackendStack extends Stack {
       open: false,
       privateDnsEnabled: true,
     });
+    vpc.addInterfaceEndpoint('CognitoEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.COGNITO_IDP,
+      subnets: applicationSubnet,
+      securityGroups: [endpointSecurityGroup],
+      open: false,
+      privateDnsEnabled: true,
+    });
 
     const applicationLogGroup = new logs.LogGroup(this, 'ApplicationLogGroup', {
       logGroupName: '/gachisallim/backend/application',
@@ -197,23 +203,22 @@ export class BackendStack extends Stack {
       deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,
     });
-    const userPoolDomain = userPool.addDomain('UserPoolDomain', {
-      cognitoDomain: {
-        domainPrefix: `gachisallim-${Aws.ACCOUNT_ID}-${Aws.REGION}`,
-      },
-    });
-    const callbackUrl = `https://${applicationDomain.valueAsString}/oauth2/idpresponse`;
     const userPoolClient = userPool.addClient('UserPoolClient', {
-      userPoolClientName: 'gachisallim-alb',
-      generateSecret: true,
+      userPoolClientName: 'gachisallim-web',
+      generateSecret: false,
+      disableOAuth: true,
+      authFlows: {
+        userPassword: true,
+      },
       preventUserExistenceErrors: true,
       supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
-      oAuth: {
-        flows: { authorizationCodeGrant: true },
-        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
-        callbackUrls: [callbackUrl],
-      },
+      accessTokenValidity: Duration.hours(1),
+      idTokenValidity: Duration.hours(1),
+      refreshTokenValidity: Duration.days(30),
+      enableTokenRevocation: true,
     });
+    const cognitoIssuer = `https://cognito-idp.${Aws.REGION}.${Aws.URL_SUFFIX}/${userPool.userPoolId}`;
+    const cognitoJwksEndpoint = `${cognitoIssuer}/.well-known/jwks.json`;
 
     const loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'LoadBalancer', {
       vpc,
@@ -234,18 +239,61 @@ export class BackendStack extends Stack {
       'Certificate',
       certificateArn.valueAsString,
     );
-    loadBalancer.addListener('HttpsListener', {
+    const httpsListener = loadBalancer.addListener('HttpsListener', {
       port: 443,
       protocol: elbv2.ApplicationProtocol.HTTPS,
       certificates: [certificate],
-      defaultAction: new elbv2Actions.AuthenticateCognitoAction({
-        userPool,
-        userPoolClient,
-        userPoolDomain,
-        scope: 'openid email',
-        sessionTimeout: Duration.days(1),
+      sslPolicy: elbv2.SslPolicy.RECOMMENDED_TLS,
+      defaultAction: elbv2.ListenerAction.authenticateJwt({
+        issuer: cognitoIssuer,
+        jwksEndpoint: cognitoJwksEndpoint,
         next: elbv2.ListenerAction.forward([targetGroup]),
       }),
+    });
+    const cfnHttpsListener = httpsListener.node.defaultChild as elbv2.CfnListener;
+    cfnHttpsListener.addPropertyOverride('DefaultActions.0.JwtValidationConfig.AdditionalClaims', [
+      {
+        Format: 'single-string',
+        Name: 'token_use',
+        Values: ['access'],
+      },
+      {
+        Format: 'single-string',
+        Name: 'client_id',
+        Values: [userPoolClient.userPoolClientId],
+      },
+    ]);
+
+    httpsListener.addAction('PublicAuthRoutes', {
+      priority: 10,
+      conditions: [
+        elbv2.ListenerCondition.pathPatterns([
+          '/api/v1/auth/signup',
+          '/api/v1/auth/signup/confirm',
+          '/api/v1/auth/login',
+          '/api/v1/auth/token/refresh',
+        ]),
+        elbv2.ListenerCondition.httpRequestMethods(['POST']),
+      ],
+      action: elbv2.ListenerAction.forward([targetGroup]),
+    });
+    httpsListener.addAction('PublicHealth', {
+      priority: 20,
+      conditions: [
+        elbv2.ListenerCondition.pathPatterns(['/api/v1/health']),
+        elbv2.ListenerCondition.httpRequestMethods(['GET']),
+      ],
+      action: elbv2.ListenerAction.forward([targetGroup]),
+    });
+    httpsListener.addAction('CorsPreflight', {
+      priority: 30,
+      conditions: [elbv2.ListenerCondition.httpRequestMethods(['OPTIONS'])],
+      action: elbv2.ListenerAction.forward([targetGroup]),
+    });
+    httpsListener.addAction('SocketIo', {
+      priority: 40,
+      conditions: [elbv2.ListenerCondition.pathPatterns(['/socket.io/*'])],
+      action: elbv2.ListenerAction.forward([targetGroup]),
     });
 
     new CfnOutput(this, 'LoadBalancerDnsName', {
@@ -268,6 +316,9 @@ export class BackendStack extends Stack {
     });
     new CfnOutput(this, 'UserPoolClientId', {
       value: userPoolClient.userPoolClientId,
+    });
+    new CfnOutput(this, 'CognitoIssuerUrl', {
+      value: cognitoIssuer,
     });
     new CfnOutput(this, 'ApplicationLogGroupName', {
       value: applicationLogGroup.logGroupName,

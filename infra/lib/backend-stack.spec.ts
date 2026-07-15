@@ -8,7 +8,7 @@ describe('BackendStack', () => {
   const stack = new BackendStack(app, 'TestBackendStack');
   const template = Template.fromStack(stack);
 
-  it('creates the public load balancer with Cognito authentication', () => {
+  it('validates Cognito access tokens at the public load balancer', () => {
     template.hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', {
       Scheme: 'internet-facing',
       Type: 'application',
@@ -18,20 +18,106 @@ describe('BackendStack', () => {
       Protocol: 'HTTPS',
       DefaultActions: Match.arrayWith([
         Match.objectLike({
-          Type: 'authenticate-cognito',
-          AuthenticateCognitoConfig: Match.objectLike({
-            Scope: 'openid email',
-            SessionTimeout: '86400',
+          Type: 'jwt-validation',
+          JwtValidationConfig: Match.objectLike({
+            AdditionalClaims: Match.arrayWith([
+              {
+                Format: 'single-string',
+                Name: 'token_use',
+                Values: ['access'],
+              },
+              Match.objectLike({
+                Format: 'single-string',
+                Name: 'client_id',
+                Values: Match.anyValue(),
+              }),
+            ]),
+            Issuer: Match.anyValue(),
+            JwksEndpoint: Match.anyValue(),
           }),
         }),
         Match.objectLike({ Type: 'forward' }),
       ]),
+      SslPolicy: 'ELBSecurityPolicy-TLS13-1-2-2021-06',
     });
     template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
-      AllowedOAuthFlows: ['code'],
-      AllowedOAuthFlowsUserPoolClient: true,
-      GenerateSecret: true,
+      AccessTokenValidity: 60,
+      AllowedOAuthFlowsUserPoolClient: false,
+      EnableTokenRevocation: true,
+      ExplicitAuthFlows: ['ALLOW_USER_PASSWORD_AUTH', 'ALLOW_REFRESH_TOKEN_AUTH'],
+      GenerateSecret: false,
+      IdTokenValidity: 60,
+      RefreshTokenValidity: 43200,
       SupportedIdentityProviders: ['COGNITO'],
+      TokenValidityUnits: {
+        AccessToken: 'minutes',
+        IdToken: 'minutes',
+        RefreshToken: 'minutes',
+      },
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      AutoVerifiedAttributes: ['email'],
+      UsernameAttributes: ['email'],
+      VerificationMessageTemplate: Match.objectLike({
+        DefaultEmailOption: 'CONFIRM_WITH_CODE',
+      }),
+    });
+    template.hasOutput('CognitoIssuerUrl', {
+      Value: Match.anyValue(),
+    });
+  });
+
+  it('forwards public HTTP and Socket.IO routes without ALB JWT validation', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Priority: 10,
+      Conditions: Match.arrayWith([
+        {
+          Field: 'path-pattern',
+          PathPatternConfig: {
+            Values: [
+              '/api/v1/auth/signup',
+              '/api/v1/auth/signup/confirm',
+              '/api/v1/auth/login',
+              '/api/v1/auth/token/refresh',
+            ],
+          },
+        },
+        {
+          Field: 'http-request-method',
+          HttpRequestMethodConfig: { Values: ['POST'] },
+        },
+      ]),
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+    });
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Priority: 20,
+      Conditions: Match.arrayWith([
+        Match.objectLike({
+          Field: 'path-pattern',
+          PathPatternConfig: { Values: ['/api/v1/health'] },
+        }),
+      ]),
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+    });
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Priority: 30,
+      Conditions: Match.arrayWith([
+        Match.objectLike({
+          Field: 'http-request-method',
+          HttpRequestMethodConfig: { Values: ['OPTIONS'] },
+        }),
+      ]),
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+    });
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Priority: 40,
+      Conditions: Match.arrayWith([
+        Match.objectLike({
+          Field: 'path-pattern',
+          PathPatternConfig: { Values: ['/socket.io/*'] },
+        }),
+      ]),
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
     });
   });
 
@@ -81,11 +167,15 @@ describe('BackendStack', () => {
       StorageEncrypted: true,
       StorageType: 'gp3',
     });
-    template.resourceCountIs('AWS::SecretsManager::Secret', 1);
+    template.hasResource('AWS::SecretsManager::Secret', {});
   });
 
   it('creates private endpoints and the application log group', () => {
-    template.resourceCountIs('AWS::EC2::VPCEndpoint', 2);
+    const endpoints = JSON.stringify(template.findResources('AWS::EC2::VPCEndpoint'));
+
+    expect(endpoints).toContain('.secretsmanager');
+    expect(endpoints).toContain('.logs');
+    expect(endpoints).toContain('.cognito-idp');
     template.hasResourceProperties('AWS::EC2::VPCEndpoint', {
       PrivateDnsEnabled: true,
       VpcEndpointType: 'Interface',

@@ -5522,14 +5522,14 @@
         }
       }
     },
-    "/api/v1/auth/login": {
+    "/api/v1/auth/signup/confirm": {
       "post": {
         "tags": [
           "인증"
         ],
-        "summary": "로그인",
-        "description": "로그인",
-        "operationId": "postAuthLogin",
+        "summary": "회원가입 이메일 확인",
+        "description": "Cognito가 이메일로 전송한 확인 코드를 검증해 회원가입을 완료합니다.",
+        "operationId": "postAuthSignupConfirm",
         "responses": {
           "200": {
             "description": "성공",
@@ -5553,6 +5553,117 @@
                 "example": {
                   "statusCode": 200,
                   "data": {},
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "가입에 사용한 이메일",
+                    "example": "example@gmail.com"
+                  },
+                  "confirmationCode": {
+                    "type": "string",
+                    "description": "Cognito 이메일 확인 코드",
+                    "example": "123456"
+                  }
+                },
+                "required": [
+                  "email",
+                  "confirmationCode"
+                ]
+              },
+              "example": {
+                "email": "example@gmail.com",
+                "confirmationCode": "123456"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "로그인",
+        "description": "로그인",
+        "operationId": "postAuthLogin",
+        "responses": {
+          "200": {
+            "description": "성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "accessToken": {
+                          "type": "string",
+                          "description": "API 요청에 사용할 Cognito access token"
+                        },
+                        "idToken": {
+                          "type": "string",
+                          "description": "사용자 식별 정보가 포함된 Cognito ID token"
+                        },
+                        "refreshToken": {
+                          "type": "string",
+                          "description": "세션 갱신에 사용할 Cognito refresh token"
+                        },
+                        "expiresIn": {
+                          "type": "integer",
+                          "description": "Access token 만료까지 남은 초"
+                        },
+                        "tokenType": {
+                          "type": "string",
+                          "example": "Bearer"
+                        }
+                      },
+                      "required": [
+                        "accessToken",
+                        "idToken",
+                        "refreshToken",
+                        "expiresIn",
+                        "tokenType"
+                      ]
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "accessToken": "eyJraWQiOiJ...",
+                    "idToken": "eyJraWQiOiJ...",
+                    "refreshToken": "eyJjdHkiOiJ...",
+                    "expiresIn": 3600,
+                    "tokenType": "Bearer"
+                  },
                   "error": null
                 }
               }
@@ -5698,6 +5809,105 @@
                 "email": "example@gmail.com",
                 "password": "password123!",
                 "nickname": "길동"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/token/refresh": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "인증 토큰 갱신",
+        "description": "Cognito refresh token으로 access token과 ID token을 갱신합니다.",
+        "operationId": "postAuthTokenRefresh",
+        "responses": {
+          "200": {
+            "description": "성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "accessToken": {
+                          "type": "string",
+                          "description": "API 요청에 사용할 새 Cognito access token"
+                        },
+                        "idToken": {
+                          "type": "string",
+                          "description": "새 Cognito ID token"
+                        },
+                        "expiresIn": {
+                          "type": "integer",
+                          "description": "Access token 만료까지 남은 초"
+                        },
+                        "tokenType": {
+                          "type": "string",
+                          "example": "Bearer"
+                        }
+                      },
+                      "required": [
+                        "accessToken",
+                        "idToken",
+                        "expiresIn",
+                        "tokenType"
+                      ]
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "accessToken": "eyJraWQiOiJ...",
+                    "idToken": "eyJraWQiOiJ...",
+                    "expiresIn": 3600,
+                    "tokenType": "Bearer"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "refreshToken": {
+                    "type": "string",
+                    "description": "로그인 시 발급받은 Cognito refresh token"
+                  }
+                },
+                "required": [
+                  "refreshToken"
+                ]
+              },
+              "example": {
+                "refreshToken": "eyJjdHkiOiJ..."
               }
             }
           }
@@ -7965,7 +8175,8 @@
       "BearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "JWT"
+        "bearerFormat": "JWT",
+        "description": "Cognito access token을 Authorization: Bearer 헤더로 전달합니다."
       },
       "bearerAuth": {
         "type": "http",
