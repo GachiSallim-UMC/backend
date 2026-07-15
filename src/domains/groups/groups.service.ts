@@ -3,11 +3,14 @@ import { GroupRole } from '@prisma/client';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
+import { generateInviteCode } from '../../common/utils/invite-code.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateGroupDto } from './dto/create-group.dto';
+import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 
 const INVITE_CODE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const INVITE_CODE_GENERATION_ATTEMPTS = 5;
 
 @Injectable()
 export class GroupsService {
@@ -67,6 +70,75 @@ export class GroupsService {
       where: { id: groupId },
       data: { isDeleted: true },
     });
+  }
+
+  async reissueInviteCode(groupId: bigint, currentUserId: bigint) {
+    await this.findGroupOrThrow(groupId);
+    await this.requireAdminOrThrow(groupId, currentUserId);
+
+    const inviteCode = await this.generateUniqueInviteCode();
+
+    return this.prisma.group.update({
+      where: { id: groupId },
+      data: {
+        inviteCode,
+        inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
+      },
+    });
+  }
+
+  async joinGroup(dto: JoinGroupDto, currentUserId: bigint) {
+    const group = await this.prisma.group.findUnique({ where: { inviteCode: dto.inviteCode } });
+
+    if (!group || group.isDeleted) {
+      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_INVALID);
+    }
+
+    if (group.inviteExpiredAt.getTime() < Date.now()) {
+      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_EXPIRED);
+    }
+
+    const existingMember = await this.prisma.groupMember.findUnique({
+      where: { userId_groupId: { userId: currentUserId, groupId: group.id } },
+    });
+
+    if (existingMember && !existingMember.leftAt) {
+      throw new BusinessException(ErrorCode.GROUP_ALREADY_MEMBER);
+    }
+
+    if (group.currentMembers >= group.maxMembers) {
+      throw new BusinessException(ErrorCode.GROUP_FULL);
+    }
+
+    const [, updatedGroup] = await this.prisma.$transaction([
+      existingMember
+        ? this.prisma.groupMember.update({
+            where: { userId_groupId: { userId: currentUserId, groupId: group.id } },
+            data: { role: GroupRole.MEMBER, joinedAt: new Date(), leftAt: null },
+          })
+        : this.prisma.groupMember.create({
+            data: { userId: currentUserId, groupId: group.id, role: GroupRole.MEMBER },
+          }),
+      this.prisma.group.update({
+        where: { id: group.id },
+        data: { currentMembers: { increment: 1 } },
+      }),
+    ]);
+
+    return updatedGroup;
+  }
+
+  private async generateUniqueInviteCode(): Promise<string> {
+    for (let attempt = 0; attempt < INVITE_CODE_GENERATION_ATTEMPTS; attempt++) {
+      const candidate = generateInviteCode();
+      const existing = await this.prisma.group.findUnique({ where: { inviteCode: candidate } });
+
+      if (!existing) {
+        return candidate;
+      }
+    }
+
+    throw new BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR);
   }
 
   private async findGroupOrThrow(groupId: bigint) {
