@@ -71,7 +71,7 @@ export const ErrorCode = {
     status: 409,
     code: 'CHORE_409',
     message: '이미 완료된 집안일입니다.',
-
+  },
   // Rule
   RULE_GROUP_NOT_FOUND: {
     status: 404,
