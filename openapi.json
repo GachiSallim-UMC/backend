@@ -6116,7 +6116,38 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "required": [
+                        "userId",
+                        "name",
+                        "nickname",
+                        "email",
+                        "profileImage"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "홍길동"
+                        },
+                        "nickname": {
+                          "type": "string",
+                          "example": "길동"
+                        },
+                        "email": {
+                          "type": "string",
+                          "format": "email",
+                          "example": "user@example.com"
+                        },
+                        "profileImage": {
+                          "type": "string",
+                          "format": "uri",
+                          "nullable": true,
+                          "example": "https://example.com/profile.png"
+                        }
+                      }
                     },
                     "error": {
                       "nullable": true
@@ -6125,7 +6156,13 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "userId": 1,
+                    "name": "홍길동",
+                    "nickname": "길동",
+                    "email": "user@example.com",
+                    "profileImage": "https://example.com/profile.png"
+                  },
                   "error": null
                 }
               }
@@ -6233,6 +6270,12 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -6259,7 +6302,23 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "required": [
+                        "userId",
+                        "deleted"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "deleted": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ],
+                          "example": true
+                        }
+                      }
                     },
                     "error": {
                       "nullable": true
@@ -6268,7 +6327,10 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "userId": 1,
+                    "deleted": true
+                  },
                   "error": null
                 }
               }
@@ -6376,6 +6438,18 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -6404,7 +6478,38 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "required": [
+                        "userId",
+                        "name",
+                        "nickname",
+                        "email",
+                        "profileImage"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "홍길동"
+                        },
+                        "nickname": {
+                          "type": "string",
+                          "example": "길동"
+                        },
+                        "email": {
+                          "type": "string",
+                          "format": "email",
+                          "example": "user@example.com"
+                        },
+                        "profileImage": {
+                          "type": "string",
+                          "format": "uri",
+                          "nullable": true,
+                          "example": null
+                        }
+                      }
                     },
                     "error": {
                       "nullable": true
@@ -6413,7 +6518,13 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "userId": 1,
+                    "name": "홍길동",
+                    "nickname": "길동",
+                    "email": "user@example.com",
+                    "profileImage": null
+                  },
                   "error": null
                 }
               }
@@ -6522,6 +6633,12 @@
               }
             }
           },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
           }
@@ -6533,31 +6650,28 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "email": {
-                    "type": "string",
-                    "description": "이메일",
-                    "example": "example@gmail.com"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
-                  },
                   "nickname": {
                     "type": "string",
                     "description": "닉네임 (2~10자, 특수문자 불가)",
+                    "minLength": 2,
+                    "maxLength": 10,
+                    "pattern": "^[가-힣a-zA-Z0-9]+$",
                     "example": "길동"
+                  },
+                  "profileImage": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 512,
+                    "nullable": true,
+                    "description": "프로필 이미지 URL. null이면 기존 이미지를 제거합니다.",
+                    "example": null
                   }
                 },
-                "required": [
-                  "email",
-                  "password"
-                ]
+                "minProperties": 1
               },
               "example": {
-                "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
+                "nickname": "길동",
+                "profileImage": null
               }
             }
           }
