@@ -205,7 +205,7 @@ export class BackendStack extends Stack {
     });
     instanceRole.addToPolicy(
       new iam.PolicyStatement({
-        actions: ['cognito-idp:AdminDeleteUser'],
+        actions: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'],
         resources: [userPool.userPoolArn],
       }),
     );

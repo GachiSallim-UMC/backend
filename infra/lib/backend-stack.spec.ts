@@ -186,12 +186,12 @@ describe('BackendStack', () => {
     });
   });
 
-  it('allows only scoped Cognito user deletion for signup compensation', () => {
+  it('allows only the scoped Cognito admin actions required by AUTH flows', () => {
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
-            Action: 'cognito-idp:AdminDeleteUser',
+            Action: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'],
             Effect: 'Allow',
             Resource: {
               'Fn::GetAtt': [Match.stringLikeRegexp('UserPool'), 'Arn'],
