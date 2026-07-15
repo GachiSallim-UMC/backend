@@ -71,6 +71,16 @@ export const ErrorCode = {
     code: 'GROUP_FORBIDDEN',
     message: '그룹 관리자만 수행할 수 있는 작업입니다.',
   },
+  GROUP_TARGET_MEMBER_NOT_FOUND: {
+    status: 404,
+    code: 'GROUP_TARGET_MEMBER_NOT_FOUND',
+    message: '대상 사용자는 그룹의 구성원이 아닙니다.',
+  },
+  GROUP_LAST_ADMIN: {
+    status: 409,
+    code: 'GROUP_LAST_ADMIN',
+    message: '그룹에 남은 마지막 관리자는 강등하거나 내보낼 수 없습니다.',
+  },
 
   // Chat
   CHAT_ROOM_NOT_FOUND: {
