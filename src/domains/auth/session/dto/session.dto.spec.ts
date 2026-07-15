@@ -1,3 +1,4 @@
+import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
 import { LoginDto } from './login.dto';
@@ -11,6 +12,16 @@ describe('AUTH session DTO validation', () => {
     });
 
     await expect(validate(dto)).resolves.toHaveLength(0);
+  });
+
+  it('normalizes login email like signup', async () => {
+    const dto = plainToInstance(LoginDto, {
+      email: '  User@Example.COM  ',
+      password: 'Password123',
+    });
+
+    await expect(validate(dto)).resolves.toHaveLength(0);
+    expect(dto.email).toBe('user@example.com');
   });
 
   it.each([
