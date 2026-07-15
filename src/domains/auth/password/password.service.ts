@@ -8,6 +8,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ErrorCode } from '../../../common/constants/error-code.constant';
 import { BusinessException } from '../../../common/exceptions/business.exception';
 import { COGNITO_IDP_CLIENT } from '../common/cognito.constants';
+import { AUTH_PASSWORD_PATTERN } from '../common/password-policy.constants';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ChangePasswordResponseDto } from './dto/change-password-response.dto';
 
@@ -45,14 +46,7 @@ export class PasswordService {
       throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER);
     }
 
-    // Keep these character requirements aligned with the User Pool policy in infra/lib/backend-stack.ts.
-    const satisfiesPolicy =
-      /^\S{8,16}$/.test(newPassword) &&
-      /[a-z]/.test(newPassword) &&
-      /[A-Z]/.test(newPassword) &&
-      /\d/.test(newPassword);
-
-    if (!satisfiesPolicy || previousPassword === newPassword) {
+    if (!AUTH_PASSWORD_PATTERN.test(newPassword) || previousPassword === newPassword) {
       throw new BusinessException(ErrorCode.AUTH_PASSWORD_POLICY_VIOLATION);
     }
   }
