@@ -2,6 +2,12 @@ import { Transform, TransformFnParams } from 'class-transformer';
 import { IsEmail, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
+import {
+  AUTH_PASSWORD_MAX_LENGTH,
+  AUTH_PASSWORD_MIN_LENGTH,
+  AUTH_PASSWORD_PATTERN,
+} from '../../common/password-policy.constants';
+
 function normalizeText({ value }: TransformFnParams): unknown {
   const input = value as unknown;
 
@@ -21,13 +27,15 @@ export class SignupDto {
   @MaxLength(100)
   email!: string;
 
-  @ApiProperty({ example: 'Password123', minLength: 8, maxLength: 256 })
+  @ApiProperty({
+    example: 'Password123',
+    minLength: AUTH_PASSWORD_MIN_LENGTH,
+    maxLength: AUTH_PASSWORD_MAX_LENGTH,
+  })
   @IsString()
-  @MinLength(8)
-  @MaxLength(256)
-  @Matches(/[a-z]/, { message: 'password must contain a lowercase letter' })
-  @Matches(/[A-Z]/, { message: 'password must contain an uppercase letter' })
-  @Matches(/\d/, { message: 'password must contain a number' })
+  @MinLength(AUTH_PASSWORD_MIN_LENGTH)
+  @MaxLength(AUTH_PASSWORD_MAX_LENGTH)
+  @Matches(AUTH_PASSWORD_PATTERN, { message: 'password must satisfy the password policy' })
   password!: string;
 
   @ApiProperty({ example: '홍길동', minLength: 1, maxLength: 30 })

@@ -5483,8 +5483,8 @@
                   "password": {
                     "type": "string",
                     "minLength": 8,
-                    "maxLength": 256,
-                    "description": "8자 이상이며 영문 대·소문자와 숫자를 포함하는 비밀번호",
+                    "maxLength": 16,
+                    "description": "8~16자이며 영문 대·소문자와 숫자를 포함하는 비밀번호",
                     "example": "Password123"
                   },
                   "name": {

@@ -8,7 +8,7 @@ describe('registration DTOs', () => {
   it('accepts a valid signup request and normalizes its email', async () => {
     const dto = plainToInstance(SignupDto, {
       email: ' User@Example.com ',
-      password: 'Password123',
+      password: 'Abcdefghijklmno1',
       name: '홍길동',
       nickname: '길동',
     });
@@ -19,6 +19,7 @@ describe('registration DTOs', () => {
 
   it.each([
     ['password', 'password'],
+    ['password', `A1${'a'.repeat(15)}`],
     ['nickname', '길동!'],
     ['email', 'not-an-email'],
   ])('rejects an invalid %s', async (field, value) => {
