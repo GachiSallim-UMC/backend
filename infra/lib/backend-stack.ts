@@ -59,6 +59,11 @@ export class BackendStack extends Stack {
     });
     loadBalancerSecurityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80));
     loadBalancerSecurityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443));
+    loadBalancerSecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(443),
+      'Allows HTTPS access to the Cognito JWKS endpoint.',
+    );
 
     const applicationSecurityGroup = new ec2.SecurityGroup(this, 'ApplicationSecurityGroup', {
       vpc,
@@ -270,9 +275,15 @@ export class BackendStack extends Stack {
         elbv2.ListenerCondition.pathPatterns([
           '/api/v1/auth/signup',
           '/api/v1/auth/signup/confirm',
-          '/api/v1/auth/login',
-          '/api/v1/auth/token/refresh',
         ]),
+        elbv2.ListenerCondition.httpRequestMethods(['POST']),
+      ],
+      action: elbv2.ListenerAction.forward([targetGroup]),
+    });
+    httpsListener.addAction('PublicSessionRoutes', {
+      priority: 11,
+      conditions: [
+        elbv2.ListenerCondition.pathPatterns(['/api/v1/auth/login', '/api/v1/auth/token/refresh']),
         elbv2.ListenerCondition.httpRequestMethods(['POST']),
       ],
       action: elbv2.ListenerAction.forward([targetGroup]),

@@ -67,6 +67,20 @@ describe('BackendStack', () => {
     });
   });
 
+  it('allows the load balancer to fetch Cognito JWKS over HTTPS', () => {
+    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
+      GroupDescription: 'Allows public HTTPS traffic to the backend load balancer.',
+      SecurityGroupEgress: Match.arrayWith([
+        Match.objectLike({
+          CidrIp: '0.0.0.0/0',
+          FromPort: 443,
+          IpProtocol: 'tcp',
+          ToPort: 443,
+        }),
+      ]),
+    });
+  });
+
   it('forwards public HTTP and Socket.IO routes without ALB JWT validation', () => {
     template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
       Priority: 10,
@@ -74,12 +88,23 @@ describe('BackendStack', () => {
         {
           Field: 'path-pattern',
           PathPatternConfig: {
-            Values: [
-              '/api/v1/auth/signup',
-              '/api/v1/auth/signup/confirm',
-              '/api/v1/auth/login',
-              '/api/v1/auth/token/refresh',
-            ],
+            Values: ['/api/v1/auth/signup', '/api/v1/auth/signup/confirm'],
+          },
+        },
+        {
+          Field: 'http-request-method',
+          HttpRequestMethodConfig: { Values: ['POST'] },
+        },
+      ]),
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+    });
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Priority: 11,
+      Conditions: Match.arrayWith([
+        {
+          Field: 'path-pattern',
+          PathPatternConfig: {
+            Values: ['/api/v1/auth/login', '/api/v1/auth/token/refresh'],
           },
         },
         {
