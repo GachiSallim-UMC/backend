@@ -301,6 +301,102 @@
       }
     },
     "/api/v1/groups": {
+      "get": {
+        "tags": [
+          "GROUP"
+        ],
+        "summary": "내 그룹 목록 조회",
+        "description": "현재 사용자가 속한 활성 그룹 목록을 조회합니다.",
+        "responses": {
+          "200": {
+            "description": "그룹 목록 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "name": {
+                            "type": "string",
+                            "example": "우리집"
+                          },
+                          "description": {
+                            "type": "string",
+                            "example": "강남구 역삼동 셰어하우스"
+                          },
+                          "inviteCode": {
+                            "type": "string",
+                            "nullable": true,
+                            "example": "ABC123"
+                          },
+                          "inviteExpiredAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "example": "2026-07-08T10:00:00Z"
+                          },
+                          "currentMembers": {
+                            "type": "integer",
+                            "example": 3
+                          },
+                          "maxMembers": {
+                            "type": "integer",
+                            "example": 4
+                          },
+                          "createdBy": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "example": "2026-07-01T10:00:00Z"
+                          }
+                        }
+                      }
+                    },
+                    "error": {
+                      "type": "null",
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "COMMON_UNAUTHORIZED | 인증이 필요한 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "COMMON_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "operationId": "getGroups"
+      },
       "post": {
         "tags": [
           "GROUP"
@@ -397,14 +493,14 @@
             }
           },
           "401": {
-            "description": "AUTH_UNAUTHORIZED | 인증 토큰이 없거나 만료된 경우",
+            "description": "COMMON_UNAUTHORIZED | 인증이 필요한 경우",
             "content": {
               "application/json": {
                 "example": {
                   "statusCode": 401,
                   "data": null,
                   "error": {
-                    "code": "AUTH_UNAUTHORIZED",
+                    "code": "COMMON_UNAUTHORIZED",
                     "message": "인증이 필요합니다.",
                     "errors": []
                   }
@@ -484,16 +580,32 @@
               }
             }
           },
+          "401": {
+            "description": "COMMON_UNAUTHORIZED | 인증이 필요한 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "COMMON_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
           "403": {
-            "description": "AUTH_FORBIDDEN | 그룹 구성원이 아닌 경우",
+            "description": "GROUP_MEMBER_NOT_FOUND | 그룹 구성원이 아닌 경우",
             "content": {
               "application/json": {
                 "example": {
                   "statusCode": 403,
                   "data": null,
                   "error": {
-                    "code": "AUTH_FORBIDDEN",
-                    "message": "접근 권한이 없습니다.",
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
                     "errors": []
                   }
                 }
@@ -509,7 +621,7 @@
                   "data": null,
                   "error": {
                     "code": "GROUP_NOT_FOUND",
-                    "message": "그룹을 찾을 수 없습니다.",
+                    "message": "존재하지 않는 그룹입니다.",
                     "errors": []
                   }
                 }
@@ -622,15 +734,15 @@
             }
           },
           "403": {
-            "description": "AUTH_FORBIDDEN | 관리자가 아닌 경우",
+            "description": "GROUP_FORBIDDEN | 관리자가 아닌 경우",
             "content": {
               "application/json": {
                 "example": {
                   "statusCode": 403,
                   "data": null,
                   "error": {
-                    "code": "AUTH_FORBIDDEN",
-                    "message": "관리자만 수정할 수 있습니다.",
+                    "code": "GROUP_FORBIDDEN",
+                    "message": "그룹 관리자만 수행할 수 있는 작업입니다.",
                     "errors": []
                   }
                 }
@@ -646,7 +758,7 @@
                   "data": null,
                   "error": {
                     "code": "GROUP_NOT_FOUND",
-                    "message": "그룹을 찾을 수 없습니다.",
+                    "message": "존재하지 않는 그룹입니다.",
                     "errors": []
                   }
                 }
@@ -658,6 +770,66 @@
           }
         },
         "operationId": "patchGroupsGroupId"
+      },
+      "delete": {
+        "tags": [
+          "GROUP"
+        ],
+        "summary": "그룹 삭제",
+        "description": "그룹을 삭제합니다. 관리자만 가능하며, soft delete로 처리됩니다.",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 1
+            },
+            "description": "그룹 ID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "그룹 삭제 성공"
+          },
+          "403": {
+            "description": "GROUP_FORBIDDEN | 관리자가 아닌 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_FORBIDDEN",
+                    "message": "그룹 관리자만 수행할 수 있는 작업입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "GROUP_NOT_FOUND | 그룹이 존재하지 않는 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_NOT_FOUND",
+                    "message": "존재하지 않는 그룹입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "operationId": "deleteGroupsGroupId"
       }
     },
     "/api/v1/chores/{choreId}": {
@@ -878,8 +1050,8 @@
                   "statusCode": 404,
                   "data": null,
                   "error": {
-                    "code": "COMMON_NOT_FOUND",
-                    "message": "요청한 리소스를 찾을 수 없습니다.",
+                    "code": "CHORE_404",
+                    "message": "존재하지 않는 집안일입니다.",
                     "errors": []
                   }
                 }
@@ -936,6 +1108,90 @@
                 "startDate": "2026-07-04",
                 "dueDate": "2026-07-06",
                 "repeatType": "WEEKLY"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "집안일"
+        ],
+        "summary": "집안일 삭제 (CHORE-DEL-01)",
+        "description": "집안일을 삭제합니다. 등록자(createdBy) 또는 관리자 권한을 확인한 후 hard delete합니다. 반복 부모 항목 삭제 시 자식 항목은 유지되며 parentId가 SetNull로 처리됩니다.",
+        "operationId": "deleteChoresChoreId",
+        "parameters": [
+          {
+            "name": "choreId",
+            "in": "path",
+            "required": true,
+            "description": "삭제할 집안일 ID",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 11
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "집안일 삭제 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "choreId": 11
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "등록자도 관리자도 아님",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "CHORE_403",
+                    "message": "집안일을 삭제할 권한이 없습니다. (등록자 또는 관리자만 가능)",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "집안일 없음",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "CHORE_404",
+                    "message": "존재하지 않는 집안일입니다.",
+                    "errors": []
+                  }
+                }
               }
             }
           }
@@ -1117,8 +1373,8 @@
                   "statusCode": 404,
                   "data": null,
                   "error": {
-                    "code": "COMMON_NOT_FOUND",
-                    "message": "요청한 리소스를 찾을 수 없습니다.",
+                    "code": "CHORE_404",
+                    "message": "존재하지 않는 집안일입니다.",
                     "errors": []
                   }
                 }
@@ -1159,7 +1415,7 @@
                   "statusCode": 409,
                   "data": null,
                   "error": {
-                    "code": "COMMON_CONFLICT",
+                    "code": "CHORE_409",
                     "message": "이미 완료된 집안일입니다.",
                     "errors": []
                   }
@@ -1328,8 +1584,8 @@
                   "statusCode": 400,
                   "data": null,
                   "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "code": "CHORE_400_DATE",
+                    "message": "마감일은 시작일보다 빠를 수 없습니다.",
                     "errors": [
                       {
                         "field": "dueDate",
@@ -1717,6 +1973,90 @@
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "집안일"
+        ],
+        "summary": "집안일 삭제 (CHORE-DEL-01)",
+        "description": "집안일을 삭제합니다. 등록자(createdBy) 또는 관리자 권한을 확인한 후 hard delete합니다. 반복 부모 항목 삭제 시 자식 항목은 유지되며 parentId가 SetNull로 처리됩니다.",
+        "operationId": "deleteChoresChoreIdShare",
+        "parameters": [
+          {
+            "name": "choreId",
+            "in": "path",
+            "required": true,
+            "description": "삭제할 집안일 ID",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 11
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "집안일 삭제 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "choreId": 11
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "등록자도 관리자도 아님",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "CHORE_403",
+                    "message": "집안일을 삭제할 권한이 없습니다. (등록자 또는 관리자만 가능)",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "집안일 없음",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "CHORE_404",
+                    "message": "존재하지 않는 집안일입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -2738,8 +3078,8 @@
                   "statusCode": 409,
                   "data": null,
                   "error": {
-                    "code": "COMMON_CONFLICT",
-                    "message": "이미 등록된 물품입니다.",
+                    "code": "SUP_409",
+                    "message": "이미 등록된 공용물품입니다. (그룹 내 동일 물품명)",
                     "errors": []
                   }
                 }
@@ -3003,6 +3343,92 @@
         }
       }
     },
+    "/api/v1/supplies/{supplyId}": {
+      "delete": {
+        "tags": [
+          "물품"
+        ],
+        "summary": "물품 삭제 (SUP-DEL-01)",
+        "description": "공용 물품을 삭제합니다. 등록자(createdBy) 또는 관리자 권한을 확인한 후 supply_logs 이력을 먼저 삭제하고 물품을 삭제합니다(트랜잭션). supply_logs.supplyId는 onDelete 기본값(Restrict)이므로 반드시 로그 먼저 삭제가 필요합니다. linkedExpenseId는 SetNull이므로 연결된 정산(Expense)은 유지됩니다.",
+        "operationId": "deleteSuppliesSupplyId",
+        "parameters": [
+          {
+            "name": "supplyId",
+            "in": "path",
+            "required": true,
+            "description": "삭제할 물품 ID",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 21
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "물품 삭제 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "supplyId": 21
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "등록자도 관리자도 아님",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_403",
+                    "message": "공용물품을 삭제할 권한이 없습니다. (등록자 또는 관리자만 가능)",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "물품 없음",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_404",
+                    "message": "존재하지 않는 공용물품입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/supplies/{supplyId}/purchase": {
       "post": {
         "tags": [
@@ -3169,8 +3595,8 @@
                   "statusCode": 400,
                   "data": null,
                   "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "code": "SUP_400_CATEGORY",
+                    "message": "구매 완료 처리 시 정산 카테고리(categoryId)는 필수입니다.",
                     "errors": [
                       {
                         "field": "categoryId",
@@ -3259,8 +3685,8 @@
                   "statusCode": 404,
                   "data": null,
                   "error": {
-                    "code": "COMMON_NOT_FOUND",
-                    "message": "요청한 리소스를 찾을 수 없습니다.",
+                    "code": "SUP_404",
+                    "message": "존재하지 않는 공용물품입니다.",
                     "errors": []
                   }
                 }
@@ -3512,6 +3938,90 @@
             "$ref": "#/components/responses/ErrorResponse"
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "물품"
+        ],
+        "summary": "물품 삭제 (SUP-DEL-01)",
+        "description": "공용 물품을 삭제합니다. 등록자(createdBy) 또는 관리자 권한을 확인한 후 supply_logs 이력을 먼저 삭제하고 물품을 삭제합니다(트랜잭션). supply_logs.supplyId는 onDelete 기본값(Restrict)이므로 반드시 로그 먼저 삭제가 필요합니다. linkedExpenseId는 SetNull이므로 연결된 정산(Expense)은 유지됩니다.",
+        "operationId": "deleteSuppliesSupplyIdShare",
+        "parameters": [
+          {
+            "name": "supplyId",
+            "in": "path",
+            "required": true,
+            "description": "삭제할 물품 ID",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 21
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "물품 삭제 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "supplyId": 21
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "등록자도 관리자도 아님",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_403",
+                    "message": "공용물품을 삭제할 권한이 없습니다. (등록자 또는 관리자만 가능)",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "물품 없음",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_404",
+                    "message": "존재하지 않는 공용물품입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/supplies/{supplyId}/status": {
@@ -3540,6 +4050,22 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "존재하지 않는 공용물품",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_404",
+                    "message": "존재하지 않는 공용물품입니다.",
+                    "errors": []
+                  }
                 }
               }
             }
@@ -6686,7 +7212,7 @@
             }
           },
           "400": {
-            "description": "AUTH_CURRENT_PASSWORD_INVALID | AUTH_PASSWORD_POLICY_VIOLATION | COMMON_400_PARAM",
+            "description": "AUTH_CURRENT_PASSWORD_INVALID | AUTH_PASSWORD_POLICY_VIOLATION | COMMON_INVALID_PARAMETER",
             "content": {
               "application/json": {
                 "schema": {

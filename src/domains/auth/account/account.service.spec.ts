@@ -153,7 +153,7 @@ describe('AuthAccountService', () => {
 
   it('rejects an empty profile update', async () => {
     await expect(service.updateProfile('cognito-sub', {})).rejects.toMatchObject({
-      code: 'COMMON_400_PARAM',
+      code: 'COMMON_INVALID_PARAMETER',
     });
     expect(prisma.userAuthIdentity.findUnique).not.toHaveBeenCalled();
   });

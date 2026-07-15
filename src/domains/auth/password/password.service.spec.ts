@@ -70,7 +70,7 @@ describe('PasswordService', () => {
         previousPassword,
         newPassword: 'NewPassword1',
       }),
-    ).rejects.toMatchObject({ code: 'COMMON_400_PARAM' });
+    ).rejects.toMatchObject({ code: 'COMMON_INVALID_PARAMETER' });
     expect(cognitoClient.send).not.toHaveBeenCalled();
   });
 
