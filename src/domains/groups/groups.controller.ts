@@ -5,6 +5,7 @@ import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { parseBigIntId } from '../../common/utils/id.util';
 import { CreateGroupDto } from './dto/create-group.dto';
+import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { GroupsService } from './groups.service';
 
@@ -21,6 +22,16 @@ export class GroupsController {
   @Post()
   createGroup(@Headers('x-user-id') userId: string, @Body() dto: CreateGroupDto) {
     return this.groupsService.createGroup(dto, this.requireUserId(userId));
+  }
+
+  @Post('join')
+  joinGroup(@Headers('x-user-id') userId: string, @Body() dto: JoinGroupDto) {
+    return this.groupsService.joinGroup(dto, this.requireUserId(userId));
+  }
+
+  @Post(':groupId/invite-code')
+  reissueInviteCode(@Headers('x-user-id') userId: string, @Param('groupId') groupId: string) {
+    return this.groupsService.reissueInviteCode(parseBigIntId(groupId, 'groupId'), this.requireUserId(userId));
   }
 
   @Get(':groupId')
