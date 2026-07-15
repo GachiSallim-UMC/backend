@@ -10,4 +10,7 @@ export const ENV_VALIDATION_SCHEMA = joi.object({
     .string()
     .uri({ scheme: ['postgresql', 'postgres'] })
     .required(),
+  AWS_REGION: joi.string().min(1).required(),
+  COGNITO_USER_POOL_ID: joi.string().min(1).required(),
+  COGNITO_CLIENT_ID: joi.string().min(1).required(),
 });

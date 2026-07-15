@@ -211,6 +211,22 @@ describe('BackendStack', () => {
     });
   });
 
+  it('allows only the scoped Cognito admin actions required by AUTH flows', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'],
+            Effect: 'Allow',
+            Resource: {
+              'Fn::GetAtt': [Match.stringLikeRegexp('UserPool'), 'Arn'],
+            },
+          }),
+        ]),
+      },
+    });
+  });
+
   it('checks backend health through the existing endpoint', () => {
     template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
       HealthCheckPath: '/api/v1/health',

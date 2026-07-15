@@ -208,6 +208,12 @@ export class BackendStack extends Stack {
       deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,
     });
+    instanceRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'],
+        resources: [userPool.userPoolArn],
+      }),
+    );
     const userPoolClient = userPool.addClient('UserPoolClient', {
       userPoolClientName: 'gachisallim-web',
       generateSecret: false,
