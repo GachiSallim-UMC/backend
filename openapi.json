@@ -5361,7 +5361,24 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "format": "int64"
+                        },
+                        "email": {
+                          "type": "string",
+                          "format": "email"
+                        },
+                        "confirmationRequired": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "userId",
+                        "email",
+                        "confirmationRequired"
+                      ]
                     },
                     "error": {
                       "nullable": true
@@ -5370,7 +5387,11 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "userId": 1,
+                    "email": "example@gmail.com",
+                    "confirmationRequired": true
+                  },
                   "error": null
                 }
               }
@@ -5437,47 +5458,8 @@
               }
             }
           },
-          "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -5493,28 +5475,45 @@
                 "properties": {
                   "email": {
                     "type": "string",
+                    "format": "email",
+                    "maxLength": 100,
                     "description": "이메일",
                     "example": "example@gmail.com"
                   },
                   "password": {
                     "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
+                    "minLength": 8,
+                    "maxLength": 16,
+                    "description": "8~16자이며 영문 대·소문자와 숫자를 포함하는 비밀번호",
+                    "example": "Password123"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30,
+                    "description": "이름",
+                    "example": "홍길동"
                   },
                   "nickname": {
                     "type": "string",
+                    "minLength": 2,
+                    "maxLength": 10,
+                    "pattern": "^[\\p{L}\\p{N}]+$",
                     "description": "닉네임 (2~10자, 특수문자 불가)",
                     "example": "길동"
                   }
                 },
                 "required": [
                   "email",
-                  "password"
+                  "password",
+                  "name",
+                  "nickname"
                 ]
               },
               "example": {
                 "email": "example@gmail.com",
-                "password": "password123!",
+                "password": "Password123",
+                "name": "홍길동",
                 "nickname": "길동"
               }
             }
@@ -5543,7 +5542,24 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "format": "int64"
+                        },
+                        "email": {
+                          "type": "string",
+                          "format": "email"
+                        },
+                        "confirmed": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "userId",
+                        "email",
+                        "confirmed"
+                      ]
                     },
                     "error": {
                       "nullable": true
@@ -5552,13 +5568,20 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "userId": 1,
+                    "email": "example@gmail.com",
+                    "confirmed": true
+                  },
                   "error": null
                 }
               }
             }
           },
           "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
             "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
@@ -5581,6 +5604,7 @@
                   },
                   "confirmationCode": {
                     "type": "string",
+                    "pattern": "^\\d{6}$",
                     "description": "Cognito 이메일 확인 코드",
                     "example": "123456"
                   }
