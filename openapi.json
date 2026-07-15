@@ -5629,7 +5629,7 @@
           "인증"
         ],
         "summary": "로그인",
-        "description": "로그인",
+        "description": "이메일과 비밀번호로 Cognito 세션을 생성합니다.",
         "operationId": "postAuthLogin",
         "responses": {
           "200": {
@@ -5744,9 +5744,9 @@
                     "message": "요청 파라미터가 잘못되었습니다.",
                     "errors": [
                       {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
+                        "field": "email",
+                        "value": "invalid-email",
+                        "reason": "email must be an email"
                       }
                     ]
                   }
@@ -5788,13 +5788,25 @@
                   "statusCode": 401,
                   "data": null,
                   "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
+                    "code": "AUTH_INVALID_CREDENTIALS",
+                    "message": "이메일 또는 비밀번호가 올바르지 않습니다.",
                     "errors": []
                   }
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -5816,12 +5828,7 @@
                   "password": {
                     "type": "string",
                     "description": "비밀번호",
-                    "example": "password123!"
-                  },
-                  "nickname": {
-                    "type": "string",
-                    "description": "닉네임 (2~10자, 특수문자 불가)",
-                    "example": "길동"
+                    "example": "Password123"
                   }
                 },
                 "required": [
@@ -5831,8 +5838,7 @@
               },
               "example": {
                 "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
+                "password": "Password123"
               }
             }
           }
@@ -5909,6 +5915,12 @@
           "401": {
             "$ref": "#/components/responses/ErrorResponse"
           },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
           }
@@ -5944,7 +5956,7 @@
           "인증"
         ],
         "summary": "로그아웃",
-        "description": "로그아웃",
+        "description": "현재 Cognito access token으로 모든 세션을 종료합니다.",
         "operationId": "postAuthLogout",
         "responses": {
           "200": {
@@ -5959,7 +5971,15 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "properties": {
+                        "signedOut": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      },
+                      "required": [
+                        "signedOut"
+                      ]
                     },
                     "error": {
                       "nullable": true
@@ -5968,69 +5988,10 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "signedOut": true
+                  },
                   "error": null
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
-                              },
-                              "reason": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 400,
-                  "data": null,
-                  "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
-                    "errors": [
-                      {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
-                      }
-                    ]
-                  }
                 }
               }
             }
@@ -6077,44 +6038,14 @@
               }
             }
           },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "email": {
-                    "type": "string",
-                    "description": "이메일",
-                    "example": "example@gmail.com"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
-                  },
-                  "nickname": {
-                    "type": "string",
-                    "description": "닉네임 (2~10자, 특수문자 불가)",
-                    "example": "길동"
-                  }
-                },
-                "required": [
-                  "email",
-                  "password"
-                ]
-              },
-              "example": {
-                "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
-              }
-            }
           }
         }
       }
