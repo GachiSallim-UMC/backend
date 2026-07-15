@@ -6684,22 +6684,36 @@
           "인증"
         ],
         "summary": "비밀번호 변경",
-        "description": "비밀번호 변경",
+        "description": "Cognito access token으로 현재 비밀번호를 확인하고 새 비밀번호로 변경합니다.",
         "operationId": "postAuthPasswordChange",
         "responses": {
           "200": {
-            "description": "성공",
+            "description": "비밀번호 변경 성공",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
                   "properties": {
                     "statusCode": {
-                      "type": "integer"
+                      "type": "integer",
+                      "example": 200
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "required": [
+                        "changed"
+                      ],
+                      "properties": {
+                        "changed": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      }
                     },
                     "error": {
                       "nullable": true
@@ -6708,110 +6722,81 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "changed": true
+                  },
                   "error": null
                 }
               }
             }
           },
           "400": {
-            "description": "실패",
+            "description": "AUTH_CURRENT_PASSWORD_INVALID | AUTH_PASSWORD_POLICY_VIOLATION | COMMON_400_PARAM",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
-                              },
-                              "reason": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/ErrorResponse"
                 },
                 "example": {
                   "statusCode": 400,
                   "data": null,
                   "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
-                    "errors": [
-                      {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
-                      }
-                    ]
+                    "code": "AUTH_PASSWORD_POLICY_VIOLATION",
+                    "message": "비밀번호 정책을 충족하지 않습니다."
                   }
                 }
               }
             }
           },
           "401": {
-            "description": "실패",
+            "description": "AUTH_UNAUTHORIZED | 인증 토큰이 없거나 올바르지 않은 경우",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/ErrorResponse"
                 },
                 "example": {
                   "statusCode": 401,
                   "data": null,
                   "error": {
                     "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
+                    "message": "인증이 필요합니다."
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "AUTH_TOO_MANY_REQUESTS | 인증 서비스 요청 제한을 초과한 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 429,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_TOO_MANY_REQUESTS",
+                    "message": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "AUTH_PROVIDER_ERROR | 인증 서비스 요청 처리에 실패한 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 502,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_PROVIDER_ERROR",
+                    "message": "인증 서비스 요청을 처리하지 못했습니다."
                   }
                 }
               }
@@ -6827,32 +6812,31 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "properties": {
-                  "email": {
-                    "type": "string",
-                    "description": "이메일",
-                    "example": "example@gmail.com"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
-                  },
-                  "nickname": {
-                    "type": "string",
-                    "description": "닉네임 (2~10자, 특수문자 불가)",
-                    "example": "길동"
-                  }
-                },
                 "required": [
-                  "email",
-                  "password"
-                ]
+                  "previousPassword",
+                  "newPassword"
+                ],
+                "properties": {
+                  "previousPassword": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "pattern": "^\\S+$",
+                    "description": "현재 비밀번호 (최대 256자, 공백 불가)",
+                    "example": "CurrentPass1"
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 16,
+                    "pattern": "^\\S+$",
+                    "description": "새 비밀번호 (8~16자, 공백 없이 영문 대문자·소문자·숫자 포함, 현재 비밀번호와 달라야 함)",
+                    "example": "NewPassword1"
+                  }
+                }
               },
               "example": {
-                "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
+                "previousPassword": "CurrentPass1",
+                "newPassword": "NewPassword1"
               }
             }
           }
