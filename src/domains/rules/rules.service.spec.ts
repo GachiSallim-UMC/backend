@@ -239,7 +239,7 @@ describe('RulesService', () => {
     prisma.rule.findUnique.mockResolvedValue(null);
 
     await expect(service.getRule(999n, 10n)).rejects.toMatchObject({
-      code: ErrorCode.COMMON_NOT_FOUND,
+      code: 'COMMON_404',
     });
     expect(prisma.groupMember.findUnique).not.toHaveBeenCalled();
   });
