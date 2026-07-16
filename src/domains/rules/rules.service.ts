@@ -5,8 +5,10 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateRuleDto } from './dto/create-rule.dto';
 import { ListRulesQueryDto } from './dto/list-rules-query.dto';
+import { RuleAgreementResponseDto } from './dto/rule-agreement-response.dto';
 import { RuleListResponseDto } from './dto/rule-list-response.dto';
 import { RuleResponseDto } from './dto/rule-response.dto';
+import { RuleAgreementStatusValue, UpdateRuleAgreementDto } from './dto/update-rule-agreement.dto';
 import { UpdateRuleDto } from './dto/update-rule.dto';
 
 @Injectable()
@@ -117,6 +119,57 @@ export class RulesService {
     });
 
     return { ruleId: Number(updatedRule.id), title: updatedRule.title };
+  }
+
+  async updateRuleAgreement(
+    ruleId: number,
+    dto: UpdateRuleAgreementDto,
+    currentUserId: bigint,
+  ): Promise<RuleAgreementResponseDto> {
+    const rule = await this.prisma.rule.findUnique({ where: { id: BigInt(ruleId) } });
+    if (!rule) {
+      throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
+    }
+
+    const groupMember = await this.prisma.groupMember.findUnique({
+      where: {
+        userId_groupId: {
+          userId: currentUserId,
+          groupId: rule.groupId,
+        },
+      },
+    });
+    if (!groupMember || groupMember.leftAt) {
+      throw new BusinessException(ErrorCode.GROUP_MEMBER_NOT_FOUND);
+    }
+
+    const confirmedAt = dto.status === RuleAgreementStatusValue.PENDING ? null : new Date();
+    const agreement = await this.prisma.ruleAgreement.upsert({
+      where: {
+        ruleId_userId: {
+          ruleId: BigInt(ruleId),
+          userId: currentUserId,
+        },
+      },
+      create: {
+        ruleId: BigInt(ruleId),
+        userId: currentUserId,
+        status: dto.status,
+        confirmedAt,
+      },
+      update: {
+        status: dto.status,
+        confirmedAt,
+      },
+    });
+
+    return {
+      agreementId: Number(agreement.id),
+      ruleId: Number(agreement.ruleId),
+      userId: Number(agreement.userId),
+      status: agreement.status,
+      confirmedAt: agreement.confirmedAt?.toISOString() ?? null,
+    };
   }
 
   async deleteRule(ruleId: number, currentUserId: bigint): Promise<RuleResponseDto> {
