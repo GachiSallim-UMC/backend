@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { GroupRole } from '@prisma/client';
+import { GroupRole, Prisma } from '@prisma/client';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -9,6 +9,10 @@ import { UpdateGroupDto } from './dto/update-group.dto';
 import { UpdateMemberRoleDto } from './dto/update-member-role.dto';
 
 const INVITE_CODE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const WRITE_CONFLICT_ERROR_CODE = 'P2034';
+const MAX_SERIALIZABLE_RETRIES = 3;
+
+type PrismaTransactionClient = Prisma.TransactionClient;
 
 @Injectable()
 export class GroupsService {
@@ -84,15 +88,17 @@ export class GroupsService {
     await this.findGroupOrThrow(groupId);
     await this.requireAdminOrThrow(groupId, currentUserId);
 
-    const targetMember = await this.requireActiveTargetMemberOrThrow(groupId, targetUserId);
+    return this.runSerializable(async (tx) => {
+      const targetMember = await this.requireActiveTargetMemberOrThrow(groupId, targetUserId, tx);
 
-    if (targetMember.role === GroupRole.ADMIN && dto.role !== GroupRole.ADMIN) {
-      await this.requireNotLastAdminOrThrow(groupId);
-    }
+      if (targetMember.role === GroupRole.ADMIN && dto.role !== GroupRole.ADMIN) {
+        await this.requireNotLastAdminOrThrow(groupId, tx);
+      }
 
-    return this.prisma.groupMember.update({
-      where: { userId_groupId: { userId: targetUserId, groupId } },
-      data: { role: dto.role },
+      return tx.groupMember.update({
+        where: { userId_groupId: { userId: targetUserId, groupId } },
+        data: { role: dto.role },
+      });
     });
   }
 
@@ -105,26 +111,50 @@ export class GroupsService {
       await this.requireAdminOrThrow(groupId, currentUserId);
     }
 
-    const targetMember = await this.requireActiveTargetMemberOrThrow(groupId, targetUserId);
+    await this.runSerializable(async (tx) => {
+      const targetMember = await this.requireActiveTargetMemberOrThrow(groupId, targetUserId, tx);
 
-    if (targetMember.role === GroupRole.ADMIN) {
-      await this.requireNotLastAdminOrThrow(groupId);
-    }
+      if (targetMember.role === GroupRole.ADMIN) {
+        await this.requireNotLastAdminOrThrow(groupId, tx);
+      }
 
-    await this.prisma.$transaction([
-      this.prisma.groupMember.update({
-        where: { userId_groupId: { userId: targetUserId, groupId } },
+      const { count } = await tx.groupMember.updateMany({
+        where: { userId: targetUserId, groupId, leftAt: null },
         data: { leftAt: new Date() },
-      }),
-      this.prisma.group.update({
-        where: { id: groupId },
-        data: { currentMembers: { decrement: 1 } },
-      }),
-    ]);
+      });
+
+      if (count === 1) {
+        await tx.group.update({
+          where: { id: groupId },
+          data: { currentMembers: { decrement: 1 } },
+        });
+      }
+    });
   }
 
-  private async requireActiveTargetMemberOrThrow(groupId: bigint, targetUserId: bigint) {
-    const member = await this.prisma.groupMember.findUnique({
+  private async runSerializable<T>(fn: (tx: PrismaTransactionClient) => Promise<T>): Promise<T> {
+    for (let attempt = 1; attempt <= MAX_SERIALIZABLE_RETRIES; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error) {
+        const isWriteConflict =
+          error instanceof Prisma.PrismaClientKnownRequestError && error.code === WRITE_CONFLICT_ERROR_CODE;
+
+        if (!isWriteConflict || attempt === MAX_SERIALIZABLE_RETRIES) {
+          throw error;
+        }
+      }
+    }
+
+    throw new Error('unreachable');
+  }
+
+  private async requireActiveTargetMemberOrThrow(
+    groupId: bigint,
+    targetUserId: bigint,
+    client: PrismaTransactionClient | PrismaService,
+  ) {
+    const member = await client.groupMember.findUnique({
       where: { userId_groupId: { userId: targetUserId, groupId } },
     });
 
@@ -135,8 +165,8 @@ export class GroupsService {
     return member;
   }
 
-  private async requireNotLastAdminOrThrow(groupId: bigint) {
-    const adminCount = await this.prisma.groupMember.count({
+  private async requireNotLastAdminOrThrow(groupId: bigint, client: PrismaTransactionClient | PrismaService) {
+    const adminCount = await client.groupMember.count({
       where: { groupId, role: GroupRole.ADMIN, leftAt: null },
     });
 

@@ -15,9 +15,10 @@ type MockedPrisma = {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     findMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     update: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    updateMany: jest.MockedFunction<(args: unknown) => Promise<{ count: number }>>;
     count: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
-  $transaction: jest.MockedFunction<(args: unknown[]) => Promise<unknown[]>>;
+  $transaction: jest.MockedFunction<(fn: (tx: unknown) => Promise<unknown>, options?: unknown) => Promise<unknown>>;
 };
 
 describe('GroupsService', () => {
@@ -35,12 +36,12 @@ describe('GroupsService', () => {
         findUnique: jest.fn<() => Promise<unknown>>(),
         findMany: jest.fn<() => Promise<unknown>>(),
         update: jest.fn<() => Promise<unknown>>(),
+        updateMany: jest.fn<() => Promise<{ count: number }>>().mockResolvedValue({ count: 1 }),
         count: jest.fn<() => Promise<unknown>>(),
       },
-      $transaction: jest.fn<(args: unknown[]) => Promise<unknown[]>>((args: unknown[]) =>
-        Promise.all(args as Promise<unknown>[]),
-      ),
+      $transaction: jest.fn(),
     };
+    prisma.$transaction.mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(prisma));
 
     service = new GroupsService(prisma as unknown as PrismaService);
   });
@@ -205,9 +206,13 @@ describe('GroupsService', () => {
     await service.removeMember(1n, 20n, 20n);
 
     expect(prisma.$transaction).toHaveBeenCalled();
-    expect(prisma.groupMember.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId_groupId: { userId: 20n, groupId: 1n } } }),
+    expect(prisma.groupMember.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 20n, groupId: 1n, leftAt: null } }),
     );
+    expect(prisma.group.update).toHaveBeenCalledWith({
+      where: { id: 1n },
+      data: { currentMembers: { decrement: 1 } },
+    });
   });
 
   it('lets an ADMIN kick a different member', async () => {
@@ -219,6 +224,18 @@ describe('GroupsService', () => {
     await service.removeMember(1n, 20n, 10n);
 
     expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it('does not double-decrement currentMembers when the member was already removed concurrently', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique
+      .mockResolvedValueOnce({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null })
+      .mockResolvedValueOnce({ userId: 20n, groupId: 1n, role: 'MEMBER', leftAt: null });
+    prisma.groupMember.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await service.removeMember(1n, 20n, 10n);
+
+    expect(prisma.group.update).not.toHaveBeenCalled();
   });
 
   it('throws when a non-ADMIN tries to kick another member', async () => {
@@ -236,6 +253,6 @@ describe('GroupsService', () => {
     prisma.groupMember.count.mockResolvedValue(1);
 
     await expect(service.removeMember(1n, 10n, 10n)).rejects.toBeInstanceOf(BusinessException);
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.groupMember.updateMany).not.toHaveBeenCalled();
   });
 });
