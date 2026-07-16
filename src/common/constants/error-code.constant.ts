@@ -110,6 +110,12 @@ export const ErrorCode = {
     message: '존재하지 않는 사용자입니다.',
   },
 
+  // Notification
+  NOTIFICATION_NOT_FOUND: {
+    status: 404,
+    code: 'NOTIFICATION_NOT_FOUND',
+    message: '존재하지 않는 알림입니다.',
+  },
 
   // Chore
   CHORE_INVALID_DATE: {
