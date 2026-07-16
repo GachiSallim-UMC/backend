@@ -25,4 +25,14 @@ describe('CreatePushSubscriptionDto', () => {
       expect.arrayContaining(['endpoint', 'keys']),
     );
   });
+
+  it('rejects a request that omits keys before the service reads nested values', async () => {
+    const dto = plainToInstance(CreatePushSubscriptionDto, {
+      endpoint: 'https://push.example.com/subscriptions/device-token',
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((error) => error.property)).toContain('keys');
+  });
 });
