@@ -8051,177 +8051,86 @@
           "알림"
         ],
         "summary": "내부 알림 생성",
-        "description": "내부 알림 생성",
+        "description": "인증된 그룹 관리자가 같은 그룹의 활성 구성원에게 알림 데이터를 생성합니다. 실제 Web Push 전송은 수행하지 않습니다.",
         "operationId": "postInternalNotifications",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInternalNotification"
+              },
+              "example": {
+                "userId": 8,
+                "groupId": 3,
+                "type": "RULE_CHANGED",
+                "refId": 42,
+                "message": "생활 규칙이 변경되었습니다."
+              }
+            }
+          }
+        },
         "responses": {
-          "200": {
-            "description": "성공",
+          "201": {
+            "description": "내부 알림 생성 성공",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
                   "properties": {
                     "statusCode": {
-                      "type": "integer"
+                      "type": "integer",
+                      "example": 201
                     },
                     "data": {
-                      "type": "object",
-                      "properties": {}
+                      "$ref": "#/components/schemas/Notification"
                     },
                     "error": {
-                      "nullable": true
+                      "nullable": true,
+                      "example": null
                     }
                   }
                 },
                 "example": {
-                  "statusCode": 200,
-                  "data": {},
+                  "statusCode": 201,
+                  "data": {
+                    "notificationId": 101,
+                    "groupId": 3,
+                    "type": "RULE_CHANGED",
+                    "refId": 42,
+                    "message": "생활 규칙이 변경되었습니다.",
+                    "isRead": false,
+                    "createdAt": "2026-07-16T09:00:00.000Z"
+                  },
                   "error": null
                 }
               }
             }
           },
           "400": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
-                              },
-                              "reason": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 400,
-                  "data": null,
-                  "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
-                    "errors": [
-                      {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
-                      }
-                    ]
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "email": {
-                    "type": "string",
-                    "description": "이메일",
-                    "example": "example@gmail.com"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
-                  },
-                  "nickname": {
-                    "type": "string",
-                    "description": "닉네임 (2~10자, 특수문자 불가)",
-                    "example": "길동"
-                  }
-                },
-                "required": [
-                  "email",
-                  "password"
-                ]
-              },
-              "example": {
-                "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
-              }
-            }
           }
         }
       }
@@ -8359,6 +8268,52 @@
           "unreadCount": {
             "type": "integer",
             "example": 4
+          }
+        }
+      },
+      "CreateInternalNotification": {
+        "type": "object",
+        "required": [
+          "userId",
+          "groupId",
+          "type",
+          "message"
+        ],
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 8
+          },
+          "groupId": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 3
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "CHORE_DUE",
+              "EXPENSE_REQUEST",
+              "SUPPLY_LOW",
+              "RULE_CHANGED",
+              "NEW_MESSAGE",
+              "GROUP_INVITE",
+              "EXPENSE_DONE"
+            ],
+            "example": "RULE_CHANGED"
+          },
+          "refId": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 42
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "\\S",
+            "example": "생활 규칙이 변경되었습니다."
           }
         }
       },
