@@ -5887,7 +5887,24 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "format": "int64"
+                        },
+                        "email": {
+                          "type": "string",
+                          "format": "email"
+                        },
+                        "confirmationRequired": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "userId",
+                        "email",
+                        "confirmationRequired"
+                      ]
                     },
                     "error": {
                       "nullable": true
@@ -5896,7 +5913,11 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "userId": 1,
+                    "email": "example@gmail.com",
+                    "confirmationRequired": true
+                  },
                   "error": null
                 }
               }
@@ -5963,47 +5984,8 @@
               }
             }
           },
-          "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -6019,29 +6001,148 @@
                 "properties": {
                   "email": {
                     "type": "string",
+                    "format": "email",
+                    "maxLength": 100,
                     "description": "이메일",
                     "example": "example@gmail.com"
                   },
                   "password": {
                     "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
+                    "minLength": 8,
+                    "maxLength": 16,
+                    "description": "8~16자이며 영문 대·소문자와 숫자를 포함하는 비밀번호",
+                    "example": "Password123"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30,
+                    "description": "이름",
+                    "example": "홍길동"
                   },
                   "nickname": {
                     "type": "string",
+                    "minLength": 2,
+                    "maxLength": 10,
+                    "pattern": "^[\\p{L}\\p{N}]+$",
                     "description": "닉네임 (2~10자, 특수문자 불가)",
                     "example": "길동"
                   }
                 },
                 "required": [
                   "email",
-                  "password"
+                  "password",
+                  "name",
+                  "nickname"
                 ]
               },
               "example": {
                 "email": "example@gmail.com",
-                "password": "password123!",
+                "password": "Password123",
+                "name": "홍길동",
                 "nickname": "길동"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/signup/confirm": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "회원가입 이메일 확인",
+        "description": "Cognito가 이메일로 전송한 확인 코드를 검증해 회원가입을 완료합니다.",
+        "operationId": "postAuthSignupConfirm",
+        "responses": {
+          "200": {
+            "description": "성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "format": "int64"
+                        },
+                        "email": {
+                          "type": "string",
+                          "format": "email"
+                        },
+                        "confirmed": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "userId",
+                        "email",
+                        "confirmed"
+                      ]
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "userId": 1,
+                    "email": "example@gmail.com",
+                    "confirmed": true
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "가입에 사용한 이메일",
+                    "example": "example@gmail.com"
+                  },
+                  "confirmationCode": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$",
+                    "description": "Cognito 이메일 확인 코드",
+                    "example": "123456"
+                  }
+                },
+                "required": [
+                  "email",
+                  "confirmationCode"
+                ]
+              },
+              "example": {
+                "email": "example@gmail.com",
+                "confirmationCode": "123456"
               }
             }
           }
@@ -6054,7 +6155,7 @@
           "인증"
         ],
         "summary": "로그인",
-        "description": "로그인",
+        "description": "이메일과 비밀번호로 Cognito 세션을 생성합니다.",
         "operationId": "postAuthLogin",
         "responses": {
           "200": {
@@ -6069,7 +6170,35 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "properties": {
+                        "accessToken": {
+                          "type": "string",
+                          "description": "API 요청에 사용할 Cognito access token"
+                        },
+                        "idToken": {
+                          "type": "string",
+                          "description": "사용자 식별 정보가 포함된 Cognito ID token"
+                        },
+                        "refreshToken": {
+                          "type": "string",
+                          "description": "세션 갱신에 사용할 Cognito refresh token"
+                        },
+                        "expiresIn": {
+                          "type": "integer",
+                          "description": "Access token 만료까지 남은 초"
+                        },
+                        "tokenType": {
+                          "type": "string",
+                          "example": "Bearer"
+                        }
+                      },
+                      "required": [
+                        "accessToken",
+                        "idToken",
+                        "refreshToken",
+                        "expiresIn",
+                        "tokenType"
+                      ]
                     },
                     "error": {
                       "nullable": true
@@ -6078,7 +6207,13 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "accessToken": "eyJraWQiOiJ...",
+                    "idToken": "eyJraWQiOiJ...",
+                    "refreshToken": "eyJjdHkiOiJ...",
+                    "expiresIn": 3600,
+                    "tokenType": "Bearer"
+                  },
                   "error": null
                 }
               }
@@ -6135,9 +6270,9 @@
                     "message": "요청 파라미터가 잘못되었습니다.",
                     "errors": [
                       {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
+                        "field": "email",
+                        "value": "invalid-email",
+                        "reason": "email must be an email"
                       }
                     ]
                   }
@@ -6179,13 +6314,25 @@
                   "statusCode": 401,
                   "data": null,
                   "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
+                    "code": "AUTH_INVALID_CREDENTIALS",
+                    "message": "이메일 또는 비밀번호가 올바르지 않습니다.",
                     "errors": []
                   }
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -6207,12 +6354,7 @@
                   "password": {
                     "type": "string",
                     "description": "비밀번호",
-                    "example": "password123!"
-                  },
-                  "nickname": {
-                    "type": "string",
-                    "description": "닉네임 (2~10자, 특수문자 불가)",
-                    "example": "길동"
+                    "example": "Password123"
                   }
                 },
                 "required": [
@@ -6222,8 +6364,112 @@
               },
               "example": {
                 "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
+                "password": "Password123"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/token/refresh": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "인증 토큰 갱신",
+        "description": "Cognito refresh token으로 access token과 ID token을 갱신합니다.",
+        "operationId": "postAuthTokenRefresh",
+        "responses": {
+          "200": {
+            "description": "성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "accessToken": {
+                          "type": "string",
+                          "description": "API 요청에 사용할 새 Cognito access token"
+                        },
+                        "idToken": {
+                          "type": "string",
+                          "description": "새 Cognito ID token"
+                        },
+                        "expiresIn": {
+                          "type": "integer",
+                          "description": "Access token 만료까지 남은 초"
+                        },
+                        "tokenType": {
+                          "type": "string",
+                          "example": "Bearer"
+                        }
+                      },
+                      "required": [
+                        "accessToken",
+                        "idToken",
+                        "expiresIn",
+                        "tokenType"
+                      ]
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "accessToken": "eyJraWQiOiJ...",
+                    "idToken": "eyJraWQiOiJ...",
+                    "expiresIn": 3600,
+                    "tokenType": "Bearer"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "refreshToken": {
+                    "type": "string",
+                    "description": "로그인 시 발급받은 Cognito refresh token"
+                  }
+                },
+                "required": [
+                  "refreshToken"
+                ]
+              },
+              "example": {
+                "refreshToken": "eyJjdHkiOiJ..."
               }
             }
           }
@@ -6236,7 +6482,7 @@
           "인증"
         ],
         "summary": "로그아웃",
-        "description": "로그아웃",
+        "description": "현재 Cognito access token으로 모든 세션을 종료합니다.",
         "operationId": "postAuthLogout",
         "responses": {
           "200": {
@@ -6251,7 +6497,15 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "properties": {
+                        "signedOut": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      },
+                      "required": [
+                        "signedOut"
+                      ]
                     },
                     "error": {
                       "nullable": true
@@ -6260,69 +6514,10 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "signedOut": true
+                  },
                   "error": null
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
-                              },
-                              "reason": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 400,
-                  "data": null,
-                  "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
-                    "errors": [
-                      {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
-                      }
-                    ]
-                  }
                 }
               }
             }
@@ -6369,44 +6564,14 @@
               }
             }
           },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "email": {
-                    "type": "string",
-                    "description": "이메일",
-                    "example": "example@gmail.com"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
-                  },
-                  "nickname": {
-                    "type": "string",
-                    "description": "닉네임 (2~10자, 특수문자 불가)",
-                    "example": "길동"
-                  }
-                },
-                "required": [
-                  "email",
-                  "password"
-                ]
-              },
-              "example": {
-                "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
-              }
-            }
           }
         }
       }
@@ -6432,7 +6597,38 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "required": [
+                        "userId",
+                        "name",
+                        "nickname",
+                        "email",
+                        "profileImage"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "홍길동"
+                        },
+                        "nickname": {
+                          "type": "string",
+                          "example": "길동"
+                        },
+                        "email": {
+                          "type": "string",
+                          "format": "email",
+                          "example": "user@example.com"
+                        },
+                        "profileImage": {
+                          "type": "string",
+                          "format": "uri",
+                          "nullable": true,
+                          "example": "https://example.com/profile.png"
+                        }
+                      }
                     },
                     "error": {
                       "nullable": true
@@ -6441,7 +6637,13 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "userId": 1,
+                    "name": "홍길동",
+                    "nickname": "길동",
+                    "email": "user@example.com",
+                    "profileImage": "https://example.com/profile.png"
+                  },
                   "error": null
                 }
               }
@@ -6549,6 +6751,12 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -6575,7 +6783,23 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "required": [
+                        "userId",
+                        "deleted"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "deleted": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ],
+                          "example": true
+                        }
+                      }
                     },
                     "error": {
                       "nullable": true
@@ -6584,7 +6808,10 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "userId": 1,
+                    "deleted": true
+                  },
                   "error": null
                 }
               }
@@ -6692,6 +6919,18 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -6720,7 +6959,38 @@
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "required": [
+                        "userId",
+                        "name",
+                        "nickname",
+                        "email",
+                        "profileImage"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "홍길동"
+                        },
+                        "nickname": {
+                          "type": "string",
+                          "example": "길동"
+                        },
+                        "email": {
+                          "type": "string",
+                          "format": "email",
+                          "example": "user@example.com"
+                        },
+                        "profileImage": {
+                          "type": "string",
+                          "format": "uri",
+                          "nullable": true,
+                          "example": null
+                        }
+                      }
                     },
                     "error": {
                       "nullable": true
@@ -6729,7 +6999,13 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "userId": 1,
+                    "name": "홍길동",
+                    "nickname": "길동",
+                    "email": "user@example.com",
+                    "profileImage": null
+                  },
                   "error": null
                 }
               }
@@ -6838,6 +7114,12 @@
               }
             }
           },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
           }
@@ -6849,31 +7131,28 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "email": {
-                    "type": "string",
-                    "description": "이메일",
-                    "example": "example@gmail.com"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
-                  },
                   "nickname": {
                     "type": "string",
                     "description": "닉네임 (2~10자, 특수문자 불가)",
+                    "minLength": 2,
+                    "maxLength": 10,
+                    "pattern": "^[가-힣a-zA-Z0-9]+$",
                     "example": "길동"
+                  },
+                  "profileImage": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 512,
+                    "nullable": true,
+                    "description": "프로필 이미지 URL. null이면 기존 이미지를 제거합니다.",
+                    "example": null
                   }
                 },
-                "required": [
-                  "email",
-                  "password"
-                ]
+                "minProperties": 1
               },
               "example": {
-                "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
+                "nickname": "길동",
+                "profileImage": null
               }
             }
           }
@@ -6886,22 +7165,36 @@
           "인증"
         ],
         "summary": "비밀번호 변경",
-        "description": "비밀번호 변경",
+        "description": "Cognito access token으로 현재 비밀번호를 확인하고 새 비밀번호로 변경합니다.",
         "operationId": "postAuthPasswordChange",
         "responses": {
           "200": {
-            "description": "성공",
+            "description": "비밀번호 변경 성공",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
                   "properties": {
                     "statusCode": {
-                      "type": "integer"
+                      "type": "integer",
+                      "example": 200
                     },
                     "data": {
                       "type": "object",
-                      "properties": {}
+                      "required": [
+                        "changed"
+                      ],
+                      "properties": {
+                        "changed": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      }
                     },
                     "error": {
                       "nullable": true
@@ -6910,110 +7203,81 @@
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "changed": true
+                  },
                   "error": null
                 }
               }
             }
           },
           "400": {
-            "description": "실패",
+            "description": "AUTH_CURRENT_PASSWORD_INVALID | AUTH_PASSWORD_POLICY_VIOLATION | COMMON_INVALID_PARAMETER",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
-                              },
-                              "reason": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/ErrorResponse"
                 },
                 "example": {
                   "statusCode": 400,
                   "data": null,
                   "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
-                    "errors": [
-                      {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
-                      }
-                    ]
+                    "code": "AUTH_PASSWORD_POLICY_VIOLATION",
+                    "message": "비밀번호 정책을 충족하지 않습니다."
                   }
                 }
               }
             }
           },
           "401": {
-            "description": "실패",
+            "description": "AUTH_UNAUTHORIZED | 인증 토큰이 없거나 올바르지 않은 경우",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/ErrorResponse"
                 },
                 "example": {
                   "statusCode": 401,
                   "data": null,
                   "error": {
                     "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
+                    "message": "인증이 필요합니다."
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "AUTH_TOO_MANY_REQUESTS | 인증 서비스 요청 제한을 초과한 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 429,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_TOO_MANY_REQUESTS",
+                    "message": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "AUTH_PROVIDER_ERROR | 인증 서비스 요청 처리에 실패한 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 502,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_PROVIDER_ERROR",
+                    "message": "인증 서비스 요청을 처리하지 못했습니다."
                   }
                 }
               }
@@ -7029,32 +7293,31 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "properties": {
-                  "email": {
-                    "type": "string",
-                    "description": "이메일",
-                    "example": "example@gmail.com"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
-                  },
-                  "nickname": {
-                    "type": "string",
-                    "description": "닉네임 (2~10자, 특수문자 불가)",
-                    "example": "길동"
-                  }
-                },
                 "required": [
-                  "email",
-                  "password"
-                ]
+                  "previousPassword",
+                  "newPassword"
+                ],
+                "properties": {
+                  "previousPassword": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "pattern": "^\\S+$",
+                    "description": "현재 비밀번호 (최대 256자, 공백 불가)",
+                    "example": "CurrentPass1"
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 16,
+                    "pattern": "^\\S+$",
+                    "description": "새 비밀번호 (8~16자, 공백 없이 영문 대문자·소문자·숫자 포함, 현재 비밀번호와 달라야 함)",
+                    "example": "NewPassword1"
+                  }
+                }
               },
               "example": {
-                "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
+                "previousPassword": "CurrentPass1",
+                "newPassword": "NewPassword1"
               }
             }
           }
@@ -8491,7 +8754,8 @@
       "BearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "JWT"
+        "bearerFormat": "JWT",
+        "description": "Cognito access token을 Authorization: Bearer 헤더로 전달합니다."
       },
       "bearerAuth": {
         "type": "http",

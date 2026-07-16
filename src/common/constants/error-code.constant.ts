@@ -42,6 +42,66 @@ export const ErrorCode = {
     code: 'AUTH_UNAUTHORIZED',
     message: '인증이 필요합니다.',
   },
+  AUTH_INVALID_CREDENTIALS: {
+    status: 401,
+    code: 'AUTH_INVALID_CREDENTIALS',
+    message: '이메일 또는 비밀번호가 올바르지 않습니다.',
+  },
+  AUTH_EMAIL_ALREADY_EXISTS: {
+    status: 409,
+    code: 'AUTH_EMAIL_ALREADY_EXISTS',
+    message: '이미 가입된 이메일입니다.',
+  },
+  AUTH_EMAIL_NOT_CONFIRMED: {
+    status: 409,
+    code: 'AUTH_EMAIL_NOT_CONFIRMED',
+    message: '이메일 확인이 필요합니다.',
+  },
+  AUTH_INVALID_CONFIRMATION_CODE: {
+    status: 400,
+    code: 'AUTH_INVALID_CONFIRMATION_CODE',
+    message: '이메일 확인 코드가 올바르지 않습니다.',
+  },
+  AUTH_EXPIRED_CONFIRMATION_CODE: {
+    status: 400,
+    code: 'AUTH_EXPIRED_CONFIRMATION_CODE',
+    message: '이메일 확인 코드가 만료되었습니다.',
+  },
+  AUTH_PASSWORD_POLICY_VIOLATION: {
+    status: 400,
+    code: 'AUTH_PASSWORD_POLICY_VIOLATION',
+    message: '비밀번호 정책을 충족하지 않습니다.',
+  },
+  AUTH_CURRENT_PASSWORD_INVALID: {
+    status: 400,
+    code: 'AUTH_CURRENT_PASSWORD_INVALID',
+    message: '현재 비밀번호가 올바르지 않습니다.',
+  },
+  AUTH_ACCOUNT_INACTIVE: {
+    status: 403,
+    code: 'AUTH_ACCOUNT_INACTIVE',
+    message: '비활성화된 계정입니다.',
+  },
+  AUTH_ACCOUNT_NOT_FOUND: {
+    status: 404,
+    code: 'AUTH_ACCOUNT_NOT_FOUND',
+    message: '인증 계정 정보를 찾을 수 없습니다.',
+  },
+  AUTH_TOO_MANY_REQUESTS: {
+    status: 429,
+    code: 'AUTH_TOO_MANY_REQUESTS',
+    message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.',
+  },
+  AUTH_PROVIDER_ERROR: {
+    status: 502,
+    code: 'AUTH_PROVIDER_ERROR',
+    message: '인증 서비스 요청을 처리하지 못했습니다.',
+  },
+  AUTH_COMPENSATION_FAILED: {
+    status: 500,
+    code: 'AUTH_COMPENSATION_FAILED',
+    message: '인증 정보 복구에 실패했습니다.',
+  },
 
   // User
   USER_NOT_FOUND: {
