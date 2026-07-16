@@ -7,6 +7,7 @@ import { parseBigIntId } from '../../common/utils/id.util';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
+import { UpdateMemberRoleDto } from './dto/update-member-role.dto';
 import { GroupsService } from './groups.service';
 
 @ApiTags('groups')
@@ -48,6 +49,40 @@ export class GroupsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteGroup(@Headers('x-user-id') userId: string, @Param('groupId') groupId: string) {
     return this.groupsService.deleteGroup(parseBigIntId(groupId, 'groupId'), this.requireUserId(userId));
+  }
+
+  @Get(':groupId/members')
+  listMembers(@Headers('x-user-id') userId: string, @Param('groupId') groupId: string) {
+    return this.groupsService.listMembers(parseBigIntId(groupId, 'groupId'), this.requireUserId(userId));
+  }
+
+  @Patch(':groupId/members/:userId/role')
+  updateMemberRole(
+    @Headers('x-user-id') currentUserId: string,
+    @Param('groupId') groupId: string,
+    @Param('userId') targetUserId: string,
+    @Body() dto: UpdateMemberRoleDto,
+  ) {
+    return this.groupsService.updateMemberRole(
+      parseBigIntId(groupId, 'groupId'),
+      parseBigIntId(targetUserId, 'userId'),
+      dto,
+      this.requireUserId(currentUserId),
+    );
+  }
+
+  @Delete(':groupId/members/:userId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeMember(
+    @Headers('x-user-id') currentUserId: string,
+    @Param('groupId') groupId: string,
+    @Param('userId') targetUserId: string,
+  ) {
+    return this.groupsService.removeMember(
+      parseBigIntId(groupId, 'groupId'),
+      parseBigIntId(targetUserId, 'userId'),
+      this.requireUserId(currentUserId),
+    );
   }
 
   private requireUserId(userIdHeader?: string): bigint {
