@@ -17,7 +17,8 @@ export class ExpensesService {
       throw new BadRequestException('정산 대상 멤버가 최소 1명 이상 필요합니다.');
     }
 
-    const calculatedAmount = Math.ceil(totalAmount / count);
+    // 인당 올림 금액 계산
+    const ceilAmount = Math.ceil(totalAmount / count);
 
     return this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
@@ -32,12 +33,23 @@ export class ExpensesService {
         },
       });
 
-      const splitData = participants.map((participantId) => ({
-        expenseId: expense.id,
-        userId: participantId,
-        amount: calculatedAmount,
-        isPaid: participantId === userId,
-      }));
+      const splitData = participants.map((participantId) => {
+        const isCreator = participantId === userId;
+        let finalAmount = ceilAmount;
+
+        // 선결제자는 타 참여자들의 올림 금액 총합을 뺀 잔액 부담 (2안)
+        if (isCreator) {
+          const otherParticipantsCount = count - 1;
+          finalAmount = totalAmount - (ceilAmount * otherParticipantsCount);
+        }
+
+        return {
+          expenseId: expense.id,
+          userId: participantId,
+          amount: finalAmount,
+          isPaid: isCreator,
+        };
+      });
 
       await tx.expenseSplit.createMany({
         data: splitData,

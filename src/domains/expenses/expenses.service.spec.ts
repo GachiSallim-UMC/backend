@@ -24,13 +24,11 @@ const mockPrismaService = (): any => {
     update: jest.fn(),
   };
 
-  // 1. 먼저 타입을 any로 명시하여 변수를 선언
   const serviceMock: any = {
     expense: mockExpenseRepo,
     expenseSplit: mockExpenseSplitRepo,
   };
 
-  // 2. 선언이 끝난 객체에 $transaction 메서드를 따로 주입해서 순환 추론 에러를 차단
   serviceMock.$transaction = jest.fn((callback: (tx: any) => any) => callback(serviceMock));
 
   return serviceMock;
@@ -74,13 +72,13 @@ describe('ExpensesService', () => {
       await expect(service.createExpense(dto)).rejects.toThrow(BadRequestException);
     });
 
-    it('정산 요청을 정상적으로 생성해야 한다', async () => {
+    it('정산 요청을 정상적으로 생성해야 하며, 선결제자 우대 계산 방식이 적용되어야 한다', async () => {
       const dto: CreateExpenseDto = {
         groupId: 1,
         categoryId: 1,
-        userId: 1,
+        userId: 1, // 선결제자 (등록자)
         title: '점심 식대',
-        totalAmount: 30000,
+        totalAmount: 10000, // 3명 정산 시 인당 3,333.33...원 발생
         splitType: SplitType.EQUAL, 
         participants: [1, 2, 3],
       };
@@ -95,7 +93,15 @@ describe('ExpensesService', () => {
         expenseId: 100,
       });
       expect(prisma.expense.create).toHaveBeenCalled();
-      expect(prisma.expenseSplit.createMany).toHaveBeenCalled();
+      
+      // 2안 검증: 선결제자는 3,332원 부담, 참여자들은 각각 3,334원(올림) 부담하는지 확인
+      expect(prisma.expenseSplit.createMany).toHaveBeenCalledWith({
+        data: [
+          { expenseId: 100, userId: 1, amount: 3332, isPaid: true },
+          { expenseId: 100, userId: 2, amount: 3334, isPaid: false },
+          { expenseId: 100, userId: 3, amount: 3334, isPaid: false },
+        ],
+      });
     });
   });
 
@@ -148,6 +154,34 @@ describe('ExpensesService', () => {
       expect(result).toEqual({
         message: '지출 내역이 성공적으로 삭제되었습니다.',
         deletedExpenseId: 1,
+      });
+    });
+  });
+
+  describe('settleSplit', () => {
+    it('isBulkComplete가 true이면 상태를 DONE으로 변경해야 한다', async () => {
+      const mockResult = { id: 1, status: 'DONE' };
+      prisma.expenseSplit.update.mockResolvedValue(mockResult);
+
+      const result = await service.settleSplit(1, true);
+
+      expect(result).toEqual(mockResult);
+      expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: { status: 'DONE' },
+      });
+    });
+
+    it('isBulkComplete가 false이면 상태를 REQUESTED로 변경해야 한다', async () => {
+      const mockResult = { id: 1, status: 'REQUESTED' };
+      prisma.expenseSplit.update.mockResolvedValue(mockResult);
+
+      const result = await service.settleSplit(1, false);
+
+      expect(result).toEqual(mockResult);
+      expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: { status: 'REQUESTED' },
       });
     });
   });
