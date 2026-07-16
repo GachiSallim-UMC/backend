@@ -13,6 +13,7 @@
 - [ ] `npm test`
 - [ ] `npm run prisma:generate`
 - [ ] `npm run cdk:synth`
+- [ ] DB migration이 없거나, 직전 릴리스와 호환되는 expand/contract 방식입니다.
 
 ## 참고 사항
 

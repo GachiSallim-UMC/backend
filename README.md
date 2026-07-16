@@ -41,6 +41,19 @@ credential을 저장하지 않고 OIDC와 STS로 환경별 IAM 역할을 획득�
 - 릴리스: ARM64 GitHub runner가 Node.js 런타임, 빌드 결과, production 의존성을 묶어 S3에 업로드
 - 적용: Systems Manager가 환경별 systemd 서비스를 갱신하고 health check 실패 시 이전 릴리스로 복구
 
+### Migration과 롤백 계약
+
+자동 롤백은 systemd 프로세스와 애플리케이션 릴리스 링크만 이전 버전으로 복구하며, 이미 적용된 PostgreSQL
+migration은 역실행하지 않습니다. 따라서 모든 migration은 직전 애플리케이션 릴리스와 호환되는
+expand/contract 순서를 따라야 합니다.
+
+1. 새 column/table/index 추가처럼 이전 코드와 함께 동작하는 expand migration을 먼저 배포합니다.
+2. 새 코드가 배포되고 이전 릴리스로 롤백할 필요가 없어졌는지 확인합니다.
+3. column 제거나 의미 변경 같은 contract migration은 별도 후속 배포로 적용합니다.
+
+이 계약을 지킬 수 없는 migration은 애플리케이션 자동 배포와 분리하고, 별도 백업·점검·복구 절차를 갖춘
+수동 변경으로 처리합니다.
+
 과금 런타임과 배포 기반은 별도 CDK 스택입니다. 먼저 무료에 가까운 OIDC 역할, S3 버킷, SSM 문서만
 구성할 수 있습니다.
 

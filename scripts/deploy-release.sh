@@ -68,6 +68,8 @@ EOF
 
 export DATABASE_URL="${database_url}"
 "${release_directory}/bin/node" "${release_directory}/ensure-database.cjs" "${DATABASE_NAME}"
+# Automatic rollback restores only the application release. Migrations must remain
+# compatible with the immediately previous release and follow expand/contract ordering.
 PATH="${release_directory}/bin:${PATH}" \
   "${release_directory}/node_modules/.bin/prisma" migrate deploy \
   --schema "${release_directory}/prisma/schema.prisma"
@@ -93,7 +95,7 @@ if [[ "${healthy}" != true ]]; then
   else
     systemctl stop "gachisallim@${environment_name}.service"
   fi
-  echo 'Health check failed; the previous release was restored.' >&2
+  echo 'Health check failed; the previous application release was restored.' >&2
   exit 1
 fi
 
