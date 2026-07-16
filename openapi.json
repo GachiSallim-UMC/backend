@@ -7528,8 +7528,13 @@
           "알림"
         ],
         "summary": "알림 목록 조회",
-        "description": "알림 목록 조회",
+        "description": "인증된 사용자의 숨기지 않은 알림을 최신순으로 조회합니다.",
         "operationId": "getNotifications",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "성공",
@@ -7537,129 +7542,53 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
                   "properties": {
                     "statusCode": {
-                      "type": "integer"
+                      "type": "integer",
+                      "example": 200
                     },
                     "data": {
-                      "type": "object",
-                      "properties": {}
+                      "$ref": "#/components/schemas/NotificationListResponse"
                     },
                     "error": {
-                      "nullable": true
+                      "nullable": true,
+                      "example": null
                     }
                   }
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "notifications": [
+                      {
+                        "notificationId": 101,
+                        "groupId": 3,
+                        "type": "CHORE_DUE",
+                        "refId": 42,
+                        "message": "오늘까지 완료할 집안일이 있습니다.",
+                        "isRead": false,
+                        "createdAt": "2026-07-16T09:00:00.000Z"
+                      }
+                    ]
+                  },
                   "error": null
                 }
               }
             }
           },
-          "400": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
-                              },
-                              "reason": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 400,
-                  "data": null,
-                  "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
-                    "errors": [
-                      {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
-                      }
-                    ]
-                  }
-                }
-              }
-            }
-          },
           "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -7673,8 +7602,13 @@
           "알림"
         ],
         "summary": "미읽음 알림 개수 조회",
-        "description": "미읽음 알림 개수 조회",
+        "description": "인증된 사용자의 숨기지 않은 미읽음 알림 개수를 조회합니다.",
         "operationId": "getNotificationsUnreadCount",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "성공",
@@ -7682,129 +7616,43 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
                   "properties": {
                     "statusCode": {
-                      "type": "integer"
+                      "type": "integer",
+                      "example": 200
                     },
                     "data": {
-                      "type": "object",
-                      "properties": {}
+                      "$ref": "#/components/schemas/UnreadNotificationCountResponse"
                     },
                     "error": {
-                      "nullable": true
+                      "nullable": true,
+                      "example": null
                     }
                   }
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "unreadCount": 4
+                  },
                   "error": null
                 }
               }
             }
           },
-          "400": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
-                              },
-                              "reason": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 400,
-                  "data": null,
-                  "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
-                    "errors": [
-                      {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
-                      }
-                    ]
-                  }
-                }
-              }
-            }
-          },
           "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -8801,6 +8649,86 @@
                 }
               }
             }
+          }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "required": [
+          "notificationId",
+          "groupId",
+          "type",
+          "refId",
+          "message",
+          "isRead",
+          "createdAt"
+        ],
+        "properties": {
+          "notificationId": {
+            "type": "integer",
+            "example": 101
+          },
+          "groupId": {
+            "type": "integer",
+            "nullable": true,
+            "example": 3
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "CHORE_DUE",
+              "EXPENSE_REQUEST",
+              "SUPPLY_LOW",
+              "RULE_CHANGED",
+              "NEW_MESSAGE",
+              "GROUP_INVITE",
+              "EXPENSE_DONE"
+            ],
+            "example": "CHORE_DUE"
+          },
+          "refId": {
+            "type": "integer",
+            "nullable": true,
+            "example": 42
+          },
+          "message": {
+            "type": "string",
+            "example": "오늘까지 완료할 집안일이 있습니다."
+          },
+          "isRead": {
+            "type": "boolean",
+            "example": false
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-07-16T09:00:00.000Z"
+          }
+        }
+      },
+      "NotificationListResponse": {
+        "type": "object",
+        "required": [
+          "notifications"
+        ],
+        "properties": {
+          "notifications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Notification"
+            }
+          }
+        }
+      },
+      "UnreadNotificationCountResponse": {
+        "type": "object",
+        "required": [
+          "unreadCount"
+        ],
+        "properties": {
+          "unreadCount": {
+            "type": "integer",
+            "example": 4
           }
         }
       }
