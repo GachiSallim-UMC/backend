@@ -261,6 +261,8 @@ describe('GroupsService', () => {
 
     await expect(service.removeMember(1n, 10n, 10n)).rejects.toBeInstanceOf(BusinessException);
     expect(prisma.groupMember.updateMany).not.toHaveBeenCalled();
+  });
+
   it('reissues an invite code when the requester is an ADMIN', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
     prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
