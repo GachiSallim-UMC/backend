@@ -7666,16 +7666,22 @@
           "알림"
         ],
         "summary": "단일 알림 읽음 처리",
-        "description": "단일 알림 읽음 처리",
+        "description": "인증된 사용자의 노출 중인 알림을 읽음 처리합니다.",
         "operationId": "patchNotificationsNotificationIdRead",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "notificationId",
             "in": "path",
             "required": true,
-            "description": "notificationId path parameter",
+            "description": "알림 ID",
             "schema": {
-              "type": "integer"
+              "type": "integer",
+              "minimum": 1
             }
           }
         ],
@@ -7686,168 +7692,47 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
                   "properties": {
                     "statusCode": {
-                      "type": "integer"
+                      "type": "integer",
+                      "example": 200
                     },
                     "data": {
-                      "type": "object",
-                      "properties": {}
+                      "$ref": "#/components/schemas/ReadNotificationResponse"
                     },
                     "error": {
-                      "nullable": true
+                      "nullable": true,
+                      "example": null
                     }
                   }
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "notificationId": 101,
+                    "isRead": true
+                  },
                   "error": null
                 }
               }
             }
           },
           "400": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
-                              },
-                              "reason": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 400,
-                  "data": null,
-                  "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
-                    "errors": [
-                      {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
-                      }
-                    ]
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "email": {
-                    "type": "string",
-                    "description": "이메일",
-                    "example": "example@gmail.com"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
-                  },
-                  "nickname": {
-                    "type": "string",
-                    "description": "닉네임 (2~10자, 특수문자 불가)",
-                    "example": "길동"
-                  }
-                },
-                "required": [
-                  "email",
-                  "password"
-                ]
-              },
-              "example": {
-                "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
-              }
-            }
           }
         }
       }
@@ -7858,8 +7743,13 @@
           "알림"
         ],
         "summary": "전체 읽음 처리",
-        "description": "전체 읽음 처리",
+        "description": "인증된 사용자의 노출 중인 미읽음 알림을 모두 읽음 처리합니다.",
         "operationId": "patchNotificationsReadAll",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "성공",
@@ -7867,168 +7757,40 @@
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
                   "properties": {
                     "statusCode": {
-                      "type": "integer"
+                      "type": "integer",
+                      "example": 200
                     },
                     "data": {
-                      "type": "object",
-                      "properties": {}
+                      "$ref": "#/components/schemas/ReadAllNotificationsResponse"
                     },
                     "error": {
-                      "nullable": true
+                      "nullable": true,
+                      "example": null
                     }
                   }
                 },
                 "example": {
                   "statusCode": 200,
-                  "data": {},
+                  "data": {
+                    "updatedCount": 3
+                  },
                   "error": null
                 }
               }
             }
           },
-          "400": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
-                              },
-                              "reason": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 400,
-                  "data": null,
-                  "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
-                    "errors": [
-                      {
-                        "field": "nickname",
-                        "value": "홍길동!",
-                        "reason": "특수문자는 포함할 수 없습니다."
-                      }
-                    ]
-                  }
-                }
-              }
-            }
-          },
           "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "email": {
-                    "type": "string",
-                    "description": "이메일",
-                    "example": "example@gmail.com"
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "비밀번호",
-                    "example": "password123!"
-                  },
-                  "nickname": {
-                    "type": "string",
-                    "description": "닉네임 (2~10자, 특수문자 불가)",
-                    "example": "길동"
-                  }
-                },
-                "required": [
-                  "email",
-                  "password"
-                ]
-              },
-              "example": {
-                "email": "example@gmail.com",
-                "password": "password123!",
-                "nickname": "길동"
-              }
-            }
           }
         }
       }
@@ -8039,22 +7801,37 @@
           "알림"
         ],
         "summary": "알림 숨김 처리",
-        "description": "알림 숨김 처리",
+        "description": "인증된 사용자의 알림을 soft hide 처리합니다.",
         "operationId": "deleteNotificationsNotificationId",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "notificationId",
             "in": "path",
             "required": true,
-            "description": "notificationId path parameter",
+            "description": "알림 ID",
             "schema": {
-              "type": "integer"
+              "type": "integer",
+              "minimum": 1
             }
           }
         ],
         "responses": {
           "204": {
-            "description": "성공"
+            "description": "알림 숨김 처리 성공"
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "default": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -8676,6 +8453,38 @@
             "items": {
               "$ref": "#/components/schemas/NotificationPushSubscription"
             }
+          }
+        }
+      },
+      "ReadNotificationResponse": {
+        "type": "object",
+        "required": [
+          "notificationId",
+          "isRead"
+        ],
+        "properties": {
+          "notificationId": {
+            "type": "integer",
+            "example": 101
+          },
+          "isRead": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "example": true
+          }
+        }
+      },
+      "ReadAllNotificationsResponse": {
+        "type": "object",
+        "required": [
+          "updatedCount"
+        ],
+        "properties": {
+          "updatedCount": {
+            "type": "integer",
+            "example": 3
           }
         }
       }
