@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { GroupRole } from '@prisma/client';
+import { GroupRole, Prisma } from '@prisma/client';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -76,15 +76,7 @@ export class GroupsService {
     await this.findGroupOrThrow(groupId);
     await this.requireAdminOrThrow(groupId, currentUserId);
 
-    const inviteCode = await this.generateUniqueInviteCode();
-
-    return this.prisma.group.update({
-      where: { id: groupId },
-      data: {
-        inviteCode,
-        inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
-      },
-    });
+    return this.updateGroupInviteCode(groupId);
   }
 
   async joinGroup(dto: JoinGroupDto, currentUserId: bigint) {
@@ -106,35 +98,53 @@ export class GroupsService {
       throw new BusinessException(ErrorCode.GROUP_ALREADY_MEMBER);
     }
 
-    if (group.currentMembers >= group.maxMembers) {
-      throw new BusinessException(ErrorCode.GROUP_FULL);
-    }
+    return this.prisma.$transaction(async (tx) => {
+      let updatedGroup;
 
-    const [, updatedGroup] = await this.prisma.$transaction([
-      existingMember
-        ? this.prisma.groupMember.update({
+      try {
+        updatedGroup = await tx.group.update({
+          where: { id: group.id, currentMembers: { lt: group.maxMembers } },
+          data: { currentMembers: { increment: 1 } },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+          throw new BusinessException(ErrorCode.GROUP_FULL);
+        }
+
+        throw error;
+      }
+
+      await (existingMember
+        ? tx.groupMember.update({
             where: { userId_groupId: { userId: currentUserId, groupId: group.id } },
             data: { role: GroupRole.MEMBER, joinedAt: new Date(), leftAt: null },
           })
-        : this.prisma.groupMember.create({
+        : tx.groupMember.create({
             data: { userId: currentUserId, groupId: group.id, role: GroupRole.MEMBER },
-          }),
-      this.prisma.group.update({
-        where: { id: group.id },
-        data: { currentMembers: { increment: 1 } },
-      }),
-    ]);
+          }));
 
-    return updatedGroup;
+      return updatedGroup;
+    });
   }
 
-  private async generateUniqueInviteCode(): Promise<string> {
+  private async updateGroupInviteCode(groupId: bigint) {
     for (let attempt = 0; attempt < INVITE_CODE_GENERATION_ATTEMPTS; attempt++) {
       const candidate = generateInviteCode();
-      const existing = await this.prisma.group.findUnique({ where: { inviteCode: candidate } });
 
-      if (!existing) {
-        return candidate;
+      try {
+        return await this.prisma.group.update({
+          where: { id: groupId },
+          data: {
+            inviteCode: candidate,
+            inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
+          },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          continue;
+        }
+
+        throw error;
       }
     }
 
