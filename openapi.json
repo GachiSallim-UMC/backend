@@ -18,7 +18,7 @@
       "name": "그룹"
     },
     {
-      "name": "집안일"
+      "name": "집안일 관리 (CHORE)"
     },
     {
       "name": "정산"
@@ -835,81 +835,53 @@
     "/api/v1/chores/{choreId}": {
       "put": {
         "tags": [
-          "집안일"
+          "집안일 관리 (CHORE)"
         ],
-        "summary": "집안일 수정",
-        "description": "등록과 동일한 유효성 검사를 거쳐 집안일 정보를 수정합니다. (CHORE-EDIT-01)",
-        "operationId": "putChoresChoreId",
+        "summary": "집안일 수정 (CHORE-EDIT-01)",
+        "description": "등록과 동일한 유효성 검사를 거쳐 집안일 정보를 수정합니다. (우선순위: P1)",
         "parameters": [
           {
             "name": "choreId",
             "in": "path",
             "required": true,
-            "description": "수정할 집안일 ID",
             "schema": {
               "type": "integer"
-            }
+            },
+            "example": 11
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "assigneeId": {
+                    "type": "integer"
+                  },
+                  "startDate": {
+                    "type": "string"
+                  },
+                  "dueDate": {
+                    "type": "string"
+                  },
+                  "repeatType": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "성공",
+            "description": "수정 성공",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "choreId": {
-                          "type": "integer"
-                        },
-                        "groupId": {
-                          "type": "integer"
-                        },
-                        "parentId": {
-                          "nullable": true
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "assignee": {
-                          "type": "object",
-                          "properties": {
-                            "userId": {
-                              "type": "integer"
-                            },
-                            "nickname": {
-                              "type": "string"
-                            }
-                          }
-                        },
-                        "startDate": {
-                          "type": "string"
-                        },
-                        "dueDate": {
-                          "type": "string"
-                        },
-                        "repeatType": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "type": "string"
-                        },
-                        "updatedAt": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "error": {
-                      "nullable": true
-                    }
-                  }
-                },
                 "example": {
                   "statusCode": 200,
                   "data": {
@@ -932,120 +904,10 @@
               }
             }
           },
-          "400": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 400,
-                  "data": null,
-                  "error": {
-                    "code": "COMMON_INVALID_PARAMETER",
-                    "message": "요청 파라미터가 잘못되었습니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
-          },
           "404": {
-            "description": "실패",
+            "description": "집안일 없음",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
                 "example": {
                   "statusCode": 404,
                   "data": null,
@@ -1057,69 +919,15 @@
                 }
               }
             }
-          },
-          "default": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "description": "집안일명",
-                    "example": "설거지 및 분리수거"
-                  },
-                  "assigneeId": {
-                    "type": "integer",
-                    "description": "담당자 ID",
-                    "example": 6
-                  },
-                  "startDate": {
-                    "type": "string",
-                    "description": "시작일 (YYYY-MM-DD)",
-                    "example": "2026-07-04"
-                  },
-                  "dueDate": {
-                    "type": "string",
-                    "description": "마감일 (YYYY-MM-DD, startDate 이후 날짜)",
-                    "example": "2026-07-06"
-                  },
-                  "repeatType": {
-                    "type": "string",
-                    "description": "NONE | DAILY | WEEKLY | MONTHLY",
-                    "example": "WEEKLY"
-                  }
-                },
-                "required": [
-                  "title",
-                  "assigneeId",
-                  "startDate",
-                  "dueDate"
-                ]
-              },
-              "example": {
-                "title": "설거지 및 분리수거",
-                "assigneeId": 6,
-                "startDate": "2026-07-04",
-                "dueDate": "2026-07-06",
-                "repeatType": "WEEKLY"
-              }
-            }
           }
         }
       },
       "delete": {
         "tags": [
-          "집안일"
+          "집안일 관리 (CHORE)"
         ],
         "summary": "집안일 삭제 (CHORE-DEL-01)",
         "description": "집안일을 삭제합니다. 등록자(createdBy) 또는 관리자 권한을 확인한 후 hard delete합니다. 반복 부모 항목 삭제 시 자식 항목은 유지되며 parentId가 SetNull로 처리됩니다.",
-        "operationId": "deleteChoresChoreId",
         "parameters": [
           {
             "name": "choreId",
@@ -1201,80 +1009,26 @@
     "/api/v1/chores/{choreId}/complete": {
       "patch": {
         "tags": [
-          "집안일"
+          "집안일 관리 (CHORE)"
         ],
-        "summary": "집안일 완료 처리",
-        "description": "완료 상태(DONE)로 변경하고 완료자·완료시간 이력을 저장합니다. 반복 항목이면 다음 일정을 자동 생성합니다. (CHORE-DONE-01)",
-        "operationId": "patchChoresChoreIdComplete",
+        "summary": "집안일 완료 처리 (CHORE-DONE-01)",
+        "description": "완료 상태(DONE)로 변경하고 완료자·완료시간 이력을 저장합니다. 반복 항목이면 parentId로 원본을 참조하는 다음 일정을 자동 생성합니다. (우선순위: P0)",
         "parameters": [
           {
             "name": "choreId",
             "in": "path",
             "required": true,
-            "description": "완료 처리할 집안일 ID",
             "schema": {
               "type": "integer"
-            }
+            },
+            "example": 11
           }
         ],
         "responses": {
           "200": {
-            "description": "성공",
+            "description": "완료 처리 성공",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "choreId": {
-                          "type": "integer"
-                        },
-                        "status": {
-                          "type": "string"
-                        },
-                        "completedBy": {
-                          "type": "object",
-                          "properties": {
-                            "userId": {
-                              "type": "integer"
-                            },
-                            "nickname": {
-                              "type": "string"
-                            }
-                          }
-                        },
-                        "completedAt": {
-                          "type": "string"
-                        },
-                        "nextOccurrence": {
-                          "type": "object",
-                          "properties": {
-                            "choreId": {
-                              "type": "integer"
-                            },
-                            "parentId": {
-                              "type": "integer"
-                            },
-                            "dueDate": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
-                          }
-                        }
-                      }
-                    },
-                    "error": {
-                      "nullable": true
-                    }
-                  }
-                },
                 "example": {
                   "statusCode": 200,
                   "data": {
@@ -1297,120 +1051,10 @@
               }
             }
           },
-          "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 404,
-                  "data": null,
-                  "error": {
-                    "code": "CHORE_404",
-                    "message": "존재하지 않는 집안일입니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
-          },
           "409": {
-            "description": "실패",
+            "description": "이미 완료된 집안일 재완료 방지",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
                 "example": {
                   "statusCode": 409,
                   "data": null,
@@ -1422,317 +1066,43 @@
                 }
               }
             }
-          },
-          "default": {
-            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
     },
     "/api/v1/chores": {
-      "post": {
-        "tags": [
-          "집안일"
-        ],
-        "summary": "집안일 등록",
-        "description": "집안일명, 담당자, 시작일, 마감일, 반복 주기를 입력받아 필수값 검증 후 등록합니다. (CHORE-REG-01)",
-        "operationId": "postChores",
-        "responses": {
-          "201": {
-            "description": "성공",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "choreId": {
-                          "type": "integer"
-                        },
-                        "groupId": {
-                          "type": "integer"
-                        },
-                        "parentId": {
-                          "nullable": true
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "assignee": {
-                          "type": "object",
-                          "properties": {
-                            "userId": {
-                              "type": "integer"
-                            },
-                            "nickname": {
-                              "type": "string"
-                            }
-                          }
-                        },
-                        "startDate": {
-                          "type": "string"
-                        },
-                        "dueDate": {
-                          "type": "string"
-                        },
-                        "repeatType": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "type": "string"
-                        },
-                        "createdBy": {
-                          "type": "object",
-                          "properties": {
-                            "userId": {
-                              "type": "integer"
-                            },
-                            "nickname": {
-                              "type": "string"
-                            }
-                          }
-                        },
-                        "createdAt": {
-                          "type": "string"
-                        },
-                        "updatedAt": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "error": {
-                      "nullable": true
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 201,
-                  "data": {
-                    "choreId": 11,
-                    "groupId": 1,
-                    "parentId": null,
-                    "title": "설거지",
-                    "assignee": {
-                      "userId": 5,
-                      "nickname": "홍길동"
-                    },
-                    "startDate": "2026-07-03",
-                    "dueDate": "2026-07-05",
-                    "repeatType": "DAILY",
-                    "status": "PENDING",
-                    "createdBy": {
-                      "userId": 5,
-                      "nickname": "홍길동"
-                    },
-                    "createdAt": "2026-07-03T10:00:00Z",
-                    "updatedAt": "2026-07-03T10:00:00Z"
-                  },
-                  "error": null
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "field": {
-                                "type": "string"
-                              },
-                              "value": {
-                                "type": "string"
-                              },
-                              "reason": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 400,
-                  "data": null,
-                  "error": {
-                    "code": "CHORE_400_DATE",
-                    "message": "마감일은 시작일보다 빠를 수 없습니다.",
-                    "errors": [
-                      {
-                        "field": "dueDate",
-                        "value": "2026-07-01",
-                        "reason": "마감일은 시작일 이후여야 합니다."
-                      }
-                    ]
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
-          },
-          "default": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "groupId": {
-                    "type": "integer",
-                    "description": "그룹 ID",
-                    "example": 1
-                  },
-                  "title": {
-                    "type": "string",
-                    "description": "집안일명",
-                    "example": "설거지"
-                  },
-                  "assigneeId": {
-                    "type": "integer",
-                    "description": "담당자 ID",
-                    "example": 5
-                  },
-                  "startDate": {
-                    "type": "string",
-                    "description": "시작일 (YYYY-MM-DD)",
-                    "example": "2026-07-03"
-                  },
-                  "dueDate": {
-                    "type": "string",
-                    "description": "마감일 (YYYY-MM-DD, startDate 이후 날짜)",
-                    "example": "2026-07-05"
-                  },
-                  "repeatType": {
-                    "type": "string",
-                    "description": "NONE | DAILY | WEEKLY | MONTHLY (기본값 NONE)",
-                    "example": "DAILY"
-                  }
-                },
-                "required": [
-                  "groupId",
-                  "title",
-                  "assigneeId",
-                  "startDate",
-                  "dueDate"
-                ]
-              },
-              "example": {
-                "groupId": 1,
-                "title": "설거지",
-                "assigneeId": 5,
-                "startDate": "2026-07-03",
-                "dueDate": "2026-07-05",
-                "repeatType": "DAILY"
-              }
-            }
-          }
-        }
-      },
       "get": {
         "tags": [
-          "집안일"
+          "집안일 관리 (CHORE)"
         ],
         "summary": "집안일 목록 조회",
         "description": "그룹 내 집안일 목록을 조회합니다.",
-        "operationId": "getChores",
         "parameters": [
           {
             "name": "groupId",
             "in": "query",
             "required": true,
-            "description": "조회할 그룹 ID",
             "schema": {
               "type": "integer"
-            }
+            },
+            "example": 1
           },
           {
             "name": "status",
             "in": "query",
             "required": false,
-            "description": "PENDING | DONE",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "DONE"
+              ]
             }
           },
           {
             "name": "assigneeId",
             "in": "query",
             "required": false,
-            "description": "담당자 ID 필터",
             "schema": {
               "type": "integer"
             }
@@ -1740,86 +1110,9 @@
         ],
         "responses": {
           "200": {
-            "description": "성공",
+            "description": "집안일 목록 조회 성공",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "choreId": {
-                            "type": "integer"
-                          },
-                          "groupId": {
-                            "type": "integer"
-                          },
-                          "parentId": {
-                            "nullable": true
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "assignee": {
-                            "type": "object",
-                            "properties": {
-                              "userId": {
-                                "type": "integer"
-                              },
-                              "nickname": {
-                                "type": "string"
-                              }
-                            }
-                          },
-                          "startDate": {
-                            "type": "string"
-                          },
-                          "dueDate": {
-                            "type": "string"
-                          },
-                          "repeatType": {
-                            "type": "string"
-                          },
-                          "status": {
-                            "type": "string"
-                          },
-                          "completedBy": {
-                            "nullable": true
-                          },
-                          "completedAt": {
-                            "nullable": true
-                          },
-                          "createdBy": {
-                            "type": "object",
-                            "properties": {
-                              "userId": {
-                                "type": "integer"
-                              },
-                              "nickname": {
-                                "type": "string"
-                              }
-                            }
-                          },
-                          "createdAt": {
-                            "type": "string"
-                          },
-                          "updatedAt": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    },
-                    "error": {
-                      "nullable": true
-                    }
-                  }
-                },
                 "example": {
                   "statusCode": 200,
                   "data": [
@@ -1852,35 +1145,9 @@
             }
           },
           "400": {
-            "description": "실패",
+            "description": "요청 파라미터 오류",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
                 "example": {
                   "statusCode": 400,
                   "data": null,
@@ -1889,123 +1156,6 @@
                     "message": "요청 파라미터가 잘못되었습니다.",
                     "errors": []
                   }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "실패",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "statusCode": {
-                      "type": "integer"
-                    },
-                    "data": {
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "errors": {
-                          "type": "array",
-                          "items": {}
-                        }
-                      }
-                    }
-                  }
-                },
-                "example": {
-                  "statusCode": 401,
-                  "data": null,
-                  "error": {
-                    "code": "AUTH_UNAUTHORIZED",
-                    "message": "인증이 필요합니다.",
-                    "errors": []
-                  }
-                }
-              }
-            }
-          },
-          "default": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
-        }
-      }
-    },
-    "/api/v1/chores/{choreId}/share": {
-      "post": {
-        "tags": [
-          "집안일"
-        ],
-        "summary": "집안일 메신저 공유",
-        "description": "집안일 항목을 공유 카드 메시지로 변환해 그룹 채팅방으로 전송합니다. (CHORE-SHARE-01)",
-        "operationId": "postChoresChoreIdShare",
-        "parameters": [
-          {
-            "name": "choreId",
-            "in": "path",
-            "required": true,
-            "description": "공유할 집안일 ID",
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "성공",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiResponse"
-                }
-              }
-            }
-          },
-          "default": {
-            "$ref": "#/components/responses/ErrorResponse"
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "집안일"
-        ],
-        "summary": "집안일 삭제 (CHORE-DEL-01)",
-        "description": "집안일을 삭제합니다. 등록자(createdBy) 또는 관리자 권한을 확인한 후 hard delete합니다. 반복 부모 항목 삭제 시 자식 항목은 유지되며 parentId가 SetNull로 처리됩니다.",
-        "operationId": "deleteChoresChoreIdShare",
-        "parameters": [
-          {
-            "name": "choreId",
-            "in": "path",
-            "required": true,
-            "description": "삭제할 집안일 ID",
-            "schema": {
-              "type": "integer"
-            },
-            "example": 11
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "집안일 삭제 성공",
-            "content": {
-              "application/json": {
-                "example": {
-                  "statusCode": 200,
-                  "data": {
-                    "choreId": 11
-                  },
-                  "error": null
                 }
               }
             }
@@ -2025,17 +1175,225 @@
                 }
               }
             }
-          },
-          "403": {
-            "description": "등록자도 관리자도 아님",
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "집안일 관리 (CHORE)"
+        ],
+        "summary": "집안일 등록 (CHORE-REG-01)",
+        "description": "집안일명, 담당자, 시작일, 마감일, 반복 주기를 입력받아 필수값 검증 후 등록합니다. (우선순위: P0)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "groupId",
+                  "title",
+                  "assigneeId",
+                  "startDate",
+                  "dueDate"
+                ],
+                "properties": {
+                  "groupId": {
+                    "type": "integer",
+                    "example": 1
+                  },
+                  "title": {
+                    "type": "string",
+                    "example": "설거지"
+                  },
+                  "assigneeId": {
+                    "type": "integer",
+                    "example": 5
+                  },
+                  "startDate": {
+                    "type": "string",
+                    "example": "2026-07-03"
+                  },
+                  "dueDate": {
+                    "type": "string",
+                    "example": "2026-07-05"
+                  },
+                  "repeatType": {
+                    "type": "string",
+                    "enum": [
+                      "NONE",
+                      "DAILY",
+                      "WEEKLY",
+                      "MONTHLY"
+                    ],
+                    "example": "DAILY"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "집안일 등록 성공",
             "content": {
               "application/json": {
                 "example": {
-                  "statusCode": 403,
+                  "statusCode": 201,
+                  "data": {
+                    "choreId": 11,
+                    "groupId": 1,
+                    "parentId": null,
+                    "title": "설거지",
+                    "assignee": {
+                      "userId": 5,
+                      "nickname": "홍길동"
+                    },
+                    "startDate": "2026-07-03",
+                    "dueDate": "2026-07-05",
+                    "repeatType": "DAILY",
+                    "status": "PENDING",
+                    "createdBy": {
+                      "userId": 5,
+                      "nickname": "홍길동"
+                    },
+                    "createdAt": "2026-07-03T10:00:00Z",
+                    "updatedAt": "2026-07-03T10:00:00Z"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "집안일명/담당자 누락 또는 dueDate가 startDate보다 빠른 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 400,
                   "data": null,
                   "error": {
-                    "code": "CHORE_403",
-                    "message": "집안일을 삭제할 권한이 없습니다. (등록자 또는 관리자만 가능)",
+                    "code": "CHORE_400_DATE",
+                    "message": "마감일은 시작일보다 빠를 수 없습니다.",
+                    "errors": [
+                      {
+                        "field": "dueDate",
+                        "value": "2026-07-01",
+                        "reason": "마감일은 시작일 이후여야 합니다."
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chores/{choreId}/share": {
+      "post": {
+        "tags": [
+          "집안일 관리 (CHORE)"
+        ],
+        "summary": "집안일 메신저 공유 (CHORE-SHARE-01)",
+        "description": "집안일 항목을 공유 카드 메시지로 변환해 지정한 그룹 채팅방으로 전송합니다. 발신자는 인증 토큰에서 식별합니다. (우선순위: P2)",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "choreId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 11
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "chatRoomId"
+                ],
+                "properties": {
+                  "chatRoomId": {
+                    "type": "integer",
+                    "description": "공유할 대상 채팅방 ID",
+                    "example": 3
+                  },
+                  "content": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "카드와 함께 보낼 메시지",
+                    "example": "오늘 설거지 담당 확인해주세요"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "공유 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "choreId": 11,
+                    "chatMessageId": 305,
+                    "shareCard": {
+                      "title": "설거지",
+                      "assignee": "홍길동",
+                      "dueDate": "2026-07-05",
+                      "status": "PENDING"
+                    },
+                    "sentAt": "2026-07-03T12:10:00Z"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "chatRoomId가 집안일과 다른 그룹인 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 400,
+                  "data": null,
+                  "error": {
+                    "code": "COMMON_INVALID_PARAMETER",
+                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "errors": [
+                      {
+                        "field": "chatRoomId",
+                        "value": "3",
+                        "reason": "집안일과 동일한 그룹의 채팅방만 공유할 수 있습니다."
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요 (토큰 누락·만료·무효)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
                     "errors": []
                   }
                 }
@@ -2043,16 +1401,45 @@
             }
           },
           "404": {
-            "description": "집안일 없음",
+            "description": "집안일/채팅방 없음 또는 발신자가 채팅방 멤버 아님",
             "content": {
               "application/json": {
-                "example": {
-                  "statusCode": 404,
-                  "data": null,
-                  "error": {
-                    "code": "CHORE_404",
-                    "message": "존재하지 않는 집안일입니다.",
-                    "errors": []
+                "examples": {
+                  "choreNotFound": {
+                    "summary": "집안일 없음",
+                    "value": {
+                      "statusCode": 404,
+                      "data": null,
+                      "error": {
+                        "code": "CHORE_404",
+                        "message": "존재하지 않는 집안일입니다.",
+                        "errors": []
+                      }
+                    }
+                  },
+                  "chatRoomNotFound": {
+                    "summary": "채팅방 없음",
+                    "value": {
+                      "statusCode": 404,
+                      "data": null,
+                      "error": {
+                        "code": "CHAT_ROOM_404",
+                        "message": "존재하지 않는 채팅방입니다.",
+                        "errors": []
+                      }
+                    }
+                  },
+                  "chatRoomMemberNotFound": {
+                    "summary": "발신자가 채팅방 멤버 아님",
+                    "value": {
+                      "statusCode": 404,
+                      "data": null,
+                      "error": {
+                        "code": "CHAT_ROOM_MEMBER_404",
+                        "message": "채팅방에 속하지 않은 사용자입니다.",
+                        "errors": []
+                      }
+                    }
                   }
                 }
               }

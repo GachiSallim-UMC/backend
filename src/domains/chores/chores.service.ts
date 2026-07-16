@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ChoreStatus, GroupRole, Prisma, RepeatType } from '@prisma/client';
+import { ChoreStatus, GroupRole, MessageType, Prisma, RepeatType } from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -188,6 +188,54 @@ export class ChoresService {
     await this.prisma.chore.delete({ where: { id: choreId } });
 
     return { choreId: Number(chore.id) };
+  }
+
+  async shareChore(choreId: bigint, senderId: bigint, chatRoomId: bigint, content?: string) {
+    const chore = await this.findChoreOrThrow(choreId);
+
+    const chatRoom = await this.prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
+
+    if (!chatRoom) {
+      throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND);
+    }
+
+    if (chatRoom.groupId !== chore.groupId) {
+      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+        { field: 'chatRoomId', value: String(chatRoomId), reason: '집안일과 동일한 그룹의 채팅방만 공유할 수 있습니다.' },
+      ]);
+    }
+
+    const membership = await this.prisma.chatRoomMember.findUnique({
+      where: { chatRoomId_userId: { chatRoomId, userId: senderId } },
+    });
+
+    if (!membership) {
+      throw new BusinessException(ErrorCode.CHAT_ROOM_MEMBER_NOT_FOUND);
+    }
+
+    const shareCard = {
+      title: chore.title,
+      assignee: chore.assignee.nickname,
+      dueDate: chore.dueDate ? toDateOnly(chore.dueDate) : null,
+      status: chore.status,
+    };
+
+    const message = await this.prisma.message.create({
+      data: {
+        chatRoomId,
+        senderId,
+        type: MessageType.CARD_CHORE,
+        content: content ?? '',
+        refId: chore.id,
+      },
+    });
+
+    return {
+      choreId: Number(chore.id),
+      chatMessageId: Number(message.id),
+      shareCard,
+      sentAt: toIsoNoMillis(message.createdAt),
+    };
   }
 
   private async assertDeletePermission(chore: ChoreWithUsers, requesterId: bigint): Promise<void> {

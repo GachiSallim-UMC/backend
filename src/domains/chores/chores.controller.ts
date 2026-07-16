@@ -5,6 +5,7 @@ import { ErrorCode } from '../../common/constants/error-code.constant';
 import { ChoresService } from './chores.service';
 import { CreateChoreDto } from './dto/create-chore.dto';
 import { ListChoresQueryDto } from './dto/list-chores-query.dto';
+import { ShareChoreDto } from './dto/share-chore.dto';
 import { UpdateChoreDto } from './dto/update-chore.dto';
 
 @ApiTags('집안일 관리 (CHORE)')
@@ -60,6 +61,26 @@ export class ChoresController {
     const requesterId = this.requireUserId(userIdHeader);
 
     return this.choresService.deleteChore(this.parseId(choreId, 'choreId'), requesterId);
+  }
+
+  @Post(':choreId/share')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '집안일 메신저 공유 (CHORE-SHARE-01)' })
+  @ApiParam({ name: 'choreId', type: Number, example: 11 })
+  @ApiHeader({ name: 'x-user-id', required: true, description: '임시 인증 헤더: 공유(발신)자 ID (AUTH 도입 전까지)' })
+  shareChore(
+    @Param('choreId') choreId: string,
+    @Body() dto: ShareChoreDto,
+    @Headers('x-user-id') userIdHeader?: string,
+  ) {
+    const senderId = this.requireUserId(userIdHeader);
+
+    return this.choresService.shareChore(
+      this.parseId(choreId, 'choreId'),
+      senderId,
+      BigInt(dto.chatRoomId),
+      dto.content,
+    );
   }
 
   private parseId(value: string, field: string): bigint {
