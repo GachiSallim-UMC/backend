@@ -1,12 +1,7 @@
-import {
-  Aws,
-  CfnOutput,
-  CfnParameter,
-  Duration,
-  RemovalPolicy,
-  Stack,
-  StackProps,
-} from 'aws-cdk-lib';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { Aws, CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
@@ -15,24 +10,62 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as elbv2Targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 
-const APPLICATION_PORT = 3000;
 const DATABASE_PORT = 5432;
+const HOSTED_ZONE_ID = 'Z030555518IT8GMAZA4RP';
+const ROOT_DOMAIN = 'gachisallim.com';
+const PRODUCTION_DOMAIN = `api.${ROOT_DOMAIN}`;
+const DEVELOPMENT_DOMAIN = `dev-api.${ROOT_DOMAIN}`;
+
+interface BackendStackProps extends StackProps {
+  readonly artifactBucket: s3.IBucket;
+}
+
+interface AuthenticationResources {
+  readonly client: cognito.UserPoolClient;
+  readonly issuer: string;
+  readonly jwksEndpoint: string;
+  readonly pool: cognito.UserPool;
+}
+
+interface RuntimeEnvironment {
+  readonly branch: 'main' | 'develop';
+  readonly corsOrigin: string;
+  readonly databaseName: string;
+  readonly domain: string;
+  readonly id: 'Production' | 'Development';
+  readonly nodeEnvironment: 'production' | 'development';
+  readonly port: number;
+}
+
+const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
+  {
+    branch: 'main',
+    corsOrigin: 'https://gachisallim.com',
+    databaseName: 'gachisallim',
+    domain: PRODUCTION_DOMAIN,
+    id: 'Production',
+    nodeEnvironment: 'production',
+    port: 3000,
+  },
+  {
+    branch: 'develop',
+    corsOrigin: '*',
+    databaseName: 'gachisallim_develop',
+    domain: DEVELOPMENT_DOMAIN,
+    id: 'Development',
+    nodeEnvironment: 'development',
+    port: 3001,
+  },
+];
 
 export class BackendStack extends Stack {
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props: BackendStackProps) {
     super(scope, id, props);
-
-    const applicationDomain = new CfnParameter(this, 'ApplicationDomain', {
-      type: 'String',
-      description: 'Lowercase DNS name used to access the backend.',
-      allowedPattern: '^[a-z0-9.-]+$',
-    });
-    const certificateArn = new CfnParameter(this, 'CertificateArn', {
-      type: 'String',
-      description: 'ARN of an ACM certificate for ApplicationDomain.',
-    });
 
     const vpc = new ec2.Vpc(this, 'Vpc', {
       ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
@@ -62,7 +95,7 @@ export class BackendStack extends Stack {
     loadBalancerSecurityGroup.addEgressRule(
       ec2.Peer.anyIpv4(),
       ec2.Port.tcp(443),
-      'Allows HTTPS access to the Cognito JWKS endpoint.',
+      'Allows HTTPS access to the Cognito JWKS endpoints.',
     );
 
     const applicationSecurityGroup = new ec2.SecurityGroup(this, 'ApplicationSecurityGroup', {
@@ -70,14 +103,16 @@ export class BackendStack extends Stack {
       allowAllOutbound: false,
       description: 'Allows backend traffic only from the load balancer.',
     });
-    applicationSecurityGroup.addIngressRule(
-      loadBalancerSecurityGroup,
-      ec2.Port.tcp(APPLICATION_PORT),
-    );
-    loadBalancerSecurityGroup.addEgressRule(
-      applicationSecurityGroup,
-      ec2.Port.tcp(APPLICATION_PORT),
-    );
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      applicationSecurityGroup.addIngressRule(
+        loadBalancerSecurityGroup,
+        ec2.Port.tcp(environment.port),
+      );
+      loadBalancerSecurityGroup.addEgressRule(
+        applicationSecurityGroup,
+        ec2.Port.tcp(environment.port),
+      );
+    }
 
     const databaseSecurityGroup = new ec2.SecurityGroup(this, 'DatabaseSecurityGroup', {
       vpc,
@@ -93,7 +128,11 @@ export class BackendStack extends Stack {
       description: 'Allows the backend instance to use private AWS service endpoints.',
     });
     endpointSecurityGroup.addIngressRule(applicationSecurityGroup, ec2.Port.tcp(443));
-    applicationSecurityGroup.addEgressRule(endpointSecurityGroup, ec2.Port.tcp(443));
+    applicationSecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(443),
+      'Allows HTTPS only through routes available in the isolated subnet.',
+    );
 
     const backendSubnets: ec2.SubnetSelection = {
       subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
@@ -101,26 +140,35 @@ export class BackendStack extends Stack {
     const applicationSubnet: ec2.SubnetSelection = {
       subnets: [vpc.isolatedSubnets[0]],
     };
-    vpc.addInterfaceEndpoint('SecretsManagerEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
+    const endpointOptions = {
       subnets: applicationSubnet,
       securityGroups: [endpointSecurityGroup],
       open: false,
       privateDnsEnabled: true,
+    };
+    vpc.addInterfaceEndpoint('SecretsManagerEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
+      ...endpointOptions,
     });
     vpc.addInterfaceEndpoint('CloudWatchLogsEndpoint', {
       service: ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
-      subnets: applicationSubnet,
-      securityGroups: [endpointSecurityGroup],
-      open: false,
-      privateDnsEnabled: true,
+      ...endpointOptions,
     });
     vpc.addInterfaceEndpoint('CognitoEndpoint', {
       service: ec2.InterfaceVpcEndpointAwsService.COGNITO_IDP,
-      subnets: applicationSubnet,
-      securityGroups: [endpointSecurityGroup],
-      open: false,
-      privateDnsEnabled: true,
+      ...endpointOptions,
+    });
+    vpc.addInterfaceEndpoint('SystemsManagerEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.SSM,
+      ...endpointOptions,
+    });
+    vpc.addInterfaceEndpoint('SystemsManagerMessagesEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.SSM_MESSAGES,
+      ...endpointOptions,
+    });
+    vpc.addGatewayEndpoint('S3Endpoint', {
+      service: ec2.GatewayVpcEndpointAwsService.S3,
+      subnets: [applicationSubnet],
     });
 
     const applicationLogGroup = new logs.LogGroup(this, 'ApplicationLogGroup', {
@@ -150,13 +198,60 @@ export class BackendStack extends Stack {
       engineLifecycleSupport: rds.EngineLifecycleSupport.OPEN_SOURCE_RDS_EXTENDED_SUPPORT_DISABLED,
     });
 
+    const authentication = new Map<string, AuthenticationResources>();
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      const pool = new cognito.UserPool(this, `${environment.id}UserPool`, {
+        userPoolName: `gachisallim-${environment.branch}-users`,
+        selfSignUpEnabled: true,
+        signInAliases: { email: true },
+        autoVerify: { email: true },
+        accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+        passwordPolicy: {
+          minLength: 8,
+          requireLowercase: true,
+          requireUppercase: true,
+          requireDigits: true,
+          requireSymbols: false,
+        },
+        deletionProtection: true,
+        removalPolicy: RemovalPolicy.RETAIN,
+      });
+      const client = pool.addClient(`${environment.id}UserPoolClient`, {
+        userPoolClientName: `gachisallim-${environment.branch}-web`,
+        generateSecret: false,
+        disableOAuth: true,
+        authFlows: { userPassword: true },
+        preventUserExistenceErrors: true,
+        supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
+        accessTokenValidity: Duration.hours(1),
+        idTokenValidity: Duration.hours(1),
+        refreshTokenValidity: Duration.days(30),
+        enableTokenRevocation: true,
+      });
+      const issuer = `https://cognito-idp.${Aws.REGION}.${Aws.URL_SUFFIX}/${pool.userPoolId}`;
+      authentication.set(environment.branch, {
+        client,
+        issuer,
+        jwksEndpoint: `${issuer}/.well-known/jwks.json`,
+        pool,
+      });
+    }
+
     const instanceRole = new iam.Role(this, 'InstanceRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-      description: 'Allows the backend instance to read its secret and write application logs.',
+      description: 'Allows the backend instance to receive deployments and access runtime data.',
+      managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore')],
     });
     const databaseSecret = database.secret!;
     databaseSecret.grantRead(instanceRole);
+    props.artifactBucket.grantRead(instanceRole, 'releases/*');
     applicationLogGroup.grantWrite(instanceRole);
+    instanceRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'],
+        resources: Array.from(authentication.values()).map(({ pool }) => pool.userPoolArn),
+      }),
+    );
 
     const instance = new ec2.Instance(this, 'ApplicationInstance', {
       vpc,
@@ -164,15 +259,16 @@ export class BackendStack extends Stack {
       securityGroup: applicationSecurityGroup,
       role: instanceRole,
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
-      machineImage: ec2.MachineImage.latestAmazonLinux2023({
-        cpuType: ec2.AmazonLinuxCpuType.ARM_64,
-      }),
+      machineImage: ec2.MachineImage.resolveSsmParameterAtLaunch(
+        '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64',
+        { os: ec2.OperatingSystemType.LINUX },
+      ),
       associatePublicIpAddress: false,
       requireImdsv2: true,
       blockDevices: [
         {
           deviceName: '/dev/xvda',
-          volume: ec2.BlockDeviceVolume.ebs(8, {
+          volume: ec2.BlockDeviceVolume.ebs(16, {
             volumeType: ec2.EbsDeviceVolumeType.GP3,
             encrypted: true,
             deleteOnTermination: true,
@@ -180,56 +276,73 @@ export class BackendStack extends Stack {
         },
       ],
     });
+    Tags.of(instance).add('GachiSallimDeploymentTarget', 'true');
 
-    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'TargetGroup', {
-      vpc,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      port: APPLICATION_PORT,
-      targets: [new elbv2Targets.InstanceTarget(instance, APPLICATION_PORT)],
-      healthCheck: {
-        path: '/api/v1/health',
-        healthyHttpCodes: '200',
-      },
-    });
+    const deployScript = readFileSync(join(__dirname, '../../scripts/deploy-release.sh'), 'utf8');
+    instance.userData.addCommands(
+      'mkdir -p /etc/gachisallim /opt/gachisallim/current /opt/gachisallim/releases',
+      `cat > /usr/local/bin/gachisallim-deploy <<'DEPLOY_SCRIPT'\n${deployScript}\nDEPLOY_SCRIPT`,
+      'chmod 0755 /usr/local/bin/gachisallim-deploy',
+      `cat > /etc/systemd/system/gachisallim@.service <<'SYSTEMD_UNIT'
+[Unit]
+Description=GachiSallim backend (%i)
+After=network-online.target
+Wants=network-online.target
 
-    const userPool = new cognito.UserPool(this, 'UserPool', {
-      userPoolName: 'gachisallim-users',
-      selfSignUpEnabled: true,
-      signInAliases: { email: true },
-      autoVerify: { email: true },
-      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
-      passwordPolicy: {
-        minLength: 8,
-        requireLowercase: true,
-        requireUppercase: true,
-        requireDigits: true,
-        requireSymbols: false,
-      },
-      deletionProtection: true,
-      removalPolicy: RemovalPolicy.RETAIN,
-    });
-    instanceRole.addToPolicy(
-      new iam.PolicyStatement({
-        actions: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'],
-        resources: [userPool.userPoolArn],
-      }),
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+EnvironmentFile=/etc/gachisallim/%i.env
+WorkingDirectory=/opt/gachisallim/current/%i
+ExecStart=/opt/gachisallim/current/%i/bin/node dist/main.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+SYSTEMD_UNIT`,
+      'systemctl daemon-reload',
+      'systemctl enable amazon-ssm-agent --now',
     );
-    const userPoolClient = userPool.addClient('UserPoolClient', {
-      userPoolClientName: 'gachisallim-web',
-      generateSecret: false,
-      disableOAuth: true,
-      authFlows: {
-        userPassword: true,
-      },
-      preventUserExistenceErrors: true,
-      supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
-      accessTokenValidity: Duration.hours(1),
-      idTokenValidity: Duration.hours(1),
-      refreshTokenValidity: Duration.days(30),
-      enableTokenRevocation: true,
-    });
-    const cognitoIssuer = `https://cognito-idp.${Aws.REGION}.${Aws.URL_SUFFIX}/${userPool.userPoolId}`;
-    const cognitoJwksEndpoint = `${cognitoIssuer}/.well-known/jwks.json`;
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      const auth = authentication.get(environment.branch)!;
+      instance.userData.addCommands(
+        `cat > /etc/gachisallim/${environment.branch}.config <<'ENVIRONMENT_CONFIG'
+ARTIFACT_BUCKET='${props.artifactBucket.bucketName}'
+DATABASE_SECRET_ARN='${databaseSecret.secretArn}'
+DATABASE_NAME='${environment.databaseName}'
+NODE_ENV='${environment.nodeEnvironment}'
+PORT='${environment.port}'
+APP_NAME='GachiSallim Backend (${environment.branch})'
+APP_VERSION='0.1.0'
+CORS_ORIGIN='${environment.corsOrigin}'
+AWS_REGION='${Aws.REGION}'
+COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
+COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
+ENVIRONMENT_CONFIG`,
+        `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
+      );
+    }
+
+    const targetGroups = new Map<string, elbv2.ApplicationTargetGroup>();
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      targetGroups.set(
+        environment.branch,
+        new elbv2.ApplicationTargetGroup(this, `${environment.id}TargetGroup`, {
+          vpc,
+          protocol: elbv2.ApplicationProtocol.HTTP,
+          port: environment.port,
+          targets: [new elbv2Targets.InstanceTarget(instance, environment.port)],
+          healthCheck: {
+            path: '/api/v1/health',
+            healthyHttpCodes: '200',
+          },
+        }),
+      );
+    }
 
     const loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'LoadBalancer', {
       vpc,
@@ -245,79 +358,125 @@ export class BackendStack extends Stack {
       targetPort: 443,
     });
 
-    const certificate = acm.Certificate.fromCertificateArn(
-      this,
-      'Certificate',
-      certificateArn.valueAsString,
-    );
+    const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
+      hostedZoneId: HOSTED_ZONE_ID,
+      zoneName: ROOT_DOMAIN,
+    });
+    const certificate = new acm.Certificate(this, 'Certificate', {
+      domainName: PRODUCTION_DOMAIN,
+      subjectAlternativeNames: [DEVELOPMENT_DOMAIN],
+      validation: acm.CertificateValidation.fromDns(hostedZone),
+    });
     const httpsListener = loadBalancer.addListener('HttpsListener', {
       port: 443,
       protocol: elbv2.ApplicationProtocol.HTTPS,
       certificates: [certificate],
       sslPolicy: elbv2.SslPolicy.RECOMMENDED_TLS,
-      defaultAction: elbv2.ListenerAction.authenticateJwt({
-        issuer: cognitoIssuer,
-        jwksEndpoint: cognitoJwksEndpoint,
-        next: elbv2.ListenerAction.forward([targetGroup]),
+      defaultAction: elbv2.ListenerAction.fixedResponse(404, {
+        contentType: 'application/json',
+        messageBody: '{"message":"Not Found"}',
       }),
     });
-    const cfnHttpsListener = httpsListener.node.defaultChild as elbv2.CfnListener;
-    cfnHttpsListener.addPropertyOverride('DefaultActions.0.JwtValidationConfig.AdditionalClaims', [
-      {
-        Format: 'single-string',
-        Name: 'token_use',
-        Values: ['access'],
-      },
-      {
-        Format: 'single-string',
-        Name: 'client_id',
-        Values: [userPoolClient.userPoolClientId],
-      },
-    ]);
 
-    httpsListener.addAction('PublicAuthRoutes', {
-      priority: 10,
-      conditions: [
-        elbv2.ListenerCondition.pathPatterns([
-          '/api/v1/auth/signup',
-          '/api/v1/auth/signup/confirm',
-        ]),
-        elbv2.ListenerCondition.httpRequestMethods(['POST']),
-      ],
-      action: elbv2.ListenerAction.forward([targetGroup]),
-    });
-    httpsListener.addAction('PublicSessionRoutes', {
-      priority: 11,
-      conditions: [
-        elbv2.ListenerCondition.pathPatterns(['/api/v1/auth/login', '/api/v1/auth/token/refresh']),
-        elbv2.ListenerCondition.httpRequestMethods(['POST']),
-      ],
-      action: elbv2.ListenerAction.forward([targetGroup]),
-    });
-    httpsListener.addAction('PublicHealth', {
-      priority: 20,
-      conditions: [
-        elbv2.ListenerCondition.pathPatterns(['/api/v1/health']),
-        elbv2.ListenerCondition.httpRequestMethods(['GET']),
-      ],
-      action: elbv2.ListenerAction.forward([targetGroup]),
-    });
-    httpsListener.addAction('CorsPreflight', {
-      priority: 30,
-      conditions: [elbv2.ListenerCondition.httpRequestMethods(['OPTIONS'])],
-      action: elbv2.ListenerAction.forward([targetGroup]),
-    });
-    httpsListener.addAction('SocketIo', {
-      priority: 40,
-      conditions: [elbv2.ListenerCondition.pathPatterns(['/socket.io/*'])],
-      action: elbv2.ListenerAction.forward([targetGroup]),
-    });
+    for (const [index, environment] of RUNTIME_ENVIRONMENTS.entries()) {
+      const priorityOffset = index * 100;
+      const targetGroup = targetGroups.get(environment.branch)!;
+      const auth = authentication.get(environment.branch)!;
+      const hostCondition = elbv2.ListenerCondition.hostHeaders([environment.domain]);
+
+      httpsListener.addAction(`${environment.id}PublicAuthRoutes`, {
+        priority: priorityOffset + 10,
+        conditions: [
+          hostCondition,
+          elbv2.ListenerCondition.pathPatterns([
+            '/api/v1/auth/signup',
+            '/api/v1/auth/signup/confirm',
+          ]),
+          elbv2.ListenerCondition.httpRequestMethods(['POST']),
+        ],
+        action: elbv2.ListenerAction.forward([targetGroup]),
+      });
+      httpsListener.addAction(`${environment.id}PublicSessionRoutes`, {
+        priority: priorityOffset + 11,
+        conditions: [
+          hostCondition,
+          elbv2.ListenerCondition.pathPatterns([
+            '/api/v1/auth/login',
+            '/api/v1/auth/token/refresh',
+          ]),
+          elbv2.ListenerCondition.httpRequestMethods(['POST']),
+        ],
+        action: elbv2.ListenerAction.forward([targetGroup]),
+      });
+      httpsListener.addAction(`${environment.id}PublicHealth`, {
+        priority: priorityOffset + 20,
+        conditions: [
+          hostCondition,
+          elbv2.ListenerCondition.pathPatterns(['/api/v1/health']),
+          elbv2.ListenerCondition.httpRequestMethods(['GET']),
+        ],
+        action: elbv2.ListenerAction.forward([targetGroup]),
+      });
+      httpsListener.addAction(`${environment.id}CorsPreflight`, {
+        priority: priorityOffset + 30,
+        conditions: [hostCondition, elbv2.ListenerCondition.httpRequestMethods(['OPTIONS'])],
+        action: elbv2.ListenerAction.forward([targetGroup]),
+      });
+      httpsListener.addAction(`${environment.id}SocketIo`, {
+        priority: priorityOffset + 40,
+        conditions: [hostCondition, elbv2.ListenerCondition.pathPatterns(['/socket.io/*'])],
+        action: elbv2.ListenerAction.forward([targetGroup]),
+      });
+      const protectedRule = new elbv2.ApplicationListenerRule(
+        this,
+        `${environment.id}ProtectedRoutes`,
+        {
+          listener: httpsListener,
+          priority: priorityOffset + 50,
+          conditions: [hostCondition],
+          action: elbv2.ListenerAction.authenticateJwt({
+            issuer: auth.issuer,
+            jwksEndpoint: auth.jwksEndpoint,
+            next: elbv2.ListenerAction.forward([targetGroup]),
+          }),
+        },
+      );
+      const cfnProtectedRule = protectedRule.node.defaultChild as elbv2.CfnListenerRule;
+      cfnProtectedRule.addPropertyOverride('Actions.0.JwtValidationConfig.AdditionalClaims', [
+        {
+          Format: 'single-string',
+          Name: 'token_use',
+          Values: ['access'],
+        },
+        {
+          Format: 'single-string',
+          Name: 'client_id',
+          Values: [auth.client.userPoolClientId],
+        },
+      ]);
+
+      new route53.ARecord(this, `${environment.id}AliasRecord`, {
+        zone: hostedZone,
+        recordName: environment.domain,
+        target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(loadBalancer)),
+      });
+
+      new CfnOutput(this, `${environment.id}ApplicationUrl`, {
+        value: `https://${environment.domain}`,
+      });
+      new CfnOutput(this, `${environment.id}UserPoolId`, {
+        value: auth.pool.userPoolId,
+      });
+      new CfnOutput(this, `${environment.id}UserPoolClientId`, {
+        value: auth.client.userPoolClientId,
+      });
+      new CfnOutput(this, `${environment.id}CognitoIssuerUrl`, {
+        value: auth.issuer,
+      });
+    }
 
     new CfnOutput(this, 'LoadBalancerDnsName', {
       value: loadBalancer.loadBalancerDnsName,
-    });
-    new CfnOutput(this, 'ApplicationUrl', {
-      value: `https://${applicationDomain.valueAsString}`,
     });
     new CfnOutput(this, 'InstanceId', {
       value: instance.instanceId,
@@ -327,15 +486,6 @@ export class BackendStack extends Stack {
     });
     new CfnOutput(this, 'DatabaseSecretArn', {
       value: databaseSecret.secretArn,
-    });
-    new CfnOutput(this, 'UserPoolId', {
-      value: userPool.userPoolId,
-    });
-    new CfnOutput(this, 'UserPoolClientId', {
-      value: userPoolClient.userPoolClientId,
-    });
-    new CfnOutput(this, 'CognitoIssuerUrl', {
-      value: cognitoIssuer,
     });
     new CfnOutput(this, 'ApplicationLogGroupName', {
       value: applicationLogGroup.logGroupName,

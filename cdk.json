@@ -3,5 +3,8 @@
   "watch": {
     "include": ["infra/**/*.ts"],
     "exclude": ["README.md", "cdk*.json", "node_modules", "test"]
+  },
+  "context": {
+    "@aws-cdk/core:defaultCrossStackReferences": "strong"
   }
 }

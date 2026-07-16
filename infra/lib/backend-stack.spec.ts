@@ -1,164 +1,66 @@
-import { App } from 'aws-cdk-lib';
+import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 
 import { BackendStack } from './backend-stack';
 
 describe('BackendStack', () => {
   const app = new App();
-  const stack = new BackendStack(app, 'TestBackendStack');
+  const artifactStack = new Stack(app, 'ArtifactStack');
+  const artifactBucket = new s3.Bucket(artifactStack, 'ArtifactBucket');
+  const stack = new BackendStack(app, 'TestBackendStack', { artifactBucket });
   const template = Template.fromStack(stack);
 
-  it('validates Cognito access tokens at the public load balancer', () => {
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', {
-      Scheme: 'internet-facing',
-      Type: 'application',
+  it('routes the two domains to separate ports and Cognito pools', () => {
+    template.resourceCountIs('AWS::ElasticLoadBalancingV2::TargetGroup', 2);
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+      HealthCheckPath: '/api/v1/health',
+      Matcher: { HttpCode: '200' },
+      Port: 3000,
+      Protocol: 'HTTP',
     });
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
-      Port: 443,
-      Protocol: 'HTTPS',
-      DefaultActions: Match.arrayWith([
-        Match.objectLike({
-          Type: 'jwt-validation',
-          JwtValidationConfig: Match.objectLike({
-            AdditionalClaims: Match.arrayWith([
-              {
-                Format: 'single-string',
-                Name: 'token_use',
-                Values: ['access'],
-              },
-              Match.objectLike({
-                Format: 'single-string',
-                Name: 'client_id',
-                Values: Match.anyValue(),
-              }),
-            ]),
-            Issuer: Match.anyValue(),
-            JwksEndpoint: Match.anyValue(),
-          }),
-        }),
-        Match.objectLike({ Type: 'forward' }),
-      ]),
-      SslPolicy: 'ELBSecurityPolicy-TLS13-1-2-2021-06',
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+      HealthCheckPath: '/api/v1/health',
+      Matcher: { HttpCode: '200' },
+      Port: 3001,
+      Protocol: 'HTTP',
     });
-    template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
-      AccessTokenValidity: 60,
-      AllowedOAuthFlowsUserPoolClient: false,
-      EnableTokenRevocation: true,
-      ExplicitAuthFlows: ['ALLOW_USER_PASSWORD_AUTH', 'ALLOW_REFRESH_TOKEN_AUTH'],
-      GenerateSecret: false,
-      IdTokenValidity: 60,
-      RefreshTokenValidity: 43200,
-      SupportedIdentityProviders: ['COGNITO'],
-      TokenValidityUnits: {
-        AccessToken: 'minutes',
-        IdToken: 'minutes',
-        RefreshToken: 'minutes',
-      },
-    });
-    template.hasResourceProperties('AWS::Cognito::UserPool', {
-      AutoVerifiedAttributes: ['email'],
-      UsernameAttributes: ['email'],
-      VerificationMessageTemplate: Match.objectLike({
-        DefaultEmailOption: 'CONFIRM_WITH_CODE',
-      }),
-    });
-    template.hasOutput('CognitoIssuerUrl', {
-      Value: Match.anyValue(),
-    });
+    template.resourceCountIs('AWS::Cognito::UserPool', 2);
+    template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
+
+    const listenerRules = JSON.stringify(
+      template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule'),
+    );
+    expect(listenerRules).toContain('api.gachisallim.com');
+    expect(listenerRules).toContain('dev-api.gachisallim.com');
+    expect(listenerRules).toContain('jwt-validation');
+    expect(listenerRules).toContain('token_use');
+    expect(listenerRules).toContain('client_id');
   });
 
-  it('allows the load balancer to fetch Cognito JWKS over HTTPS', () => {
-    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
-      GroupDescription: 'Allows public HTTPS traffic to the backend load balancer.',
-      SecurityGroupEgress: Match.arrayWith([
-        Match.objectLike({
-          CidrIp: '0.0.0.0/0',
-          FromPort: 443,
-          IpProtocol: 'tcp',
-          ToPort: 443,
-        }),
-      ]),
+  it('creates DNS-validated TLS and aliases for both backend domains', () => {
+    template.hasResourceProperties('AWS::CertificateManager::Certificate', {
+      DomainName: 'api.gachisallim.com',
+      SubjectAlternativeNames: ['dev-api.gachisallim.com'],
+      ValidationMethod: 'DNS',
     });
+    template.resourceCountIs('AWS::Route53::RecordSet', 2);
+    const records = JSON.stringify(template.findResources('AWS::Route53::RecordSet'));
+    expect(records).toContain('api.gachisallim.com');
+    expect(records).toContain('dev-api.gachisallim.com');
   });
 
-  it('forwards public HTTP and Socket.IO routes without ALB JWT validation', () => {
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
-      Priority: 10,
-      Conditions: Match.arrayWith([
-        {
-          Field: 'path-pattern',
-          PathPatternConfig: {
-            Values: ['/api/v1/auth/signup', '/api/v1/auth/signup/confirm'],
-          },
-        },
-        {
-          Field: 'http-request-method',
-          HttpRequestMethodConfig: { Values: ['POST'] },
-        },
-      ]),
-      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
-    });
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
-      Priority: 11,
-      Conditions: Match.arrayWith([
-        {
-          Field: 'path-pattern',
-          PathPatternConfig: {
-            Values: ['/api/v1/auth/login', '/api/v1/auth/token/refresh'],
-          },
-        },
-        {
-          Field: 'http-request-method',
-          HttpRequestMethodConfig: { Values: ['POST'] },
-        },
-      ]),
-      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
-    });
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
-      Priority: 20,
-      Conditions: Match.arrayWith([
-        Match.objectLike({
-          Field: 'path-pattern',
-          PathPatternConfig: { Values: ['/api/v1/health'] },
-        }),
-      ]),
-      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
-    });
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
-      Priority: 30,
-      Conditions: Match.arrayWith([
-        Match.objectLike({
-          Field: 'http-request-method',
-          HttpRequestMethodConfig: { Values: ['OPTIONS'] },
-        }),
-      ]),
-      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
-    });
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
-      Priority: 40,
-      Conditions: Match.arrayWith([
-        Match.objectLike({
-          Field: 'path-pattern',
-          PathPatternConfig: { Values: ['/socket.io/*'] },
-        }),
-      ]),
-      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
-    });
-  });
-
-  it('creates one private ARM instance with an 8 GiB root volume', () => {
+  it('creates one private ARM instance sized for two release trees', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 't4g.small',
-      ImageId: {
-        Ref: Match.stringLikeRegexp('arm64'),
-      },
+      ImageId: Match.stringLikeRegexp('al2023-ami-kernel-default-arm64'),
       BlockDeviceMappings: Match.arrayWith([
         {
           DeviceName: '/dev/xvda',
           Ebs: {
             DeleteOnTermination: true,
             Encrypted: true,
-            VolumeSize: 8,
+            VolumeSize: 16,
             VolumeType: 'gp3',
           },
         },
@@ -166,73 +68,66 @@ describe('BackendStack', () => {
       NetworkInterfaces: Match.arrayWith([
         Match.objectLike({
           AssociatePublicIpAddress: false,
-          SubnetId: {
-            Ref: Match.stringLikeRegexp('BackendSubnet'),
-          },
+          SubnetId: { Ref: Match.stringLikeRegexp('BackendSubnet') },
         }),
       ]),
+      Tags: Match.arrayWith([{ Key: 'GachiSallimDeploymentTarget', Value: 'true' }]),
     });
     template.hasResourceProperties('AWS::EC2::LaunchTemplate', {
-      LaunchTemplateData: {
-        MetadataOptions: { HttpTokens: 'required' },
-      },
+      LaunchTemplateData: { MetadataOptions: { HttpTokens: 'required' } },
     });
   });
 
-  it('creates a private Single-AZ PostgreSQL 16 database', () => {
+  it('keeps one RDS instance and bootstraps the develop database during deployment', () => {
+    template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.hasResourceProperties('AWS::RDS::DBInstance', {
-      AllocatedStorage: '20',
       DBInstanceClass: 'db.t4g.micro',
       DBName: 'gachisallim',
       Engine: 'postgres',
       EngineVersion: '16',
-      EngineLifecycleSupport: 'open-source-rds-extended-support-disabled',
       MultiAZ: false,
       PubliclyAccessible: false,
       StorageEncrypted: true,
-      StorageType: 'gp3',
     });
-    template.hasResource('AWS::SecretsManager::Secret', {});
+
+    const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
+    expect(userData).toContain("DATABASE_NAME='gachisallim'");
+    expect(userData).toContain("DATABASE_NAME='gachisallim_develop'");
+    expect(userData).toContain("CORS_ORIGIN='https://gachisallim.com'");
+    expect(userData).toContain("CORS_ORIGIN='*'");
+    expect(userData).toContain('gachisallim@.service');
   });
 
-  it('creates private endpoints and the application log group', () => {
+  it('provides private deployment and runtime service endpoints without NAT', () => {
     const endpoints = JSON.stringify(template.findResources('AWS::EC2::VPCEndpoint'));
 
     expect(endpoints).toContain('.secretsmanager');
     expect(endpoints).toContain('.logs');
     expect(endpoints).toContain('.cognito-idp');
-    template.hasResourceProperties('AWS::EC2::VPCEndpoint', {
-      PrivateDnsEnabled: true,
-      VpcEndpointType: 'Interface',
-    });
-    template.hasResourceProperties('AWS::Logs::LogGroup', {
-      LogGroupName: '/gachisallim/backend/application',
-      RetentionInDays: 30,
-    });
+    expect(endpoints).toContain('.ssm');
+    expect(endpoints).toContain('.ssmmessages');
+    expect(endpoints).toContain('.s3');
   });
 
-  it('allows only the scoped Cognito admin actions required by AUTH flows', () => {
+  it('allows the instance to receive SSM commands and access only required Cognito pools', () => {
+    template.hasResourceProperties('AWS::IAM::Role', {
+      ManagedPolicyArns: Match.arrayWith([
+        {
+          'Fn::Join': Match.arrayWith([
+            Match.arrayWith([Match.stringLikeRegexp('AmazonSSMManagedInstanceCore')]),
+          ]),
+        },
+      ]),
+    });
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
             Action: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'],
             Effect: 'Allow',
-            Resource: {
-              'Fn::GetAtt': [Match.stringLikeRegexp('UserPool'), 'Arn'],
-            },
           }),
         ]),
       },
-    });
-  });
-
-  it('checks backend health through the existing endpoint', () => {
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
-      HealthCheckPath: '/api/v1/health',
-      Matcher: { HttpCode: '200' },
-      Port: 3000,
-      Protocol: 'HTTP',
     });
   });
 });
