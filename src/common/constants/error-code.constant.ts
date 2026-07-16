@@ -110,6 +110,27 @@ export const ErrorCode = {
     message: '존재하지 않는 사용자입니다.',
   },
 
+  // Notification
+  NOTIFICATION_FORBIDDEN: {
+    status: 403,
+    code: 'NOTIFICATION_FORBIDDEN',
+    message: '알림을 생성할 권한이 없습니다.',
+  },
+  NOTIFICATION_TARGET_NOT_FOUND: {
+    status: 404,
+    code: 'NOTIFICATION_TARGET_NOT_FOUND',
+    message: '알림 대상 사용자를 찾을 수 없습니다.',
+  },
+  NOTIFICATION_SUBSCRIPTION_NOT_FOUND: {
+    status: 404,
+    code: 'NOTIFICATION_SUBSCRIPTION_NOT_FOUND',
+    message: '존재하지 않는 알림 구독입니다.',
+  },
+  NOTIFICATION_NOT_FOUND: {
+    status: 404,
+    code: 'NOTIFICATION_NOT_FOUND',
+    message: '존재하지 않는 알림입니다.',
+  },
 
   // Chore
   CHORE_INVALID_DATE: {
