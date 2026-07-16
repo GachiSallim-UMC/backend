@@ -153,6 +153,33 @@ export const ErrorCode = {
     code: 'CHORE_409',
     message: '이미 완료된 집안일입니다.',
   },
+
+  // Supply
+  SUP_INVALID_CATEGORY: {
+    status: 400,
+    code: 'SUP_400_CATEGORY',
+    message: '구매 완료 처리 시 정산 카테고리(categoryId)는 필수입니다.',
+  },
+  SUP_FORBIDDEN: {
+    status: 403,
+    code: 'SUP_403',
+    message: '공용물품을 삭제할 권한이 없습니다. (등록자 또는 관리자만 가능)',
+  },
+  SUP_NOT_FOUND: {
+    status: 404,
+    code: 'SUP_404',
+    message: '존재하지 않는 공용물품입니다.',
+  },
+  SUP_CONFLICT: {
+    status: 409,
+    code: 'SUP_409',
+    message: '이미 등록된 공용물품입니다. (그룹 내 동일 물품명)',
+  },
+  SUP_ALREADY_PURCHASED: {
+    status: 409,
+    code: 'SUP_ALREADY_PURCHASED',
+    message: '이미 구매 완료된 공용물품입니다.',
+  },
   // Rule
   RULE_GROUP_NOT_FOUND: {
     status: 404,
