@@ -160,6 +160,26 @@ export const ErrorCode = {
     code: 'GROUP_FORBIDDEN',
     message: '그룹 관리자만 수행할 수 있는 작업입니다.',
   },
+  GROUP_INVITE_CODE_INVALID: {
+    status: 404,
+    code: 'GROUP_INVITE_CODE_INVALID',
+    message: '유효하지 않은 초대코드입니다.',
+  },
+  GROUP_INVITE_CODE_EXPIRED: {
+    status: 400,
+    code: 'GROUP_INVITE_CODE_EXPIRED',
+    message: '만료된 초대코드입니다.',
+  },
+  GROUP_ALREADY_MEMBER: {
+    status: 409,
+    code: 'GROUP_ALREADY_MEMBER',
+    message: '이미 그룹에 참여 중인 사용자입니다.',
+  },
+  GROUP_FULL: {
+    status: 409,
+    code: 'GROUP_FULL',
+    message: '그룹 정원이 가득 찼습니다.',
+  },
 
   // Chat
   CHAT_ROOM_NOT_FOUND: {
