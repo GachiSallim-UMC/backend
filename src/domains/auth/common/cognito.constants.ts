@@ -1,0 +1,1 @@
+export const COGNITO_IDP_CLIENT = Symbol('COGNITO_IDP_CLIENT');
