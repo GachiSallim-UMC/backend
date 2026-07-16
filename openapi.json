@@ -4146,15 +4146,22 @@
             }
           },
           "400": {
-            "description": "COMMON_400 - 요청 파라미터가 잘못되었습니다.",
+            "description": "COMMON_INVALID_PARAMETER - DTO 또는 쿼리 파라미터 검증에 실패했습니다.",
             "content": {
               "application/json": {
                 "example": {
                   "statusCode": 400,
                   "data": null,
                   "error": {
-                    "code": "COMMON_400",
-                    "message": "요청 파라미터가 잘못되었습니다."
+                    "code": "COMMON_INVALID_PARAMETER",
+                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "errors": [
+                      {
+                        "field": "groupId",
+                        "value": 0,
+                        "reason": "groupId must not be less than 1"
+                      }
+                    ]
                   }
                 }
               }
@@ -4241,7 +4248,7 @@
             }
           },
           "400": {
-            "description": "COMMON_400 - 요청 파라미터가 잘못되었습니다.",
+            "description": "COMMON_400 또는 COMMON_INVALID_PARAMETER - 요청 또는 DTO 검증에 실패했습니다.",
             "content": {
               "application/json": {
                 "example": {
@@ -4286,15 +4293,31 @@
             }
           },
           "404": {
-            "description": "COMMON_404 - 요청한 리소스를 찾을 수 없습니다.",
+            "description": "RULE_404_GROUP 또는 RULE_404_CATEGORY - 그룹 또는 규칙 카테고리를 찾을 수 없습니다.",
             "content": {
               "application/json": {
-                "example": {
-                  "statusCode": 404,
-                  "data": null,
-                  "error": {
-                    "code": "COMMON_404",
-                    "message": "요청한 리소스를 찾을 수 없습니다."
+                "examples": {
+                  "groupNotFound": {
+                    "summary": "그룹 없음",
+                    "value": {
+                      "statusCode": 404,
+                      "data": null,
+                      "error": {
+                        "code": "RULE_404_GROUP",
+                        "message": "존재하지 않는 그룹입니다."
+                      }
+                    }
+                  },
+                  "categoryNotFound": {
+                    "summary": "규칙 카테고리 없음",
+                    "value": {
+                      "statusCode": 404,
+                      "data": null,
+                      "error": {
+                        "code": "RULE_404_CATEGORY",
+                        "message": "존재하지 않는 규칙 카테고리입니다."
+                      }
+                    }
                   }
                 }
               }
@@ -4527,7 +4550,7 @@
             }
           },
           "400": {
-            "description": "COMMON_400 - 요청 파라미터가 잘못되었습니다.",
+            "description": "COMMON_400 또는 COMMON_INVALID_PARAMETER - 요청 또는 DTO 검증에 실패했습니다.",
             "content": {
               "application/json": {
                 "example": {
@@ -4572,15 +4595,31 @@
             }
           },
           "404": {
-            "description": "COMMON_404 - 요청한 리소스를 찾을 수 없습니다.",
+            "description": "COMMON_404 또는 RULE_404_CATEGORY - 규칙 또는 규칙 카테고리를 찾을 수 없습니다.",
             "content": {
               "application/json": {
-                "example": {
-                  "statusCode": 404,
-                  "data": null,
-                  "error": {
-                    "code": "COMMON_404",
-                    "message": "요청한 리소스를 찾을 수 없습니다."
+                "examples": {
+                  "ruleNotFound": {
+                    "summary": "규칙 없음",
+                    "value": {
+                      "statusCode": 404,
+                      "data": null,
+                      "error": {
+                        "code": "COMMON_404",
+                        "message": "요청한 리소스를 찾을 수 없습니다."
+                      }
+                    }
+                  },
+                  "categoryNotFound": {
+                    "summary": "규칙 카테고리 없음",
+                    "value": {
+                      "statusCode": 404,
+                      "data": null,
+                      "error": {
+                        "code": "RULE_404_CATEGORY",
+                        "message": "존재하지 않는 규칙 카테고리입니다."
+                      }
+                    }
                   }
                 }
               }
@@ -4729,7 +4768,7 @@
                       "PENDING"
                     ],
                     "example": "AGREED",
-                    "description": "규칙 확인 및 동의 상태"
+                    "description": "규칙 확인 및 동의 상태. PENDING이면 confirmedAt은 null로 저장됩니다."
                   }
                 }
               }
@@ -4756,15 +4795,22 @@
             }
           },
           "400": {
-            "description": "COMMON_400 - 요청 파라미터가 잘못되었습니다.",
+            "description": "COMMON_400 또는 COMMON_INVALID_PARAMETER - 요청 또는 DTO 검증에 실패했습니다.",
             "content": {
               "application/json": {
                 "example": {
                   "statusCode": 400,
                   "data": null,
                   "error": {
-                    "code": "COMMON_400",
-                    "message": "요청 파라미터가 잘못되었습니다."
+                    "code": "COMMON_INVALID_PARAMETER",
+                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "errors": [
+                      {
+                        "field": "status",
+                        "value": "UNKNOWN",
+                        "reason": "status must be one of the following values: AGREED, DISAGREED, PENDING"
+                      }
+                    ]
                   }
                 }
               }
@@ -4780,6 +4826,21 @@
                   "error": {
                     "code": "COMMON_401",
                     "message": "인증이 필요합니다."
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "GROUP_MEMBER_NOT_FOUND - 해당 규칙이 속한 그룹의 현재 구성원이 아닙니다.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다."
                   }
                 }
               }
