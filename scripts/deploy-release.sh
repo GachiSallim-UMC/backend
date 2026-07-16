@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+environment_name="${1:-}"
+commit_sha="${2:-}"
+
+if [[ "${environment_name}" != 'main' && "${environment_name}" != 'develop' ]]; then
+  echo 'Environment must be main or develop.' >&2
+  exit 1
+fi
+if [[ ! "${commit_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo 'Commit SHA must contain 40 lowercase hexadecimal characters.' >&2
+  exit 1
+fi
+
+source "/etc/gachisallim/${environment_name}.config"
+
+release_root="/opt/gachisallim/releases/${environment_name}"
+release_directory="${release_root}/${commit_sha}"
+current_link="/opt/gachisallim/current/${environment_name}"
+temporary_directory="$(mktemp -d)"
+trap 'rm -rf "${temporary_directory}"' EXIT
+
+artifact_prefix="s3://${ARTIFACT_BUCKET}/releases/${environment_name}/${commit_sha}"
+aws s3 cp "${artifact_prefix}.tar.gz" "${temporary_directory}/release.tar.gz"
+aws s3 cp "${artifact_prefix}.tar.gz.sha256" "${temporary_directory}/release.tar.gz.sha256"
+(
+  cd "${temporary_directory}"
+  sha256sum --check release.tar.gz.sha256
+)
+
+mkdir -p "${release_directory}" "$(dirname "${current_link}")"
+tar -C "${release_directory}" -xzf "${temporary_directory}/release.tar.gz"
+chmod 0755 "${release_directory}/bin/node"
+
+secret_json="$(aws secretsmanager get-secret-value \
+  --secret-id "${DATABASE_SECRET_ARN}" \
+  --query SecretString \
+  --output text)"
+database_url="$(SECRET_JSON="${secret_json}" DATABASE_NAME="${DATABASE_NAME}" python3 - <<'PY'
+import json
+import os
+from urllib.parse import quote
+
+secret = json.loads(os.environ['SECRET_JSON'])
+username = quote(secret['username'], safe='')
+password = quote(secret['password'], safe='')
+host = secret['host']
+port = secret.get('port', 5432)
+database = os.environ['DATABASE_NAME']
+print(f'postgresql://{username}:{password}@{host}:{port}/{database}?schema=public')
+PY
+)"
+
+environment_file="/etc/gachisallim/${environment_name}.env"
+umask 077
+cat > "${environment_file}" <<EOF
+NODE_ENV=${NODE_ENV}
+PORT=${PORT}
+APP_NAME=${APP_NAME}
+APP_VERSION=${APP_VERSION}
+CORS_ORIGIN=${CORS_ORIGIN}
+DATABASE_URL=${database_url}
+AWS_REGION=${AWS_REGION}
+COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
+COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}
+EOF
+
+export DATABASE_URL="${database_url}"
+"${release_directory}/bin/node" "${release_directory}/ensure-database.cjs" "${DATABASE_NAME}"
+# Automatic rollback restores only the application release. Migrations must remain
+# compatible with the immediately previous release and follow expand/contract ordering.
+PATH="${release_directory}/bin:${PATH}" \
+  "${release_directory}/node_modules/.bin/prisma" migrate deploy \
+  --schema "${release_directory}/prisma/schema.prisma"
+
+previous_release="$(readlink -f "${current_link}" 2>/dev/null || true)"
+ln -sfn "${release_directory}" "${current_link}"
+systemctl daemon-reload
+systemctl restart "gachisallim@${environment_name}.service"
+
+healthy=false
+for _ in {1..30}; do
+  if curl --fail --silent --show-error "http://127.0.0.1:${PORT}/api/v1/health" >/dev/null; then
+    healthy=true
+    break
+  fi
+  sleep 2
+done
+
+if [[ "${healthy}" != true ]]; then
+  if [[ -n "${previous_release}" && -d "${previous_release}" ]]; then
+    ln -sfn "${previous_release}" "${current_link}"
+    systemctl restart "gachisallim@${environment_name}.service"
+  else
+    systemctl stop "gachisallim@${environment_name}.service"
+  fi
+  echo 'Health check failed; the previous application release was restored.' >&2
+  exit 1
+fi
+
+find "${release_root}" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
+  | sort -rn \
+  | tail -n +4 \
+  | cut -d' ' -f2- \
+  | xargs --no-run-if-empty rm -rf
