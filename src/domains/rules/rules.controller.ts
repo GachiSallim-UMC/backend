@@ -8,6 +8,7 @@ import { ListRulesQueryDto } from './dto/list-rules-query.dto';
 import { RuleAgreementResponseDto } from './dto/rule-agreement-response.dto';
 import { RuleListResponseDto } from './dto/rule-list-response.dto';
 import { RuleResponseDto } from './dto/rule-response.dto';
+import { ShareRuleResponseDto } from './dto/share-rule-response.dto';
 import { UpdateRuleAgreementDto } from './dto/update-rule-agreement.dto';
 import { UpdateRuleDto } from './dto/update-rule.dto';
 import { RulesService } from './rules.service';
@@ -106,6 +107,27 @@ export class RulesController {
   ): Promise<RuleAgreementResponseDto> {
     const requesterId = this.requireUserId(userId);
     return this.rulesService.updateRuleAgreement(this.parseId(ruleId), updateRuleAgreementDto, requesterId);
+  }
+
+  @Post(':ruleId/share')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '생활 규칙 메신저 공유 (RULE-SHARE-01)',
+    description:
+      '생활 규칙을 공유 카드 메시지로 변환해 규칙 그룹의 기본 채팅방에 전송합니다.',
+  })
+  @ApiHeader({ name: 'x-user-id', description: '공유 요청자 사용자 ID', required: true, schema: { type: 'string', example: '5' } })
+  @ApiParam({ name: 'ruleId', type: Number, description: '공유할 생활 규칙 ID' })
+  @ApiResponse({ status: 200, description: '생활 규칙 메신저 공유 성공', type: ShareRuleResponseDto })
+  @ApiResponse({ status: 400, description: '요청 파라미터가 잘못되었습니다.' })
+  @ApiResponse({ status: 401, description: '인증이 필요합니다.' })
+  @ApiResponse({ status: 404, description: '규칙, 기본 채팅방 또는 채팅방 멤버를 찾을 수 없습니다.' })
+  shareRule(
+    @Headers('x-user-id') userId: string,
+    @Param('ruleId') ruleId: string,
+  ): Promise<ShareRuleResponseDto> {
+    const senderId = this.requireUserId(userId);
+    return this.rulesService.shareRule(this.parseId(ruleId), senderId);
   }
 
   @Delete(':ruleId')

@@ -4,6 +4,7 @@ import { jest } from '@jest/globals';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RuleAgreementStatusValue } from './dto/update-rule-agreement.dto';
+import { RuleStatusValue } from './dto/update-rule.dto';
 import { RulesService } from './rules.service';
 
 type MockedPrisma = {
@@ -14,6 +15,7 @@ type MockedPrisma = {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   rule: {
+    findMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     create: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     update: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
@@ -24,6 +26,15 @@ type MockedPrisma = {
   };
   groupMember: {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+  };
+  chatRoom: {
+    findFirst: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+  };
+  chatRoomMember: {
+    findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+  };
+  message: {
+    create: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
 };
 
@@ -36,6 +47,7 @@ describe('RulesService', () => {
       group: { findUnique: jest.fn<() => Promise<unknown>>() },
       ruleCategory: { findUnique: jest.fn<() => Promise<unknown>>() },
       rule: {
+        findMany: jest.fn<() => Promise<unknown>>(),
         create: jest.fn<() => Promise<unknown>>(),
         findUnique: jest.fn<() => Promise<unknown>>(),
         update: jest.fn<() => Promise<unknown>>(),
@@ -46,6 +58,15 @@ describe('RulesService', () => {
       },
       groupMember: {
         findUnique: jest.fn<() => Promise<unknown>>(),
+      },
+      chatRoom: {
+        findFirst: jest.fn<() => Promise<unknown>>(),
+      },
+      chatRoomMember: {
+        findUnique: jest.fn<() => Promise<unknown>>(),
+      },
+      message: {
+        create: jest.fn<() => Promise<unknown>>(),
       },
     };
 
@@ -60,30 +81,30 @@ describe('RulesService', () => {
       groupId: 1n,
       categoryId: 1n,
       userId: 10n,
-      title: '밤 11시 이후 조용히 하기',
-      description: '늦은 시간에는 소음을 줄여주세요.',
-      status: 'ACTIVE',
+      title: '규칙 1 설명',
+      description: '테스트를 위한 샘플 규칙 텍스트',
+      status: RuleStatusValue.ACTIVE,
     });
 
     const result = await service.createRule(
       {
         groupId: 1,
         categoryId: 1,
-        title: '밤 11시 이후 조용히 하기',
-        description: '늦은 시간에는 소음을 줄여주세요.',
+        title: '규칙 1 설명',
+        description: '테스트를 위한 샘플 규칙 텍스트',
       },
       10n,
     );
 
-    expect(result).toEqual({ ruleId: 123, title: '밤 11시 이후 조용히 하기' });
+    expect(result).toEqual({ ruleId: 123, title: '규칙 1 설명' });
     expect(prisma.rule.create).toHaveBeenCalledWith({
       data: {
         groupId: 1n,
         categoryId: 1n,
         userId: 10n,
-        title: '밤 11시 이후 조용히 하기',
-        description: '늦은 시간에는 소음을 줄여주세요.',
-        status: 'ACTIVE',
+        title: '규칙 1 설명',
+        description: '테스트를 위한 샘플 규칙 텍스트',
+        status: RuleStatusValue.ACTIVE,
       },
     });
   });
@@ -96,12 +117,86 @@ describe('RulesService', () => {
         {
           groupId: 999,
           categoryId: 1,
-          title: '테스트 규칙',
-          description: '설명',
+          title: '새 그룹 규칙',
+          description: '테스트',
         },
         10n,
       ),
     ).rejects.toBeInstanceOf(BusinessException);
+  });
+
+  it('throws when the category does not exist', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n });
+    prisma.ruleCategory.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.createRule(
+        {
+          groupId: 1,
+          categoryId: 999,
+          title: '카테고리 없음',
+          description: '없는 카테고리로 생성',
+        },
+        10n,
+      ),
+    ).rejects.toMatchObject({ code: 'RULE_404_CATEGORY' });
+    expect(prisma.rule.create).not.toHaveBeenCalled();
+  });
+
+  it('updates a rule and returns the updated id and title', async () => {
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 1n, groupId: 1n });
+    prisma.ruleCategory.findUnique.mockResolvedValue({ id: 2n });
+    prisma.rule.update.mockResolvedValue({
+      id: 123n,
+      groupId: 1n,
+      categoryId: 2n,
+      userId: 1n,
+      title: '수정된 규칙 제목',
+    });
+
+    const result = await service.updateRule(
+      123,
+      {
+        categoryId: 2,
+        title: '수정된 규칙 제목',
+        description: '수정된 설명',
+        status: RuleStatusValue.INACTIVE,
+      },
+      1n,
+    );
+
+    expect(result).toEqual({ ruleId: 123, title: '수정된 규칙 제목' });
+    expect(prisma.rule.update).toHaveBeenCalledWith({
+      where: { id: 123n },
+      data: {
+        categoryId: 2n,
+        title: '수정된 규칙 제목',
+        description: '수정된 설명',
+        status: RuleStatusValue.INACTIVE,
+      },
+    });
+  });
+
+  it('throws when updating a missing rule', async () => {
+    prisma.rule.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.updateRule(999, { categoryId: 1, title: '없음', description: '없음', status: RuleStatusValue.ACTIVE }, 1n),
+    ).rejects.toMatchObject({ code: 'COMMON_404' });
+    expect(prisma.rule.update).not.toHaveBeenCalled();
+  });
+
+  it('throws when trying to update a rule by another user', async () => {
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 2n });
+
+    await expect(
+      service.updateRule(
+        123,
+        { categoryId: 1, title: '권한 없음', description: '수정 실패', status: RuleStatusValue.ACTIVE },
+        1n,
+      ),
+    ).rejects.toMatchObject({ code: 'COMMON_403' });
+    expect(prisma.rule.update).not.toHaveBeenCalled();
   });
 
   it('deletes a rule and returns the deleted id', async () => {
@@ -118,6 +213,13 @@ describe('RulesService', () => {
     prisma.rule.findUnique.mockResolvedValue(null);
 
     await expect(service.deleteRule(999, 1n)).rejects.toBeInstanceOf(BusinessException);
+  });
+
+  it('throws when trying to delete a rule by another user', async () => {
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 2n, groupId: 1n });
+
+    await expect(service.deleteRule(123, 1n)).rejects.toMatchObject({ code: 'COMMON_403' });
+    expect(prisma.rule.delete).not.toHaveBeenCalled();
   });
 
   it('creates or updates a rule agreement and returns it', async () => {
@@ -224,5 +326,124 @@ describe('RulesService', () => {
       service.updateRuleAgreement(123, { status: RuleAgreementStatusValue.DISAGREED }, 5n),
     ).rejects.toMatchObject({ code: 'GROUP_MEMBER_NOT_FOUND' });
     expect(prisma.ruleAgreement.upsert).not.toHaveBeenCalled();
+  });
+
+  it('returns rules with correct agreement summaries', async () => {
+    prisma.rule.findMany.mockResolvedValue([
+      {
+        id: 123n,
+        groupId: 10n,
+        categoryId: null,
+        title: '규칙 제목',
+        description: '설명',
+        status: RuleStatusValue.ACTIVE,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+        creator: { id: 8n, nickname: '작성자' },
+        agreements: [
+          { status: 'AGREED' },
+          { status: 'DISAGREED' },
+          { status: 'PENDING' },
+          { status: 'AGREED' },
+        ],
+      },
+    ]);
+
+    const result = await service.getRules({ groupId: 10 });
+
+    expect(result).toEqual({
+      rules: [
+        {
+          ruleId: 123,
+          groupId: 10,
+          categoryId: null,
+          title: '규칙 제목',
+          description: '설명',
+          status: RuleStatusValue.ACTIVE,
+          createdBy: {
+            userId: 8,
+            nickname: '작성자',
+          },
+          agreementSummary: {
+            totalCount: 4,
+            agreedCount: 2,
+            disagreedCount: 1,
+            pendingCount: 1,
+          },
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+    });
+    expect(prisma.rule.findMany).toHaveBeenCalledWith({
+      where: { groupId: 10n },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            nickname: true,
+          },
+        },
+        agreements: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  });
+
+  it('creates a CARD_RULE message in the default group chat room', async () => {
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
+    prisma.chatRoom.findFirst.mockResolvedValue({ id: 3n, groupId: 1n, isDefault: true });
+    prisma.chatRoomMember.findUnique.mockResolvedValue({ id: 20n });
+    prisma.message.create.mockResolvedValue({ id: 456n });
+
+    await expect(service.shareRule(123, 5n)).resolves.toEqual({
+      ruleId: 123,
+      messageId: 456,
+    });
+    expect(prisma.chatRoom.findFirst).toHaveBeenCalledWith({
+      where: { groupId: 1n, isDefault: true },
+    });
+    expect(prisma.chatRoomMember.findUnique).toHaveBeenCalledWith({
+      where: { chatRoomId_userId: { chatRoomId: 3n, userId: 5n } },
+    });
+    expect(prisma.message.create).toHaveBeenCalledWith({
+      data: {
+        chatRoomId: 3n,
+        senderId: 5n,
+        type: 'CARD_RULE',
+        content: '',
+        refId: 123n,
+      },
+    });
+  });
+
+  it('throws when sharing a missing rule', async () => {
+    prisma.rule.findUnique.mockResolvedValue(null);
+
+    await expect(service.shareRule(999, 5n)).rejects.toMatchObject({ code: 'COMMON_404' });
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+
+  it('throws when the rule group has no default chat room', async () => {
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
+    prisma.chatRoom.findFirst.mockResolvedValue(null);
+
+    await expect(service.shareRule(123, 5n)).rejects.toMatchObject({
+      code: 'CHAT_ROOM_404',
+    });
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+
+  it('throws when the sender is not a member of the default chat room', async () => {
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
+    prisma.chatRoom.findFirst.mockResolvedValue({ id: 3n, groupId: 1n, isDefault: true });
+    prisma.chatRoomMember.findUnique.mockResolvedValue(null);
+
+    await expect(service.shareRule(123, 5n)).rejects.toMatchObject({
+      code: 'CHAT_ROOM_MEMBER_404',
+    });
+    expect(prisma.message.create).not.toHaveBeenCalled();
   });
 });
