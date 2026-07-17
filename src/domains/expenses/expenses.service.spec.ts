@@ -7,7 +7,7 @@ import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BadRequestException } from '@nestjs/common';
 import { ExpenseNotFoundException } from './expenses.exception';
-import { CreateExpenseDto, SplitType } from './dto/create-expense.dto';
+import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 
 const mockPrismaService = (): any => {
@@ -65,7 +65,7 @@ describe('ExpensesService', () => {
         userId: 1,
         title: '테스트 지출',
         totalAmount: 30000,
-        splitType: SplitType.EQUAL, 
+        splitType: 'EQUAL', // 리터럴 유니온 문자열로 수정
         participants: [],
       };
 
@@ -78,8 +78,8 @@ describe('ExpensesService', () => {
         categoryId: 1,
         userId: 1, // 선결제자 (등록자)
         title: '점심 식대',
-        totalAmount: 10000, // 3명 정산 시 인당 3,333.33...원 발생
-        splitType: SplitType.EQUAL, 
+        totalAmount: 10000, // 3명 정산 시 인당 3,334원 발생
+        splitType: 'EQUAL', // 리터럴 유니온 문자열로 수정
         participants: [1, 2, 3],
       };
 
@@ -94,7 +94,7 @@ describe('ExpensesService', () => {
       });
       expect(prisma.expense.create).toHaveBeenCalled();
       
-      // 2안 검증: 선결제자는 3,332원 부담, 참여자들은 각각 3,334원(올림) 부담하는지 확인
+      // 보정 정책 검증: 선결제자는 3,332원 부담, 참여자들은 각각 3,334원(올림) 부담하는지 확인
       expect(prisma.expenseSplit.createMany).toHaveBeenCalledWith({
         data: [
           { expenseId: 100, userId: 1, amount: 3332, isPaid: true },
@@ -163,7 +163,8 @@ describe('ExpensesService', () => {
       const mockResult = { id: 1, status: 'DONE' };
       prisma.expenseSplit.update.mockResolvedValue(mockResult);
 
-      const result = await service.settleSplit(1, true);
+      // 서비스 시그니처인 (splitId, settleDto) 규격에 맞춰서 객체 형태로 전달하도록 수정
+      const result = await service.settleSplit(1, { isBulkComplete: true });
 
       expect(result).toEqual(mockResult);
       expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
@@ -176,7 +177,8 @@ describe('ExpensesService', () => {
       const mockResult = { id: 1, status: 'REQUESTED' };
       prisma.expenseSplit.update.mockResolvedValue(mockResult);
 
-      const result = await service.settleSplit(1, false);
+      // 서비스 시그니처인 (splitId, settleDto) 규격에 맞춰서 객체 형태로 전달하도록 수정
+      const result = await service.settleSplit(1, { isBulkComplete: false });
 
       expect(result).toEqual(mockResult);
       expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
