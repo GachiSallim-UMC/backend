@@ -188,32 +188,34 @@ export class ExpensesService {
 
   // 7. 외부 송금 앱 연결 정보 생성 (EXP-PAYLINK-01)
   async createPayLink(splitId: number) {
-    const split = await this.prisma.expenseSplit.findUnique({
-      where: { id: splitId },
-    });
+  // 1. 분담 내역 조회
+  const split = await this.prisma.expenseSplit.findUnique({
+    where: { id: splitId },
+  });
 
-    if (!split) {
-      throw new BadRequestException('존재하지 않는 분담 내역입니다.');
-    }
-
-    // 웹(Web) 브라우저 호환성을 위한 토스 송금 범용 웹 URL 스펙 빌드
-    const bank = 'SHINHAN';
-    const amount = split.amount;
-    const deepLinkUrl = `https://toss.im/_m/send?bank=${bank}&amount=${amount}`;
-
-    // 상태를 TRANSFER_PENDING(송금 진행중)으로 업데이트
-    await this.prisma.expenseSplit.update({
-      where: { id: splitId },
-      data: {
-        status: 'TRANSFER_PENDING',
-      },
-    });
-
-    return {
-      deepLinkUrl,
-      status: 'TRANSFER_PENDING',
-    };
+  if (!split) {
+    throw new BadRequestException('존재하지 않는 분담 내역입니다.');
   }
+
+  // 2. 가상의 모임 통장 계좌번호 매핑 (테스트용 계좌)
+  const bank = 'SHINHAN';
+  const accountNo = '110123456789'; // 임의의 신한은행 가상계좌번호
+  const amount = split.amount;
+
+  // 3. 404가 나지 않는 앱 전용 송금 커스텀 스키마로 딥링크 조립
+  const deepLinkUrl = `supertoss://send?bank=${bank}&accountNo=${accountNo}&amount=${amount}`;
+
+  // 4. 상태 변경
+  const updatedSplit = await this.prisma.expenseSplit.update({
+    where: { id: splitId },
+    data: { status: 'TRANSFER_PENDING' },
+  });
+
+  return {
+    deepLinkUrl,
+    status: updatedSplit.status,
+  };
+}
 
   // 8. 핀테크 샌드박스 API 연동 테스트 (EXP-PAY-POC-01)
   async paySandboxPoc(splitId: number) {
