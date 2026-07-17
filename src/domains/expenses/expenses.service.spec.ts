@@ -196,7 +196,7 @@ describe('ExpensesService', () => {
 
       const result = await service.createPayLink(1);
 
-      expect(result.deepLinkUrl).toContain('https://toss.im/_m/send?bank=SHINHAN&amount=5000');
+      expect(result.deepLinkUrl).toContain('supertoss://send?bank=SHINHAN&accountNo=110123456789&amount=5000');
       expect(result.status).toBe('TRANSFER_PENDING');
       expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
         where: { id: 1 },
