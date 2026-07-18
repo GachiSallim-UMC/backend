@@ -28,6 +28,7 @@ export class NotificationOutboxPublisher implements OnApplicationBootstrap, OnAp
   private readonly queueUrl: string;
   private readonly pollIntervalMs: number;
   private readonly batchSize: number;
+  private readonly maxAttempts: number;
   private timer?: NodeJS.Timeout;
   private publishing = false;
 
@@ -39,6 +40,7 @@ export class NotificationOutboxPublisher implements OnApplicationBootstrap, OnAp
     this.queueUrl = this.config.getOrThrow<string>('NOTIFICATION_PUSH_QUEUE_URL');
     this.pollIntervalMs = this.config.get<number>('NOTIFICATION_OUTBOX_POLL_INTERVAL_MS', 5000);
     this.batchSize = this.config.get<number>('NOTIFICATION_OUTBOX_BATCH_SIZE', 10);
+    this.maxAttempts = this.config.get<number>('NOTIFICATION_OUTBOX_MAX_ATTEMPTS', 10);
   }
 
   onApplicationBootstrap(): void {
@@ -112,15 +114,25 @@ export class NotificationOutboxPublisher implements OnApplicationBootstrap, OnAp
       return true;
     } catch (error) {
       const attempt = delivery.publishAttempts + 1;
+      const exhausted = attempt >= this.maxAttempts;
       await this.prisma.notificationPushDelivery.updateMany({
         where: { id: delivery.id, status: NotificationPushDeliveryStatus.PENDING },
         data: {
           publishAttempts: { increment: 1 },
-          nextAttemptAt: new Date(Date.now() + this.retryDelayMs(attempt)),
+          ...(exhausted
+            ? {
+                status: NotificationPushDeliveryStatus.FAILED,
+                failedAt: new Date(),
+              }
+            : { nextAttemptAt: new Date(Date.now() + this.retryDelayMs(attempt)) }),
           lastError: this.errorName(error),
         },
       });
-      this.logger.warn(`Notification push delivery ${delivery.id.toString()} publish failed`);
+      this.logger.warn(
+        `Notification push delivery ${delivery.id.toString()} publish ${
+          exhausted ? 'exhausted retries' : 'failed'
+        }`,
+      );
       return false;
     }
   }
