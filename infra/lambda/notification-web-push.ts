@@ -50,6 +50,16 @@ async function processRecord(record: SQSRecord, dependencies: WorkerDependencies
     job = parseJob(record.body);
   } catch (error) {
     log('INVALID_JOB', record.messageId, errorName(error));
+    const identity = parseJobIdentity(record.body);
+    if (!identity) {
+      throw error;
+    }
+    await dependencies.sendResult({
+      version: 1,
+      ...identity,
+      outcome: 'FAILED',
+      errorCode: 'PUSH_JOB_INVALID',
+    });
     return;
   }
 
@@ -104,6 +114,23 @@ function parseJob(body: string): NotificationPushJobV1 {
     throw new Error('PUSH_JOB_INVALID');
   }
   return job as NotificationPushJobV1;
+}
+
+function parseJobIdentity(
+  body: string,
+): Pick<NotificationPushResultV1, 'deliveryId' | 'subscriptionId'> | null {
+  try {
+    const job = JSON.parse(body) as Partial<NotificationPushJobV1>;
+    if (!positiveInteger(job.deliveryId) || !positiveInteger(job.subscription?.subscriptionId)) {
+      return null;
+    }
+    return {
+      deliveryId: job.deliveryId,
+      subscriptionId: job.subscription.subscriptionId,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function result(

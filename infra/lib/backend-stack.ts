@@ -19,6 +19,7 @@ import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 const DATABASE_PORT = 5432;
@@ -196,6 +197,7 @@ export class BackendStack extends Stack {
     const notificationPushQueues = new Map<string, sqs.Queue>();
     const notificationPushResultQueues = new Map<string, sqs.Queue>();
     const notificationVapidSecrets = new Map<string, secretsmanager.ISecret>();
+    const notificationVapidPublicKeys = new Map<string, string>();
     for (const environment of RUNTIME_ENVIRONMENTS) {
       const deadLetterQueue = new sqs.Queue(
         this,
@@ -257,6 +259,13 @@ export class BackendStack extends Stack {
         `gachisallim/${environment.branch}/notification-vapid`,
       );
       notificationVapidSecrets.set(environment.branch, vapidSecret);
+      notificationVapidPublicKeys.set(
+        environment.branch,
+        ssm.StringParameter.valueForStringParameter(
+          this,
+          `/gachisallim/${environment.branch}/notification-vapid-public-key`,
+        ),
+      );
 
       const worker = new lambdaNodejs.NodejsFunction(
         this,
@@ -372,9 +381,6 @@ export class BackendStack extends Stack {
     for (const queue of notificationPushResultQueues.values()) {
       queue.grantConsumeMessages(instanceRole);
     }
-    for (const secret of notificationVapidSecrets.values()) {
-      secret.grantRead(instanceRole);
-    }
     instanceRole.addToPolicy(
       new iam.PolicyStatement({
         actions: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'],
@@ -453,7 +459,7 @@ COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
 COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
 NOTIFICATION_PUSH_QUEUE_URL='${notificationPushQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_PUSH_RESULT_QUEUE_URL='${notificationPushResultQueues.get(environment.branch)!.queueUrl}'
-NOTIFICATION_VAPID_SECRET_ID='${notificationVapidSecrets.get(environment.branch)!.secretArn}'
+NOTIFICATION_VAPID_PUBLIC_KEY='${notificationVapidPublicKeys.get(environment.branch)!}'
 ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );

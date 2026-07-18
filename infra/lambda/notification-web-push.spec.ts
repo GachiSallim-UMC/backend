@@ -73,6 +73,36 @@ describe('notification web push Lambda', () => {
     expect(sendResult).toHaveBeenCalledTimes(1);
   });
 
+  it('records a permanent failure for an invalid job with delivery identity', async () => {
+    const invalidRecord = record();
+    const body = JSON.parse(invalidRecord.body) as Record<string, unknown>;
+    delete (body.notification as Record<string, unknown>).message;
+    invalidRecord.body = JSON.stringify(body);
+
+    await expect(handler({ Records: [invalidRecord] })).resolves.toEqual({
+      batchItemFailures: [],
+    });
+    expect(sendPush).not.toHaveBeenCalled();
+    expect(sendResult).toHaveBeenCalledWith({
+      version: 1,
+      deliveryId: '31',
+      subscriptionId: '11',
+      outcome: 'FAILED',
+      errorCode: 'PUSH_JOB_INVALID',
+    });
+  });
+
+  it('retries an invalid job without delivery identity so it reaches the DLQ', async () => {
+    const invalidRecord = record();
+    invalidRecord.body = '{"version":1,"type":"unknown"}';
+
+    await expect(handler({ Records: [invalidRecord] })).resolves.toEqual({
+      batchItemFailures: [{ itemIdentifier: 'message-1' }],
+    });
+    expect(sendPush).not.toHaveBeenCalled();
+    expect(sendResult).not.toHaveBeenCalled();
+  });
+
   function event(): SQSEvent {
     return { Records: [record()] };
   }

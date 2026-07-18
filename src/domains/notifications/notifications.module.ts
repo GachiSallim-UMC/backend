@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SQSClient } from '@aws-sdk/client-sqs';
-import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 
 import { AuthCommonModule } from '../auth/common/auth-common.module';
 import { InternalNotificationsController } from './internal-notifications.controller';
@@ -14,10 +13,7 @@ import { NotificationPushSubscriptionsService } from './notification-push-subscr
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { NotificationUsersService } from './notification-users.service';
-import {
-  NOTIFICATION_SECRETS_CLIENT,
-  NOTIFICATION_SQS_CLIENT,
-} from './notification-sqs.constants';
+import { NOTIFICATION_SQS_CLIENT } from './notification-sqs.constants';
 import { VapidPublicKeyService } from './vapid-public-key.service';
 
 @Module({
@@ -41,15 +37,6 @@ import { VapidPublicKeyService } from './vapid-public-key.service';
       inject: [ConfigService],
       useFactory: (config: ConfigService): SQSClient =>
         new SQSClient({
-          region: config.getOrThrow<string>('AWS_REGION'),
-          maxAttempts: 3,
-        }),
-    },
-    {
-      provide: NOTIFICATION_SECRETS_CLIENT,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService): SecretsManagerClient =>
-        new SecretsManagerClient({
           region: config.getOrThrow<string>('AWS_REGION'),
           maxAttempts: 3,
         }),

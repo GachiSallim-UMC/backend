@@ -55,7 +55,7 @@ export class NotificationPushSubscriptionsController {
   @ApiOperation({ summary: '웹 푸시 구독용 VAPID 공개 키 조회' })
   @ApiOkResponse({ schema: successSchema(VapidPublicKeyResponseDto, 200) })
   @ApiResponse({ status: 401, description: '인증 토큰이 없거나 올바르지 않습니다.' })
-  getVapidPublicKey(): Promise<VapidPublicKeyResponseDto> {
+  getVapidPublicKey(): VapidPublicKeyResponseDto {
     return this.vapidPublicKey.getPublicKey();
   }
 

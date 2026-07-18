@@ -12,7 +12,7 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     NOTIFICATION_PUSH_QUEUE_URL: 'https://sqs.ap-northeast-2.amazonaws.com/123456789012/push',
     NOTIFICATION_PUSH_RESULT_QUEUE_URL:
       'https://sqs.ap-northeast-2.amazonaws.com/123456789012/push-result',
-    NOTIFICATION_VAPID_SECRET_ID: 'gachisallim/develop/notification-vapid',
+    NOTIFICATION_VAPID_PUBLIC_KEY: 'public-key',
   };
 
   it('accepts the Cognito runtime configuration', () => {
@@ -27,7 +27,7 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     'COGNITO_CLIENT_ID',
     'NOTIFICATION_PUSH_QUEUE_URL',
     'NOTIFICATION_PUSH_RESULT_QUEUE_URL',
-    'NOTIFICATION_VAPID_SECRET_ID',
+    'NOTIFICATION_VAPID_PUBLIC_KEY',
   ])('requires %s', (key) => {
     const environment = { ...validEnvironment };
     delete environment[key as keyof typeof environment];
