@@ -7,6 +7,9 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
+import * as lambdaNodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as elbv2Targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -14,6 +17,7 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 
@@ -190,6 +194,8 @@ export class BackendStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
     const notificationPushQueues = new Map<string, sqs.Queue>();
+    const notificationPushResultQueues = new Map<string, sqs.Queue>();
+    const notificationVapidSecrets = new Map<string, secretsmanager.ISecret>();
     for (const environment of RUNTIME_ENVIRONMENTS) {
       const deadLetterQueue = new sqs.Queue(
         this,
@@ -215,6 +221,80 @@ export class BackendStack extends Stack {
         removalPolicy: RemovalPolicy.RETAIN,
       });
       notificationPushQueues.set(environment.branch, queue);
+
+      const resultDeadLetterQueue = new sqs.Queue(
+        this,
+        `${environment.id}NotificationPushResultDeadLetterQueue`,
+        {
+          queueName: `gachisallim-${environment.branch}-notification-push-result-dlq`,
+          encryption: sqs.QueueEncryption.KMS,
+          encryptionMasterKey: notificationQueueKey,
+          enforceSSL: true,
+          retentionPeriod: Duration.days(14),
+          removalPolicy: RemovalPolicy.RETAIN,
+        },
+      );
+      const resultQueue = new sqs.Queue(
+        this,
+        `${environment.id}NotificationPushResultQueue`,
+        {
+          queueName: `gachisallim-${environment.branch}-notification-push-result`,
+          encryption: sqs.QueueEncryption.KMS,
+          encryptionMasterKey: notificationQueueKey,
+          enforceSSL: true,
+          receiveMessageWaitTime: Duration.seconds(20),
+          retentionPeriod: Duration.days(4),
+          visibilityTimeout: Duration.seconds(60),
+          deadLetterQueue: { queue: resultDeadLetterQueue, maxReceiveCount: 5 },
+          removalPolicy: RemovalPolicy.RETAIN,
+        },
+      );
+      notificationPushResultQueues.set(environment.branch, resultQueue);
+
+      const vapidSecret = secretsmanager.Secret.fromSecretNameV2(
+        this,
+        `${environment.id}NotificationVapidSecret`,
+        `gachisallim/${environment.branch}/notification-vapid`,
+      );
+      notificationVapidSecrets.set(environment.branch, vapidSecret);
+
+      const worker = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}NotificationWebPushWorker`,
+        {
+          functionName: `gachisallim-${environment.branch}-notification-web-push`,
+          entry: join(__dirname, '../lambda/notification-web-push.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(30),
+          memorySize: 256,
+          reservedConcurrentExecutions: 20,
+          logGroup: new logs.LogGroup(
+            this,
+            `${environment.id}NotificationWebPushWorkerLogGroup`,
+            {
+              logGroupName: `/aws/lambda/gachisallim-${environment.branch}-notification-web-push`,
+              retention: logs.RetentionDays.ONE_MONTH,
+              removalPolicy: RemovalPolicy.RETAIN,
+            },
+          ),
+          environment: {
+            NOTIFICATION_VAPID_SECRET_ID: vapidSecret.secretArn,
+            NOTIFICATION_PUSH_RESULT_QUEUE_URL: resultQueue.queueUrl,
+          },
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+      worker.addEventSource(
+        new lambdaEventSources.SqsEventSource(queue, {
+          batchSize: 10,
+          maxConcurrency: 10,
+          reportBatchItemFailures: true,
+        }),
+      );
+      vapidSecret.grantRead(worker);
+      resultQueue.grantSendMessages(worker);
     }
 
     const database = new rds.DatabaseInstance(this, 'Database', {
@@ -288,6 +368,12 @@ export class BackendStack extends Stack {
     applicationLogGroup.grantWrite(instanceRole);
     for (const queue of notificationPushQueues.values()) {
       queue.grantSendMessages(instanceRole);
+    }
+    for (const queue of notificationPushResultQueues.values()) {
+      queue.grantConsumeMessages(instanceRole);
+    }
+    for (const secret of notificationVapidSecrets.values()) {
+      secret.grantRead(instanceRole);
     }
     instanceRole.addToPolicy(
       new iam.PolicyStatement({
@@ -366,6 +452,8 @@ AWS_REGION='${Aws.REGION}'
 COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
 COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
 NOTIFICATION_PUSH_QUEUE_URL='${notificationPushQueues.get(environment.branch)!.queueUrl}'
+NOTIFICATION_PUSH_RESULT_QUEUE_URL='${notificationPushResultQueues.get(environment.branch)!.queueUrl}'
+NOTIFICATION_VAPID_SECRET_ID='${notificationVapidSecrets.get(environment.branch)!.secretArn}'
 ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
@@ -519,6 +607,9 @@ ENVIRONMENT_CONFIG`,
       });
       new CfnOutput(this, `${environment.id}NotificationPushQueueUrl`, {
         value: notificationPushQueues.get(environment.branch)!.queueUrl,
+      });
+      new CfnOutput(this, `${environment.id}NotificationPushResultQueueUrl`, {
+        value: notificationPushResultQueues.get(environment.branch)!.queueUrl,
       });
     }
 

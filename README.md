@@ -1,5 +1,16 @@
 # GachiSallim Backend
 
+## Web Push VAPID prerequisite
+
+Before deploying the notification web-push workers, provision these Secrets Manager secrets once:
+
+- `gachisallim/main/notification-vapid`
+- `gachisallim/develop/notification-vapid`
+
+Each secret must be a JSON object with non-empty `publicKey`, `privateKey`, and `subject` fields. Use a `mailto:` or HTTPS contact URI for `subject`. Keep the key pair different between environments and never commit or print the private key. CDK imports these pre-provisioned secrets and grants only the backend and the corresponding Lambda worker read access.
+
+Authenticated clients obtain the matching public key from `GET /api/v1/notification-push-subscriptions/vapid-public-key` and pass it as `applicationServerKey` when calling `PushManager.subscribe`.
+
 GachiSallim 서비스의 NestJS 백엔드입니다. Prisma, PostgreSQL, ESLint, Prettier, AWS CDK를 사용합니다.
 
 ## 시작하기

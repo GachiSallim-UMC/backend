@@ -31,15 +31,33 @@ import { CurrentAuth } from '../auth/common/current-auth.decorator';
 import { CreatePushSubscriptionDto } from './dto/create-push-subscription.dto';
 import { PushSubscriptionListResponseDto } from './dto/push-subscription-list-response.dto';
 import { PushSubscriptionResponseDto } from './dto/push-subscription-response.dto';
+import { VapidPublicKeyResponseDto } from './dto/vapid-public-key-response.dto';
 import { NotificationPushSubscriptionsService } from './notification-push-subscriptions.service';
+import { VapidPublicKeyService } from './vapid-public-key.service';
 
 @ApiTags('알림')
 @ApiBearerAuth('BearerAuth')
-@ApiExtraModels(PushSubscriptionListResponseDto, PushSubscriptionResponseDto)
+@ApiExtraModels(
+  PushSubscriptionListResponseDto,
+  PushSubscriptionResponseDto,
+  VapidPublicKeyResponseDto,
+)
 @UseGuards(CognitoAccessTokenGuard)
 @Controller('notification-push-subscriptions')
 export class NotificationPushSubscriptionsController {
-  constructor(private readonly pushSubscriptions: NotificationPushSubscriptionsService) {}
+  constructor(
+    private readonly pushSubscriptions: NotificationPushSubscriptionsService,
+    private readonly vapidPublicKey: VapidPublicKeyService,
+  ) {}
+
+  @Get('vapid-public-key')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '웹 푸시 구독용 VAPID 공개 키 조회' })
+  @ApiOkResponse({ schema: successSchema(VapidPublicKeyResponseDto, 200) })
+  @ApiResponse({ status: 401, description: '인증 토큰이 없거나 올바르지 않습니다.' })
+  getVapidPublicKey(): Promise<VapidPublicKeyResponseDto> {
+    return this.vapidPublicKey.getPublicKey();
+  }
 
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -85,7 +103,10 @@ export class NotificationPushSubscriptionsController {
 }
 
 function successSchema(
-  model: typeof PushSubscriptionListResponseDto | typeof PushSubscriptionResponseDto,
+  model:
+    | typeof PushSubscriptionListResponseDto
+    | typeof PushSubscriptionResponseDto
+    | typeof VapidPublicKeyResponseDto,
   statusCode: number,
 ) {
   return {
