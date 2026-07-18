@@ -38,6 +38,7 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     expect(result.value).toMatchObject({
       NOTIFICATION_OUTBOX_POLL_INTERVAL_MS: 5000,
       NOTIFICATION_OUTBOX_BATCH_SIZE: 10,
+      NOTIFICATION_OUTBOX_MAX_ATTEMPTS: 10,
     });
   });
 });

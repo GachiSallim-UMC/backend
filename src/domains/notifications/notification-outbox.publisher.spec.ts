@@ -22,6 +22,7 @@ describe('NotificationOutboxPublisher', () => {
     getOrThrow: jest.fn().mockReturnValue('https://sqs.example.com/push'),
     get: jest.fn((key: string, fallback?: unknown) => {
       if (key === 'NODE_ENV') return 'test';
+      if (key === 'NOTIFICATION_OUTBOX_MAX_ATTEMPTS') return 3;
       return fallback;
     }),
   } as unknown as ConfigService;
@@ -144,5 +145,25 @@ describe('NotificationOutboxPublisher', () => {
       },
     });
     expect(updateDeliveries.mock.calls[0]?.[0].data.nextAttemptAt).toBeInstanceOf(Date);
+  });
+
+  it('marks a delivery failed after the configured publication attempts are exhausted', async () => {
+    findDeliveries.mockResolvedValue([{ ...delivery, publishAttempts: 2 }]);
+    send.mockRejectedValue(
+      Object.assign(new Error('request failed'), { name: 'AccessDeniedException' }),
+    );
+
+    await expect(publisher.publishPendingDeliveries()).resolves.toBe(0);
+
+    expect(updateDeliveries).toHaveBeenCalledWith({
+      where: { id: 31n, status: NotificationPushDeliveryStatus.PENDING },
+      data: {
+        publishAttempts: { increment: 1 },
+        status: NotificationPushDeliveryStatus.FAILED,
+        failedAt: updateDeliveries.mock.calls[0]?.[0].data.failedAt,
+        lastError: 'AccessDeniedException',
+      },
+    });
+    expect(updateDeliveries.mock.calls[0]?.[0].data.failedAt).toBeInstanceOf(Date);
   });
 });
