@@ -53,10 +53,10 @@ export class ChoreDueSchedulerService {
 
     const command = this.toCommand(chore);
     if (this.notificationInstant(command.expectedDueDate).getTime() <= Date.now()) {
-      await this.delete(chore.id);
       await this.sqs.send(
         new SendMessageCommand({ QueueUrl: this.queueUrl, MessageBody: JSON.stringify(command) }),
       );
+      await this.delete(chore.id);
       return;
     }
 

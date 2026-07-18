@@ -101,5 +101,23 @@ describe('ChoreDueSchedulerService', () => {
 
     expect(schedulerSend.mock.calls[0]?.[0]).toBeInstanceOf(DeleteScheduleCommand);
     expect(sqsSend.mock.calls[0]?.[0]).toBeInstanceOf(SendMessageCommand);
+    expect(sqsSend.mock.invocationCallOrder[0]).toBeLessThan(
+      schedulerSend.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('keeps the schedule when immediate command publication fails', async () => {
+    jest.setSystemTime(new Date('2026-07-18T02:00:00.000Z'));
+    sqsSend.mockRejectedValue(new Error('temporary SQS failure'));
+
+    await expect(
+      service.synchronize({
+        id: 11n,
+        assigneeId: 5n,
+        dueDate: new Date('2026-07-18T00:00:00.000Z'),
+      }),
+    ).rejects.toThrow('temporary SQS failure');
+
+    expect(schedulerSend).not.toHaveBeenCalled();
   });
 });
