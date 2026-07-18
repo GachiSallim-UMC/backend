@@ -9,6 +9,7 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     AWS_REGION: 'ap-northeast-2',
     COGNITO_USER_POOL_ID: 'ap-northeast-2_example',
     COGNITO_CLIENT_ID: 'exampleclientid',
+    NOTIFICATION_PUSH_QUEUE_URL: 'https://sqs.ap-northeast-2.amazonaws.com/123456789012/push',
   };
 
   it('accepts the Cognito runtime configuration', () => {
@@ -17,12 +18,26 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     expect(result.error).toBeUndefined();
   });
 
-  it.each(['AWS_REGION', 'COGNITO_USER_POOL_ID', 'COGNITO_CLIENT_ID'])('requires %s', (key) => {
+  it.each([
+    'AWS_REGION',
+    'COGNITO_USER_POOL_ID',
+    'COGNITO_CLIENT_ID',
+    'NOTIFICATION_PUSH_QUEUE_URL',
+  ])('requires %s', (key) => {
     const environment = { ...validEnvironment };
     delete environment[key as keyof typeof environment];
 
     const result = ENV_VALIDATION_SCHEMA.validate(environment);
 
     expect(result.error).toBeDefined();
+  });
+
+  it('applies bounded outbox publisher defaults', () => {
+    const result = ENV_VALIDATION_SCHEMA.validate(validEnvironment);
+
+    expect(result.value).toMatchObject({
+      NOTIFICATION_OUTBOX_POLL_INTERVAL_MS: 5000,
+      NOTIFICATION_OUTBOX_BATCH_SIZE: 10,
+    });
   });
 });

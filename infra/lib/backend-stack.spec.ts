@@ -107,6 +107,30 @@ describe('BackendStack', () => {
     expect(endpoints).toContain('.ssm');
     expect(endpoints).toContain('.ssmmessages');
     expect(endpoints).toContain('.s3');
+    expect(endpoints).toContain('.sqs');
+  });
+
+  it('creates encrypted notification push queues and dead-letter queues per environment', () => {
+    template.resourceCountIs('AWS::SQS::Queue', 4);
+    template.resourceCountIs('AWS::KMS::Key', 1);
+    template.hasResourceProperties('AWS::KMS::Key', {
+      EnableKeyRotation: true,
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'gachisallim-main-notification-push',
+      ReceiveMessageWaitTimeSeconds: 20,
+      VisibilityTimeout: 180,
+      RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'gachisallim-develop-notification-push',
+      ReceiveMessageWaitTimeSeconds: 20,
+      VisibilityTimeout: 180,
+      RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
+    });
+
+    const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
+    expect(userData).toContain('NOTIFICATION_PUSH_QUEUE_URL');
   });
 
   it('allows the instance to receive SSM commands and access only required Cognito pools', () => {
@@ -129,5 +153,7 @@ describe('BackendStack', () => {
         ]),
       },
     });
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('sqs:SendMessage');
   });
 });

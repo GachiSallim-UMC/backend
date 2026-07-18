@@ -6,6 +6,7 @@ import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as elbv2Targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -13,6 +14,7 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 
 const DATABASE_PORT = 5432;
@@ -166,6 +168,10 @@ export class BackendStack extends Stack {
       service: ec2.InterfaceVpcEndpointAwsService.SSM_MESSAGES,
       ...endpointOptions,
     });
+    vpc.addInterfaceEndpoint('SqsEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.SQS,
+      ...endpointOptions,
+    });
     vpc.addGatewayEndpoint('S3Endpoint', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
       subnets: [applicationSubnet],
@@ -176,6 +182,40 @@ export class BackendStack extends Stack {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: RemovalPolicy.RETAIN,
     });
+
+    const notificationQueueKey = new kms.Key(this, 'NotificationQueueKey', {
+      alias: 'alias/gachisallim-notification-queues',
+      description: 'Encrypts notification delivery queues.',
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    const notificationPushQueues = new Map<string, sqs.Queue>();
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      const deadLetterQueue = new sqs.Queue(
+        this,
+        `${environment.id}NotificationPushDeadLetterQueue`,
+        {
+          queueName: `gachisallim-${environment.branch}-notification-push-dlq`,
+          encryption: sqs.QueueEncryption.KMS,
+          encryptionMasterKey: notificationQueueKey,
+          enforceSSL: true,
+          retentionPeriod: Duration.days(14),
+          removalPolicy: RemovalPolicy.RETAIN,
+        },
+      );
+      const queue = new sqs.Queue(this, `${environment.id}NotificationPushQueue`, {
+        queueName: `gachisallim-${environment.branch}-notification-push`,
+        encryption: sqs.QueueEncryption.KMS,
+        encryptionMasterKey: notificationQueueKey,
+        enforceSSL: true,
+        receiveMessageWaitTime: Duration.seconds(20),
+        retentionPeriod: Duration.days(4),
+        visibilityTimeout: Duration.seconds(180),
+        deadLetterQueue: { queue: deadLetterQueue, maxReceiveCount: 5 },
+        removalPolicy: RemovalPolicy.RETAIN,
+      });
+      notificationPushQueues.set(environment.branch, queue);
+    }
 
     const database = new rds.DatabaseInstance(this, 'Database', {
       engine: rds.DatabaseInstanceEngine.postgres({
@@ -246,6 +286,9 @@ export class BackendStack extends Stack {
     databaseSecret.grantRead(instanceRole);
     props.artifactBucket.grantRead(instanceRole, 'releases/*');
     applicationLogGroup.grantWrite(instanceRole);
+    for (const queue of notificationPushQueues.values()) {
+      queue.grantSendMessages(instanceRole);
+    }
     instanceRole.addToPolicy(
       new iam.PolicyStatement({
         actions: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'],
@@ -322,6 +365,7 @@ CORS_ORIGIN='${environment.corsOrigin}'
 AWS_REGION='${Aws.REGION}'
 COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
 COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
+NOTIFICATION_PUSH_QUEUE_URL='${notificationPushQueues.get(environment.branch)!.queueUrl}'
 ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
@@ -472,6 +516,9 @@ ENVIRONMENT_CONFIG`,
       });
       new CfnOutput(this, `${environment.id}CognitoIssuerUrl`, {
         value: auth.issuer,
+      });
+      new CfnOutput(this, `${environment.id}NotificationPushQueueUrl`, {
+        value: notificationPushQueues.get(environment.branch)!.queueUrl,
       });
     }
 
