@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1087.0",
+    "@aws-sdk/client-scheduler": "^3.1090.0",
     "@aws-sdk/client-sqs": "^3.1090.0",
     "@nestjs/common": "^11.1.27",
     "@nestjs/config": "^4.0.4",

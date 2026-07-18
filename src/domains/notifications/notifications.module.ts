@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { SQSClient } from '@aws-sdk/client-sqs';
 
 import { AuthCommonModule } from '../auth/common/auth-common.module';
+import { ChoreDueCommandConsumer } from './chore-due-command.consumer';
 import { InternalNotificationsController } from './internal-notifications.controller';
 import { InternalNotificationsService } from './internal-notifications.service';
 import { NotificationDeliveryService } from './notification-delivery.service';
@@ -28,6 +29,7 @@ import { NOTIFICATION_SQS_CLIENT } from './notification-sqs.constants';
     InternalNotificationsService,
     NotificationDeliveryService,
     NotificationOutboxPublisher,
+    ChoreDueCommandConsumer,
     {
       provide: NOTIFICATION_SQS_CLIENT,
       inject: [ConfigService],

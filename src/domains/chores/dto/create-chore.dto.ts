@@ -1,7 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { RepeatType } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 export class CreateChoreDto {
   @ApiProperty({ example: 1, description: '그룹 ID' })
@@ -26,9 +35,10 @@ export class CreateChoreDto {
   @IsDateString()
   startDate!: string;
 
-  @ApiProperty({ example: '2026-07-05', description: '마감일 (YYYY-MM-DD)' })
+  @ApiPropertyOptional({ example: '2026-07-05', description: '마감일 (YYYY-MM-DD)' })
+  @IsOptional()
   @IsDateString()
-  dueDate!: string;
+  dueDate?: string;
 
   @ApiPropertyOptional({ enum: RepeatType, example: RepeatType.DAILY, default: RepeatType.NONE })
   @IsOptional()

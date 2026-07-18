@@ -14,6 +14,7 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 
@@ -172,6 +173,10 @@ export class BackendStack extends Stack {
       service: ec2.InterfaceVpcEndpointAwsService.SQS,
       ...endpointOptions,
     });
+    vpc.addInterfaceEndpoint('SchedulerEndpoint', {
+      service: new ec2.InterfaceVpcEndpointAwsService('scheduler'),
+      ...endpointOptions,
+    });
     vpc.addGatewayEndpoint('S3Endpoint', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
       subnets: [applicationSubnet],
@@ -190,6 +195,10 @@ export class BackendStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
     const notificationPushQueues = new Map<string, sqs.Queue>();
+    const notificationCommandQueues = new Map<string, sqs.Queue>();
+    const notificationCommandDeadLetterQueues = new Map<string, sqs.Queue>();
+    const choreDueScheduleGroups = new Map<string, scheduler.CfnScheduleGroup>();
+    const choreDueScheduleRoles = new Map<string, iam.Role>();
     for (const environment of RUNTIME_ENVIRONMENTS) {
       const deadLetterQueue = new sqs.Queue(
         this,
@@ -215,6 +224,57 @@ export class BackendStack extends Stack {
         removalPolicy: RemovalPolicy.RETAIN,
       });
       notificationPushQueues.set(environment.branch, queue);
+
+      const commandDeadLetterQueue = new sqs.Queue(
+        this,
+        `${environment.id}NotificationCommandDeadLetterQueue`,
+        {
+          queueName: `gachisallim-${environment.branch}-notification-command-dlq`,
+          encryption: sqs.QueueEncryption.KMS,
+          encryptionMasterKey: notificationQueueKey,
+          enforceSSL: true,
+          retentionPeriod: Duration.days(14),
+          removalPolicy: RemovalPolicy.RETAIN,
+        },
+      );
+      const commandQueue = new sqs.Queue(this, `${environment.id}NotificationCommandQueue`, {
+        queueName: `gachisallim-${environment.branch}-notification-command`,
+        encryption: sqs.QueueEncryption.KMS,
+        encryptionMasterKey: notificationQueueKey,
+        enforceSSL: true,
+        receiveMessageWaitTime: Duration.seconds(20),
+        retentionPeriod: Duration.days(4),
+        visibilityTimeout: Duration.seconds(60),
+        deadLetterQueue: { queue: commandDeadLetterQueue, maxReceiveCount: 5 },
+        removalPolicy: RemovalPolicy.RETAIN,
+      });
+      notificationCommandQueues.set(environment.branch, commandQueue);
+      notificationCommandDeadLetterQueues.set(environment.branch, commandDeadLetterQueue);
+
+      const scheduleGroupName = `gachisallim-${environment.branch}-chore-due`;
+      const scheduleGroup = new scheduler.CfnScheduleGroup(
+        this,
+        `${environment.id}ChoreDueScheduleGroup`,
+        { name: scheduleGroupName },
+      );
+      choreDueScheduleGroups.set(environment.branch, scheduleGroup);
+      const scheduleGroupArn = this.formatArn({
+        service: 'scheduler',
+        resource: 'schedule-group',
+        resourceName: scheduleGroupName,
+      });
+      const scheduleRole = new iam.Role(this, `${environment.id}ChoreDueScheduleRole`, {
+        roleName: `gachisallim-${environment.branch}-chore-due-scheduler`,
+        assumedBy: new iam.ServicePrincipal('scheduler.amazonaws.com', {
+          conditions: {
+            StringEquals: { 'aws:SourceAccount': Aws.ACCOUNT_ID },
+            ArnEquals: { 'aws:SourceArn': scheduleGroupArn },
+          },
+        }),
+      });
+      commandQueue.grantSendMessages(scheduleRole);
+      commandDeadLetterQueue.grantSendMessages(scheduleRole);
+      choreDueScheduleRoles.set(environment.branch, scheduleRole);
     }
 
     const database = new rds.DatabaseInstance(this, 'Database', {
@@ -288,6 +348,38 @@ export class BackendStack extends Stack {
     applicationLogGroup.grantWrite(instanceRole);
     for (const queue of notificationPushQueues.values()) {
       queue.grantSendMessages(instanceRole);
+    }
+    for (const queue of notificationCommandQueues.values()) {
+      queue.grantSendMessages(instanceRole);
+      queue.grantConsumeMessages(instanceRole);
+    }
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      const scheduleGroup = choreDueScheduleGroups.get(environment.branch)!;
+      const scheduleRole = choreDueScheduleRoles.get(environment.branch)!;
+      instanceRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            'scheduler:CreateSchedule',
+            'scheduler:UpdateSchedule',
+            'scheduler:DeleteSchedule',
+            'scheduler:GetSchedule',
+          ],
+          resources: [
+            this.formatArn({
+              service: 'scheduler',
+              resource: 'schedule',
+              resourceName: `${scheduleGroup.name}/*`,
+            }),
+          ],
+        }),
+      );
+      instanceRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['iam:PassRole'],
+          resources: [scheduleRole.roleArn],
+          conditions: { StringEquals: { 'iam:PassedToService': 'scheduler.amazonaws.com' } },
+        }),
+      );
     }
     instanceRole.addToPolicy(
       new iam.PolicyStatement({
@@ -366,6 +458,12 @@ AWS_REGION='${Aws.REGION}'
 COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
 COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
 NOTIFICATION_PUSH_QUEUE_URL='${notificationPushQueues.get(environment.branch)!.queueUrl}'
+NOTIFICATION_COMMAND_QUEUE_URL='${notificationCommandQueues.get(environment.branch)!.queueUrl}'
+NOTIFICATION_COMMAND_QUEUE_ARN='${notificationCommandQueues.get(environment.branch)!.queueArn}'
+NOTIFICATION_COMMAND_DLQ_ARN='${notificationCommandDeadLetterQueues.get(environment.branch)!.queueArn}'
+CHORE_DUE_SCHEDULE_GROUP='${choreDueScheduleGroups.get(environment.branch)!.name}'
+CHORE_DUE_SCHEDULE_ROLE_ARN='${choreDueScheduleRoles.get(environment.branch)!.roleArn}'
+CHORE_DUE_SCHEDULE_PREFIX='${environment.branch}'
 ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
@@ -519,6 +617,12 @@ ENVIRONMENT_CONFIG`,
       });
       new CfnOutput(this, `${environment.id}NotificationPushQueueUrl`, {
         value: notificationPushQueues.get(environment.branch)!.queueUrl,
+      });
+      new CfnOutput(this, `${environment.id}NotificationCommandQueueUrl`, {
+        value: notificationCommandQueues.get(environment.branch)!.queueUrl,
+      });
+      new CfnOutput(this, `${environment.id}ChoreDueScheduleGroupName`, {
+        value: choreDueScheduleGroups.get(environment.branch)!.name!,
       });
     }
 

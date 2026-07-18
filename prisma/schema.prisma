@@ -418,6 +418,7 @@ model Notification {
   message   String           @db.VarChar(255)
   isRead    Boolean          @default(false) @map("is_read")
   hiddenAt  DateTime?        @map("hidden_at")
+  dedupeKey String?          @unique @map("dedupe_key") @db.VarChar(255)
   createdAt DateTime         @default(now()) @map("created_at")
 
   user           User                       @relation(fields: [userId], references: [id], onDelete: Cascade)

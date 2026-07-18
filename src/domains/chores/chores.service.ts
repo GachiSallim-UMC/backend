@@ -4,6 +4,7 @@ import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateChoreDto } from './dto/create-chore.dto';
+import { ChoreDueSchedulerService } from './chore-due-scheduler.service';
 import { ListChoresQueryDto } from './dto/list-chores-query.dto';
 import { UpdateChoreDto } from './dto/update-chore.dto';
 
@@ -51,7 +52,10 @@ function addInterval(date: Date, repeatType: RepeatType): Date {
 
 @Injectable()
 export class ChoresService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly choreDueScheduler: ChoreDueSchedulerService,
+  ) {}
 
   async listChores(query: ListChoresQueryDto) {
     const chores = await this.prisma.chore.findMany({
@@ -69,9 +73,11 @@ export class ChoresService {
 
   async createChore(dto: CreateChoreDto, createdBy: bigint) {
     const startDate = new Date(dto.startDate);
-    const dueDate = new Date(dto.dueDate);
+    const dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
 
-    this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate);
+    if (dueDate) {
+      this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate!);
+    }
 
     await this.assertAssigneeInGroup(
       BigInt(dto.assigneeId),
@@ -92,6 +98,8 @@ export class ChoresService {
       include: CHORE_WITH_USERS,
     });
 
+    await this.choreDueScheduler.synchronize(chore);
+
     return this.toCreateResponse(chore);
   }
 
@@ -99,9 +107,11 @@ export class ChoresService {
     const existing = await this.findChoreOrThrow(choreId);
 
     const startDate = new Date(dto.startDate);
-    const dueDate = new Date(dto.dueDate);
+    const dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
 
-    this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate);
+    if (dueDate) {
+      this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate!);
+    }
 
     await this.assertAssigneeInGroup(
       BigInt(dto.assigneeId),
@@ -121,6 +131,8 @@ export class ChoresService {
       include: CHORE_WITH_USERS,
     });
 
+    await this.choreDueScheduler.synchronize(chore);
+
     return this.toUpdateResponse(chore);
   }
 
@@ -138,6 +150,8 @@ export class ChoresService {
       data: { status: ChoreStatus.DONE, completedBy, completedAt },
       include: CHORE_WITH_USERS,
     });
+
+    await this.choreDueScheduler.delete(updated.id);
 
     let nextOccurrence: {
       choreId: number;
@@ -163,6 +177,8 @@ export class ChoresService {
         },
       });
 
+      await this.choreDueScheduler.synchronize(created);
+
       nextOccurrence = {
         choreId: Number(created.id),
         parentId: Number(created.parentId),
@@ -186,6 +202,7 @@ export class ChoresService {
     await this.assertDeletePermission(chore, requesterId);
 
     await this.prisma.chore.delete({ where: { id: choreId } });
+    await this.choreDueScheduler.delete(choreId);
 
     return { choreId: Number(chore.id) };
   }
@@ -201,7 +218,11 @@ export class ChoresService {
 
     if (chatRoom.groupId !== chore.groupId) {
       throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
-        { field: 'chatRoomId', value: String(chatRoomId), reason: '집안일과 동일한 그룹의 채팅방만 공유할 수 있습니다.' },
+        {
+          field: 'chatRoomId',
+          value: String(chatRoomId),
+          reason: '집안일과 동일한 그룹의 채팅방만 공유할 수 있습니다.',
+        },
       ]);
     }
 
@@ -263,7 +284,11 @@ export class ChoresService {
 
     if (!membership || membership.leftAt) {
       throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
-        { field: 'assigneeId', value: rawAssigneeId, reason: '담당자는 해당 그룹의 멤버여야 합니다.' },
+        {
+          field: 'assigneeId',
+          value: rawAssigneeId,
+          reason: '담당자는 해당 그룹의 멤버여야 합니다.',
+        },
       ]);
     }
   }

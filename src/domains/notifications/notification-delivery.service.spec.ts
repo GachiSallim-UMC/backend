@@ -6,9 +6,10 @@ import { NotificationDeliveryService } from './notification-delivery.service';
 describe('NotificationDeliveryService', () => {
   const findSubscriptions = jest.fn();
   const createNotification = jest.fn();
+  const findNotification = jest.fn();
   const transaction = {
     notificationPushSubscription: { findMany: findSubscriptions },
-    notification: { create: createNotification },
+    notification: { create: createNotification, findUnique: findNotification },
   };
   const runTransaction = jest.fn((callback: (client: typeof transaction) => unknown) =>
     callback(transaction),
@@ -28,6 +29,19 @@ describe('NotificationDeliveryService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     createNotification.mockResolvedValue({ id: 101n });
+    findNotification.mockResolvedValue(null);
+  });
+
+  it('returns an existing notification for a duplicate dedupe key', async () => {
+    const existing = { id: 101n };
+    findNotification.mockResolvedValue(existing);
+
+    await expect(
+      service.createNotification({ ...input, dedupeKey: 'CHORE_DUE:11:2026-07-20' }),
+    ).resolves.toBe(existing);
+
+    expect(findSubscriptions).not.toHaveBeenCalled();
+    expect(createNotification).not.toHaveBeenCalled();
   });
 
   it('creates the notification and one delivery per active subscription atomically', async () => {
