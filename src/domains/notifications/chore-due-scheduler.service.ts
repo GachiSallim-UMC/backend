@@ -13,7 +13,7 @@ import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { ChoreDueCommandV1 } from './chore-due-command.interface';
 import { CHORE_DUE_SCHEDULER_CLIENT, CHORE_DUE_SQS_CLIENT } from './chore-due-scheduler.constants';
 
-interface SchedulableChore {
+export interface ChoreDueScheduleInput {
   id: bigint;
   assigneeId: bigint;
   dueDate: Date | null;
@@ -45,7 +45,7 @@ export class ChoreDueSchedulerService {
     this.timeZone = config.get<string>('CHORE_DUE_TIME_ZONE', 'Asia/Seoul');
   }
 
-  async synchronize(chore: SchedulableChore): Promise<void> {
+  async synchronize(chore: ChoreDueScheduleInput): Promise<void> {
     if (!chore.dueDate) {
       await this.delete(chore.id);
       return;
@@ -99,7 +99,7 @@ export class ChoreDueSchedulerService {
     }
   }
 
-  private toCommand(chore: SchedulableChore): ChoreDueCommandV1 {
+  private toCommand(chore: ChoreDueScheduleInput): ChoreDueCommandV1 {
     return {
       version: 1,
       type: 'CHORE_DUE',

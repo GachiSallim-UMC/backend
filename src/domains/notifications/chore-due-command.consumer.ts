@@ -10,7 +10,7 @@ import { ChoreStatus, NotificationType } from '@prisma/client';
 import { DeleteMessageCommand, ReceiveMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { ChoreDueCommandV1 } from '../chores/chore-due-command.interface';
+import { ChoreDueCommandV1 } from './chore-due-command.interface';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { NOTIFICATION_SQS_CLIENT } from './notification-sqs.constants';
 
