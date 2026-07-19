@@ -2,16 +2,22 @@ const { Client } = require('pg');
 
 const databaseName = process.argv[2];
 
-if (!databaseName || !/^[a-z][a-z0-9_]+$/.test(databaseName)) {
-  throw new Error('A safe PostgreSQL database name is required.');
+function buildAdminUrl(databaseUrl) {
+  const adminUrl = new URL(databaseUrl);
+  adminUrl.pathname = '/postgres';
+  adminUrl.searchParams.delete('schema');
+
+  return adminUrl.toString();
 }
 
 async function main() {
-  const adminUrl = new URL(process.env.DATABASE_URL);
-  adminUrl.pathname = '/postgres';
-  adminUrl.search = '';
+  if (!databaseName || !/^[a-z][a-z0-9_]+$/.test(databaseName)) {
+    throw new Error('A safe PostgreSQL database name is required.');
+  }
 
-  const client = new Client({ connectionString: adminUrl.toString() });
+  const adminUrl = buildAdminUrl(process.env.DATABASE_URL);
+
+  const client = new Client({ connectionString: adminUrl });
   await client.connect();
 
   try {
@@ -27,7 +33,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { buildAdminUrl };

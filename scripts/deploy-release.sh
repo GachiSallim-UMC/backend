@@ -48,7 +48,7 @@ password = quote(secret['password'], safe='')
 host = secret['host']
 port = secret.get('port', 5432)
 database = os.environ['DATABASE_NAME']
-print(f'postgresql://{username}:{password}@{host}:{port}/{database}?schema=public')
+print(f'postgresql://{username}:{password}@{host}:{port}/{database}?schema=public&sslmode=require')
 PY
 )"
 
