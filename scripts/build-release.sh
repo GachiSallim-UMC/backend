@@ -17,6 +17,7 @@ npm run build
 npm prune --omit=dev
 
 mkdir -p "${output_directory}" "${staging_directory}/bin"
+chmod 0755 "${staging_directory}"
 cp "$(command -v node)" "${staging_directory}/bin/node"
 cp -R dist node_modules prisma scripts/ensure-database.cjs package.json package-lock.json \
   "${staging_directory}/"
