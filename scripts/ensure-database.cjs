@@ -6,6 +6,7 @@ function buildAdminUrl(databaseUrl) {
   const adminUrl = new URL(databaseUrl);
   adminUrl.pathname = '/postgres';
   adminUrl.searchParams.delete('schema');
+  adminUrl.searchParams.set('uselibpqcompat', 'true');
 
   return adminUrl.toString();
 }
