@@ -176,6 +176,8 @@ export class GroupsService {
     if (adminCount <= 1) {
       throw new BusinessException(ErrorCode.GROUP_LAST_ADMIN);
     }
+  }
+
   async reissueInviteCode(groupId: bigint, currentUserId: bigint) {
     await this.findGroupOrThrow(groupId);
     await this.requireAdminOrThrow(groupId, currentUserId);
