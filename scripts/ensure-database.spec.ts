@@ -8,7 +8,7 @@ describe('buildAdminUrl', () => {
       'postgresql://postgres:secret@database.example.com:5432/gachisallim_develop?schema=public&sslmode=require';
 
     expect(buildAdminUrl(databaseUrl)).toBe(
-      'postgresql://postgres:secret@database.example.com:5432/postgres?sslmode=require',
+      'postgresql://postgres:secret@database.example.com:5432/postgres?sslmode=require&uselibpqcompat=true',
     );
   });
 });
