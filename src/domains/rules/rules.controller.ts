@@ -1,5 +1,14 @@
 import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
-import { ApiBody, ApiHeader, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiHeader,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 
@@ -13,6 +22,7 @@ import { UpdateRuleDto } from './dto/update-rule.dto';
 import { RulesService } from './rules.service';
 
 @ApiTags('rules')
+@ApiBearerAuth('BearerAuth')
 @Controller('rules')
 export class RulesController {
   constructor(private readonly rulesService: RulesService) {}
