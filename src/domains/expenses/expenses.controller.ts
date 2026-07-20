@@ -1,7 +1,9 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, ParseBoolPipe, Patch } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { ExpensesService } from './expenses.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 
+@ApiBearerAuth('BearerAuth')
 @Controller('api/v1/expenses')
 export class ExpensesController {
   constructor(private readonly expensesService: ExpensesService) {}

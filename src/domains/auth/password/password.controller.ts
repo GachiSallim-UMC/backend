@@ -1,5 +1,12 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
-import { ApiBody, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiHeader,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { AuthContext } from '../common/auth-context.interface';
 import { CognitoAccessTokenGuard } from '../common/cognito-access-token.guard';
@@ -9,6 +16,7 @@ import { ChangePasswordResponseDto } from './dto/change-password-response.dto';
 import { PasswordService } from './password.service';
 
 @ApiTags('인증')
+@ApiBearerAuth('BearerAuth')
 @Controller('auth/password')
 export class PasswordController {
   constructor(private readonly passwordService: PasswordService) {}

@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { parseBigIntId } from '../../common/utils/id.util';
 import { ChatService } from './chat.service';
@@ -12,6 +12,7 @@ import { ListMessagesQueryDto } from './dto/list-messages.query.dto';
 import { MarkReadDto } from './dto/mark-read.dto';
 
 @ApiTags('chat-rooms')
+@ApiBearerAuth('BearerAuth')
 @Controller('chat-rooms')
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
