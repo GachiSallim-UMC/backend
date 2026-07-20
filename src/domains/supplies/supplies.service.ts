@@ -16,6 +16,7 @@ import { CreateSupplyDto } from './dto/create-supply.dto';
 import { ListSuppliesQueryDto } from './dto/list-supplies-query.dto';
 import { PurchaseSupplyDto } from './dto/purchase-supply.dto';
 import { UpdateSupplyStatusDto } from './dto/update-supply-status.dto';
+import { SupplyUsersService } from './supply-users.service';
 
 const USER_SELECT = { id: true, nickname: true } satisfies Prisma.UserSelect;
 
@@ -36,12 +37,20 @@ function mapUser(user: { id: bigint; nickname: string }) {
 
 @Injectable()
 export class SuppliesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly supplyUsers: SupplyUsersService,
+  ) {}
 
-  async listSupplies(query: ListSuppliesQueryDto) {
+  async listSupplies(query: ListSuppliesQueryDto, cognitoSub: string) {
+    const userId = await this.supplyUsers.resolveActiveUserId(cognitoSub);
+    const groupId = BigInt(query.groupId);
+
+    await this.assertActiveGroupMember(userId, groupId);
+
     const supplies = await this.prisma.supply.findMany({
       where: {
-        groupId: BigInt(query.groupId),
+        groupId,
         status: query.status,
       },
       include: SUPPLY_WITH_USERS,
@@ -51,8 +60,11 @@ export class SuppliesService {
     return supplies.map((supply) => this.toSupplyResponse(supply));
   }
 
-  async createSupply(dto: CreateSupplyDto, createdBy: bigint) {
+  async createSupply(dto: CreateSupplyDto, cognitoSub: string) {
+    const createdBy = await this.supplyUsers.resolveActiveUserId(cognitoSub);
     const groupId = BigInt(dto.groupId);
+
+    await this.assertActiveGroupMember(createdBy, groupId);
 
     if (dto.assigneeId !== undefined) {
       await this.assertAssigneeInGroup(BigInt(dto.assigneeId), groupId, String(dto.assigneeId));
@@ -81,7 +93,7 @@ export class SuppliesService {
     }
   }
 
-  async updateStatus(supplyId: bigint, dto: UpdateSupplyStatusDto, userId: bigint) {
+  async updateStatus(supplyId: bigint, dto: UpdateSupplyStatusDto, cognitoSub: string) {
     if (dto.status === SupplyStatus.PURCHASED) {
       throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
         {
@@ -92,7 +104,11 @@ export class SuppliesService {
       ]);
     }
 
+    const userId = await this.supplyUsers.resolveActiveUserId(cognitoSub);
     const supply = await this.findSupplyOrThrow(supplyId);
+
+    await this.assertActiveGroupMember(userId, supply.groupId);
+
     const prevStatus = supply.status;
     const nextStatus = dto.status;
     const note = dto.note ?? null;
@@ -129,7 +145,7 @@ export class SuppliesService {
     };
   }
 
-  async purchase(supplyId: bigint, dto: PurchaseSupplyDto, userId: bigint) {
+  async purchase(supplyId: bigint, dto: PurchaseSupplyDto, cognitoSub: string) {
     if (dto.categoryId === undefined) {
       throw new BusinessException(ErrorCode.SUP_INVALID_CATEGORY);
     }
@@ -140,17 +156,28 @@ export class SuppliesService {
       ]);
     }
 
-    const supply = await this.findSupplyOrThrow(supplyId);
-
-    if (supply.status === SupplyStatus.PURCHASED) {
-      throw new BusinessException(ErrorCode.SUP_ALREADY_PURCHASED);
-    }
-
-    const prevStatus = supply.status;
+    const userId = await this.supplyUsers.resolveActiveUserId(cognitoSub);
     const categoryId = BigInt(dto.categoryId);
     const amount = dto.amount;
 
     const result = await this.prisma.$transaction(async (tx) => {
+      const supply = await tx.supply.findUnique({
+        where: { id: supplyId },
+        include: SUPPLY_WITH_USERS,
+      });
+
+      if (!supply) {
+        throw new BusinessException(ErrorCode.SUP_NOT_FOUND);
+      }
+
+      await this.assertActiveGroupMember(userId, supply.groupId, tx);
+
+      if (supply.status === SupplyStatus.PURCHASED) {
+        throw new BusinessException(ErrorCode.SUP_ALREADY_PURCHASED);
+      }
+
+      const prevStatus = supply.status;
+
       const expense = await tx.expense.create({
         data: {
           categoryId,
@@ -164,17 +191,27 @@ export class SuppliesService {
         },
       });
 
-      const updated = await tx.supply.update({
-        where: { id: supplyId },
+      // 조건부 상태 전이(CAS): 읽어온 prevStatus 그대로일 때만 PURCHASED로 전환.
+      // 동시 요청이 먼저 구매를 확정했다면 count가 0이 되어 트랜잭션 전체(Expense 포함)가 롤백된다.
+      const claimed = await tx.supply.updateMany({
+        where: { id: supplyId, status: prevStatus },
         data: { status: SupplyStatus.PURCHASED, linkedExpenseId: expense.id },
       });
+
+      if (claimed.count === 0) {
+        throw new BusinessException(ErrorCode.SUP_ALREADY_PURCHASED);
+      }
 
       await tx.supplyLog.create({
         data: { supplyId, userId, prevStatus, nextStatus: SupplyStatus.PURCHASED, note: null },
       });
 
-      return { expense, updated };
+      const updated = await tx.supply.findUniqueOrThrow({ where: { id: supplyId } });
+
+      return { expense, updated, prevStatus };
     });
+
+    const prevStatus = result.prevStatus;
 
     return {
       supplyId: Number(result.updated.id),
@@ -195,8 +232,11 @@ export class SuppliesService {
     };
   }
 
-  async share(supplyId: bigint, senderId: bigint, chatRoomId: bigint, content?: string) {
+  async share(supplyId: bigint, cognitoSub: string, chatRoomId: bigint, content?: string) {
+    const senderId = await this.supplyUsers.resolveActiveUserId(cognitoSub);
     const supply = await this.findSupplyOrThrow(supplyId);
+
+    await this.assertActiveGroupMember(senderId, supply.groupId);
 
     const chatRoom = await this.prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
 
@@ -244,9 +284,11 @@ export class SuppliesService {
     };
   }
 
-  async deleteSupply(supplyId: bigint, requesterId: bigint): Promise<{ supplyId: number }> {
+  async deleteSupply(supplyId: bigint, cognitoSub: string): Promise<{ supplyId: number }> {
+    const requesterId = await this.supplyUsers.resolveActiveUserId(cognitoSub);
     const supply = await this.findSupplyOrThrow(supplyId);
 
+    await this.assertActiveGroupMember(requesterId, supply.groupId);
     await this.assertDeletePermission(supply, requesterId);
 
     await this.prisma.$transaction(async (tx) => {
@@ -298,6 +340,20 @@ export class SuppliesService {
     });
 
     return created.count;
+  }
+
+  private async assertActiveGroupMember(
+    userId: bigint,
+    groupId: bigint,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<void> {
+    const membership = await client.groupMember.findUnique({
+      where: { userId_groupId: { userId, groupId } },
+    });
+
+    if (!membership || membership.leftAt) {
+      throw new BusinessException(ErrorCode.SUP_FORBIDDEN);
+    }
   }
 
   private async assertDeletePermission(
