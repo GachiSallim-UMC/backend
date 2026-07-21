@@ -12,7 +12,7 @@ import { UpdateMemberRoleDto } from './dto/update-member-role.dto';
 import { GroupsAuthenticatedUserService } from './groups-authenticated-user.service';
 import { GroupsService } from './groups.service';
 
-@ApiTags('groups')
+@ApiTags('그룹 관리 (GROUP)')
 @ApiBearerAuth('BearerAuth')
 @UseGuards(CognitoAccessTokenGuard)
 @Controller('groups')
