@@ -13,6 +13,14 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     NOTIFICATION_PUSH_RESULT_QUEUE_URL:
       'https://sqs.ap-northeast-2.amazonaws.com/123456789012/push-result',
     NOTIFICATION_VAPID_PUBLIC_KEY: 'public-key',
+    NOTIFICATION_COMMAND_QUEUE_URL: 'https://sqs.ap-northeast-2.amazonaws.com/123456789012/command',
+    NOTIFICATION_COMMAND_QUEUE_ARN: 'arn:aws:sqs:ap-northeast-2:123456789012:notification-command',
+    NOTIFICATION_COMMAND_DLQ_ARN:
+      'arn:aws:sqs:ap-northeast-2:123456789012:notification-command-dlq',
+    CHORE_DUE_SCHEDULE_GROUP: 'gachisallim-develop-chore-due',
+    CHORE_DUE_SCHEDULE_ROLE_ARN:
+      'arn:aws:iam::123456789012:role/gachisallim-develop-chore-due-scheduler',
+    CHORE_DUE_SCHEDULE_PREFIX: 'develop',
   };
 
   it('accepts the Cognito runtime configuration', () => {
@@ -28,6 +36,12 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     'NOTIFICATION_PUSH_QUEUE_URL',
     'NOTIFICATION_PUSH_RESULT_QUEUE_URL',
     'NOTIFICATION_VAPID_PUBLIC_KEY',
+    'NOTIFICATION_COMMAND_QUEUE_URL',
+    'NOTIFICATION_COMMAND_QUEUE_ARN',
+    'NOTIFICATION_COMMAND_DLQ_ARN',
+    'CHORE_DUE_SCHEDULE_GROUP',
+    'CHORE_DUE_SCHEDULE_ROLE_ARN',
+    'CHORE_DUE_SCHEDULE_PREFIX',
   ])('requires %s', (key) => {
     const environment = { ...validEnvironment };
     delete environment[key as keyof typeof environment];
@@ -45,6 +59,9 @@ describe('ENV_VALIDATION_SCHEMA', () => {
       NOTIFICATION_OUTBOX_BATCH_SIZE: 10,
       NOTIFICATION_OUTBOX_MAX_ATTEMPTS: 10,
       NOTIFICATION_RESULT_POLL_INTERVAL_MS: 5000,
+      CHORE_DUE_NOTIFICATION_TIME: '09:00',
+      CHORE_DUE_TIME_ZONE: 'Asia/Seoul',
+      NOTIFICATION_COMMAND_POLL_INTERVAL_MS: 5000,
     });
   });
 });

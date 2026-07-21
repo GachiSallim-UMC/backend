@@ -108,10 +108,11 @@ describe('BackendStack', () => {
     expect(endpoints).toContain('.ssmmessages');
     expect(endpoints).toContain('.s3');
     expect(endpoints).toContain('.sqs');
+    expect(endpoints).toContain('.scheduler');
   });
 
   it('creates encrypted notification push queues and dead-letter queues per environment', () => {
-    template.resourceCountIs('AWS::SQS::Queue', 8);
+    template.resourceCountIs('AWS::SQS::Queue', 12);
     template.resourceCountIs('AWS::KMS::Key', 1);
     template.hasResourceProperties('AWS::KMS::Key', {
       EnableKeyRotation: true,
@@ -161,6 +162,30 @@ describe('BackendStack', () => {
     expect(JSON.stringify(template.toJSON())).toContain(
       '/gachisallim/main/notification-vapid-public-key',
     );
+  });
+
+  it('creates environment-scoped chore due Scheduler resources and command queues', () => {
+    template.resourceCountIs('AWS::Scheduler::ScheduleGroup', 2);
+    template.hasResourceProperties('AWS::Scheduler::ScheduleGroup', {
+      Name: 'gachisallim-main-chore-due',
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'gachisallim-main-notification-command',
+      ReceiveMessageWaitTimeSeconds: 20,
+      RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
+    });
+
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('scheduler:CreateSchedule');
+    expect(policies).toContain('scheduler:UpdateSchedule');
+    expect(policies).toContain('scheduler:DeleteSchedule');
+    expect(policies).toContain('iam:PassRole');
+    expect(policies).toContain('iam:PassedToService');
+
+    const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
+    expect(userData).toContain('NOTIFICATION_COMMAND_QUEUE_URL');
+    expect(userData).toContain('CHORE_DUE_SCHEDULE_GROUP');
+    expect(userData).toContain('CHORE_DUE_SCHEDULE_ROLE_ARN');
   });
 
   it('allows the instance to receive SSM commands and access only required Cognito pools', () => {
