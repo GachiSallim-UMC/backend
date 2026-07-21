@@ -26,10 +26,10 @@ export class ChatController {
 
   @Get()
   async listChatRooms(@CurrentAuth() auth: AuthContext, @Query() query: ListChatRoomsQueryDto) {
-    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     const groupId = parseBigIntId(query.groupId, 'groupId');
 
-    return this.chatService.listChatRooms(groupId);
+    return this.chatService.listChatRooms(groupId, currentUserId);
   }
 
   @Post()
@@ -42,15 +42,15 @@ export class ChatController {
 
   @Get(':roomId')
   async getChatRoomDetail(@CurrentAuth() auth: AuthContext, @Param('roomId') roomId: string) {
-    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
-    return this.chatService.getChatRoomDetail(parseBigIntId(roomId, 'roomId'));
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.chatService.getChatRoomDetail(parseBigIntId(roomId, 'roomId'), currentUserId);
   }
 
   @Delete(':roomId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteChatRoom(@CurrentAuth() auth: AuthContext, @Param('roomId') roomId: string) {
-    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
-    return this.chatService.deleteChatRoom(parseBigIntId(roomId, 'roomId'));
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.chatService.deleteChatRoom(parseBigIntId(roomId, 'roomId'), currentUserId);
   }
 
   @Post(':roomId/members')
@@ -59,10 +59,10 @@ export class ChatController {
     @Param('roomId') roomId: string,
     @Body() dto: InviteMemberDto,
   ) {
-    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     const userIds = dto.userIds.map((userId) => parseBigIntId(userId, 'userIds'));
 
-    return this.chatService.inviteMember(parseBigIntId(roomId, 'roomId'), userIds);
+    return this.chatService.inviteMember(parseBigIntId(roomId, 'roomId'), userIds, currentUserId);
   }
 
   @Delete(':roomId/members/:userId')
@@ -72,8 +72,12 @@ export class ChatController {
     @Param('roomId') roomId: string,
     @Param('userId') userId: string,
   ) {
-    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
-    return this.chatService.removeMember(parseBigIntId(roomId, 'roomId'), parseBigIntId(userId, 'userId'));
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.chatService.removeMember(
+      parseBigIntId(roomId, 'roomId'),
+      parseBigIntId(userId, 'userId'),
+      currentUserId,
+    );
   }
 
   @Get(':roomId/messages')
@@ -82,10 +86,10 @@ export class ChatController {
     @Param('roomId') roomId: string,
     @Query() query: ListMessagesQueryDto,
   ) {
-    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     const before = query.before ? parseBigIntId(query.before, 'before') : undefined;
 
-    return this.chatService.listMessages(parseBigIntId(roomId, 'roomId'), before, query.limit);
+    return this.chatService.listMessages(parseBigIntId(roomId, 'roomId'), currentUserId, before, query.limit);
   }
 
   @Post(':roomId/messages')
