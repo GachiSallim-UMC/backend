@@ -17,9 +17,15 @@ export const ENV_VALIDATION_SCHEMA = joi.object({
     .string()
     .uri({ scheme: ['https'] })
     .required(),
+  NOTIFICATION_PUSH_RESULT_QUEUE_URL: joi
+    .string()
+    .uri({ scheme: ['https'] })
+    .required(),
+  NOTIFICATION_VAPID_PUBLIC_KEY: joi.string().min(1).required(),
   NOTIFICATION_OUTBOX_POLL_INTERVAL_MS: joi.number().integer().min(1000).default(5000),
   NOTIFICATION_OUTBOX_BATCH_SIZE: joi.number().integer().min(1).max(100).default(10),
   NOTIFICATION_OUTBOX_MAX_ATTEMPTS: joi.number().integer().min(1).max(100).default(10),
+  NOTIFICATION_RESULT_POLL_INTERVAL_MS: joi.number().integer().min(1000).default(5000),
   NOTIFICATION_COMMAND_QUEUE_URL: joi
     .string()
     .uri({ scheme: ['https'] })

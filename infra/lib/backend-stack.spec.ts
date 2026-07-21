@@ -112,7 +112,7 @@ describe('BackendStack', () => {
   });
 
   it('creates encrypted notification push queues and dead-letter queues per environment', () => {
-    template.resourceCountIs('AWS::SQS::Queue', 8);
+    template.resourceCountIs('AWS::SQS::Queue', 12);
     template.resourceCountIs('AWS::KMS::Key', 1);
     template.hasResourceProperties('AWS::KMS::Key', {
       EnableKeyRotation: true,
@@ -132,6 +132,36 @@ describe('BackendStack', () => {
 
     const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
     expect(userData).toContain('NOTIFICATION_PUSH_QUEUE_URL');
+    expect(userData).toContain('NOTIFICATION_PUSH_RESULT_QUEUE_URL');
+    expect(userData).toContain('NOTIFICATION_VAPID_PUBLIC_KEY');
+    expect(userData).not.toContain('NOTIFICATION_VAPID_SECRET_ID');
+  });
+
+  it('runs isolated web push workers with partial batch retry and VAPID secret access', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 2);
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'gachisallim-main-notification-web-push',
+      Architectures: ['arm64'],
+      MemorySize: 256,
+      ReservedConcurrentExecutions: 20,
+      Runtime: 'nodejs22.x',
+      Timeout: 30,
+      Environment: {
+        Variables: Match.objectLike({ NOTIFICATION_VAPID_SECRET_ID: Match.anyValue() }),
+      },
+    });
+    template.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
+      BatchSize: 10,
+      FunctionResponseTypes: ['ReportBatchItemFailures'],
+      ScalingConfig: { MaximumConcurrency: 10 },
+    });
+
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('secretsmanager:GetSecretValue');
+    expect(policies).toContain('sqs:ReceiveMessage');
+    expect(JSON.stringify(template.toJSON())).toContain(
+      '/gachisallim/main/notification-vapid-public-key',
+    );
   });
 
   it('creates environment-scoped chore due Scheduler resources and command queues', () => {
@@ -180,5 +210,9 @@ describe('BackendStack', () => {
     });
     const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
     expect(policies).toContain('sqs:SendMessage');
+    const instancePolicies = Object.values(template.findResources('AWS::IAM::Policy')).filter(
+      (policy) => JSON.stringify(policy).includes('InstanceRole'),
+    );
+    expect(JSON.stringify(instancePolicies)).not.toContain('notification-vapid');
   });
 });
