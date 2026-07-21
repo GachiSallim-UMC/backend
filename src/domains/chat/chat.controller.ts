@@ -60,7 +60,9 @@ export class ChatController {
     @Body() dto: InviteMemberDto,
   ) {
     await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
-    return this.chatService.inviteMember(parseBigIntId(roomId, 'roomId'), parseBigIntId(dto.userId, 'userId'));
+    const userIds = dto.userIds.map((userId) => parseBigIntId(userId, 'userIds'));
+
+    return this.chatService.inviteMember(parseBigIntId(roomId, 'roomId'), userIds);
   }
 
   @Delete(':roomId/members/:userId')
