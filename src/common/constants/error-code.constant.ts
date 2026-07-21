@@ -242,19 +242,18 @@ export const ErrorCode = {
   // Chat
   CHAT_ROOM_NOT_FOUND: {
     status: 404,
-    code: 'CHAT_ROOM_404',
+    code: 'CHAT_ROOM_NOT_FOUND',
     message: '존재하지 않는 채팅방입니다.',
   },
   CHAT_ROOM_MEMBER_NOT_FOUND: {
     status: 404,
-    code: 'CHAT_ROOM_MEMBER_404',
+    code: 'CHAT_ROOM_MEMBER_NOT_FOUND',
     message: '채팅방에 속하지 않은 사용자입니다.',
   },
   CHAT_ROOM_MEMBER_ALREADY_JOINED: {
     status: 409,
-    code: 'CHAT_ROOM_MEMBER_409',
+    code: 'CHAT_ROOM_MEMBER_ALREADY_JOINED',
     message: '이미 채팅방에 참여 중인 사용자입니다.',
-
   },
 } as const;
 
