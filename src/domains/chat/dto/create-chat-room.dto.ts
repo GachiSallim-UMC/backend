@@ -11,8 +11,4 @@ export class CreateChatRoomDto {
   @MinLength(1)
   @MaxLength(100)
   name!: string;
-
-  @ApiProperty({ description: '채팅방 생성자(사용자) ID', example: '1' })
-  @IsNumberString()
-  createdBy!: string;
 }
