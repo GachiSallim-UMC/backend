@@ -1,7 +1,11 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { parseBigIntId } from '../../common/utils/id.util';
+import { AuthContext } from '../auth/common/auth-context.interface';
+import { CognitoAccessTokenGuard } from '../auth/common/cognito-access-token.guard';
+import { CurrentAuth } from '../auth/common/current-auth.decorator';
+import { ChatAuthenticatedUserService } from './chat-authenticated-user.service';
 import { ChatService } from './chat.service';
 import { CreateCardMessageDto } from './dto/create-card-message.dto';
 import { CreateChatRoomDto } from './dto/create-chat-room.dto';
@@ -9,72 +13,99 @@ import { CreateMessageDto } from './dto/create-message.dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { ListChatRoomsQueryDto } from './dto/list-chat-rooms.query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages.query.dto';
-import { MarkReadDto } from './dto/mark-read.dto';
 
 @ApiTags('chat-rooms')
 @ApiBearerAuth('BearerAuth')
+@UseGuards(CognitoAccessTokenGuard)
 @Controller('chat-rooms')
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly authenticatedUsers: ChatAuthenticatedUserService,
+  ) {}
 
   @Get()
-  listChatRooms(@Query() query: ListChatRoomsQueryDto) {
+  async listChatRooms(@CurrentAuth() auth: AuthContext, @Query() query: ListChatRoomsQueryDto) {
+    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     const groupId = parseBigIntId(query.groupId, 'groupId');
 
     return this.chatService.listChatRooms(groupId);
   }
 
   @Post()
-  createChatRoom(@Body() dto: CreateChatRoomDto) {
+  async createChatRoom(@CurrentAuth() auth: AuthContext, @Body() dto: CreateChatRoomDto) {
+    const createdBy = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     const groupId = parseBigIntId(dto.groupId, 'groupId');
-    const createdBy = parseBigIntId(dto.createdBy, 'createdBy');
 
     return this.chatService.createChatRoom(groupId, dto.name, createdBy);
   }
 
   @Get(':roomId')
-  getChatRoomDetail(@Param('roomId') roomId: string) {
+  async getChatRoomDetail(@CurrentAuth() auth: AuthContext, @Param('roomId') roomId: string) {
+    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     return this.chatService.getChatRoomDetail(parseBigIntId(roomId, 'roomId'));
   }
 
   @Delete(':roomId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  deleteChatRoom(@Param('roomId') roomId: string) {
+  async deleteChatRoom(@CurrentAuth() auth: AuthContext, @Param('roomId') roomId: string) {
+    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     return this.chatService.deleteChatRoom(parseBigIntId(roomId, 'roomId'));
   }
 
   @Post(':roomId/members')
-  inviteMember(@Param('roomId') roomId: string, @Body() dto: InviteMemberDto) {
+  async inviteMember(
+    @CurrentAuth() auth: AuthContext,
+    @Param('roomId') roomId: string,
+    @Body() dto: InviteMemberDto,
+  ) {
+    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     return this.chatService.inviteMember(parseBigIntId(roomId, 'roomId'), parseBigIntId(dto.userId, 'userId'));
   }
 
   @Delete(':roomId/members/:userId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  removeMember(@Param('roomId') roomId: string, @Param('userId') userId: string) {
+  async removeMember(
+    @CurrentAuth() auth: AuthContext,
+    @Param('roomId') roomId: string,
+    @Param('userId') userId: string,
+  ) {
+    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     return this.chatService.removeMember(parseBigIntId(roomId, 'roomId'), parseBigIntId(userId, 'userId'));
   }
 
   @Get(':roomId/messages')
-  listMessages(@Param('roomId') roomId: string, @Query() query: ListMessagesQueryDto) {
+  async listMessages(
+    @CurrentAuth() auth: AuthContext,
+    @Param('roomId') roomId: string,
+    @Query() query: ListMessagesQueryDto,
+  ) {
+    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     const before = query.before ? parseBigIntId(query.before, 'before') : undefined;
 
     return this.chatService.listMessages(parseBigIntId(roomId, 'roomId'), before, query.limit);
   }
 
   @Post(':roomId/messages')
-  sendMessage(@Param('roomId') roomId: string, @Body() dto: CreateMessageDto) {
-    return this.chatService.createTextMessage(
-      parseBigIntId(roomId, 'roomId'),
-      parseBigIntId(dto.senderId, 'senderId'),
-      dto.content,
-    );
+  async sendMessage(
+    @CurrentAuth() auth: AuthContext,
+    @Param('roomId') roomId: string,
+    @Body() dto: CreateMessageDto,
+  ) {
+    const senderId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.chatService.createTextMessage(parseBigIntId(roomId, 'roomId'), senderId, dto.content);
   }
 
   @Post(':roomId/messages/card')
-  sendCardMessage(@Param('roomId') roomId: string, @Body() dto: CreateCardMessageDto) {
+  async sendCardMessage(
+    @CurrentAuth() auth: AuthContext,
+    @Param('roomId') roomId: string,
+    @Body() dto: CreateCardMessageDto,
+  ) {
+    const senderId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     return this.chatService.createCardMessage(
       parseBigIntId(roomId, 'roomId'),
-      parseBigIntId(dto.senderId, 'senderId'),
+      senderId,
       dto.type,
       parseBigIntId(dto.refId, 'refId'),
       dto.content,
@@ -82,7 +113,8 @@ export class ChatController {
   }
 
   @Patch(':roomId/read')
-  markAsRead(@Param('roomId') roomId: string, @Body() dto: MarkReadDto) {
-    return this.chatService.markAsRead(parseBigIntId(roomId, 'roomId'), parseBigIntId(dto.userId, 'userId'));
+  async markAsRead(@CurrentAuth() auth: AuthContext, @Param('roomId') roomId: string) {
+    const userId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.chatService.markAsRead(parseBigIntId(roomId, 'roomId'), userId);
   }
 }
