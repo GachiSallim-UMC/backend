@@ -70,21 +70,36 @@ export class ChatService {
     await this.prisma.chatRoom.delete({ where: { id: roomId } });
   }
 
-  async inviteMember(roomId: bigint, userId: bigint) {
+  async inviteMember(roomId: bigint, userIds: bigint[]) {
     const chatRoom = await this.findChatRoomOrThrow(roomId);
-    await this.findActiveGroupMemberOrThrow(chatRoom.groupId, userId);
 
-    const existingMember = await this.prisma.chatRoomMember.findUnique({
-      where: { chatRoomId_userId: { chatRoomId: roomId, userId } },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      for (const userId of userIds) {
+        const member = await tx.groupMember.findUnique({
+          where: { userId_groupId: { userId, groupId: chatRoom.groupId } },
+        });
 
-    if (existingMember) {
-      throw new BusinessException(ErrorCode.CHAT_ROOM_MEMBER_ALREADY_JOINED);
-    }
+        if (!member || member.leftAt) {
+          throw new BusinessException(ErrorCode.GROUP_MEMBER_NOT_FOUND);
+        }
 
-    return this.prisma.chatRoomMember.create({
-      data: { chatRoomId: roomId, userId },
-      select: CHAT_ROOM_MEMBER_SELECT,
+        const existingMember = await tx.chatRoomMember.findUnique({
+          where: { chatRoomId_userId: { chatRoomId: roomId, userId } },
+        });
+
+        if (existingMember) {
+          throw new BusinessException(ErrorCode.CHAT_ROOM_MEMBER_ALREADY_JOINED);
+        }
+      }
+
+      await tx.chatRoomMember.createMany({
+        data: userIds.map((userId) => ({ chatRoomId: roomId, userId })),
+      });
+
+      return tx.chatRoomMember.findMany({
+        where: { chatRoomId: roomId, userId: { in: userIds } },
+        select: CHAT_ROOM_MEMBER_SELECT,
+      });
     });
   }
 
