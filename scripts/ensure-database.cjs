@@ -1,5 +1,3 @@
-const { Client } = require('pg');
-
 const databaseName = process.argv[2];
 
 function buildAdminUrl(databaseUrl) {
@@ -12,6 +10,9 @@ function buildAdminUrl(databaseUrl) {
 }
 
 async function main() {
+  // `pg` is intentionally required lazily so unit tests can import buildAdminUrl
+  // without requiring PostgreSQL driver installation in test environments.
+  const { Client } = require('pg');
   if (!databaseName || !/^[a-z][a-z0-9_]+$/.test(databaseName)) {
     throw new Error('A safe PostgreSQL database name is required.');
   }
