@@ -38,6 +38,35 @@ describe('BackendStack', () => {
     expect(listenerRules).toContain('client_id');
   });
 
+  it('exposes Swagger documents only on the development domain', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+      Conditions: Match.arrayWith([
+        {
+          Field: 'host-header',
+          HostHeaderConfig: { Values: ['dev-api.gachisallim.com'] },
+        },
+        {
+          Field: 'path-pattern',
+          PathPatternConfig: {
+            Values: ['/api-docs', '/api-docs/*', '/api-docs-json'],
+          },
+        },
+        {
+          Field: 'http-request-method',
+          HttpRequestMethodConfig: { Values: ['GET'] },
+        },
+      ]),
+    });
+
+    const listenerRules = template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule');
+    const publicSwaggerRules = Object.values(listenerRules).filter((rule) =>
+      JSON.stringify(rule).includes('/api-docs-json'),
+    );
+
+    expect(publicSwaggerRules).toHaveLength(1);
+  });
+
   it('creates DNS-validated TLS and aliases for both backend domains', () => {
     template.hasResourceProperties('AWS::CertificateManager::Certificate', {
       DomainName: 'api.gachisallim.com',
