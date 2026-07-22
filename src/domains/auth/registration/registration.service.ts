@@ -372,7 +372,6 @@ export class AuthRegistrationService {
 
 const SOCIAL_PROVIDER_MAP: Partial<Record<string, AuthProvider>> = {
   Google: AuthProvider.GOOGLE,
-  SignInWithApple: AuthProvider.APPLE,
   Kakao: AuthProvider.KAKAO,
 };
 

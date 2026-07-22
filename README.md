@@ -76,7 +76,7 @@ GitHub repository variable `CD_ENABLED`는 런타임 검증이 끝날 때까지 
 
 ## 소셜 로그인
 
-Cognito User Pool이 이메일·비밀번호와 Google, Apple, Kakao 로그인의 단일 토큰 발급자입니다. 기존
+Cognito User Pool이 이메일·비밀번호와 Google, Kakao 로그인의 단일 토큰 발급자입니다. 기존
 `/api/v1/auth/signup`, `/api/v1/auth/login`, `/api/v1/auth/token/refresh`, `/api/v1/auth/logout` 계약은
 변경하지 않습니다.
 
@@ -93,24 +93,19 @@ Cognito User Pool이 이메일·비밀번호와 Google, Apple, Kakao 로그인�
 {
   "googleClientId": "...",
   "googleClientSecret": "...",
-  "appleClientId": "...",
-  "appleTeamId": "...",
-  "appleKeyId": "...",
-  "applePrivateKey": "...",
   "kakaoClientId": "...",
   "kakaoClientSecret": "..."
 }
 ```
 
-Google OAuth redirect URI, Apple Return URL, Kakao Redirect URI에는 CDK 출력
+Google OAuth redirect URI와 Kakao Redirect URI에는 CDK 출력
 `ProductionCognitoIdpResponseUrl` 또는 `DevelopmentCognitoIdpResponseUrl`을 등록합니다. Kakao 앱은
 OpenID Connect를 활성화하고 이메일을 필수 동의 항목으로 설정해야 합니다.
 
 ### 프론트엔드 계약
 
 1. 환경별 `CognitoDomainUrl`의 `/oauth2/authorize`를 Authorization Code + PKCE(S256)로 엽니다.
-2. `identity_provider`는 `Google`, `SignInWithApple`, `Kakao` 중 하나를 사용하고 `state`와 `nonce`를
-   검증합니다.
+2. `identity_provider`는 `Google`, `Kakao` 중 하나를 사용하고 `state`와 `nonce`를 검증합니다.
 3. callback에서 authorization code를 Cognito `/oauth2/token`으로 교환합니다.
 4. access token으로 `GET /api/v1/auth/me`를 호출합니다. 200이면 기존 사용자입니다.
 5. 404이면 이름과 닉네임을 받아 `POST /api/v1/auth/social/signup`을 호출합니다.

@@ -49,7 +49,7 @@ describe('BackendStack', () => {
       ]),
     );
     template.resourceCountIs('AWS::Cognito::UserPoolDomain', 2);
-    template.resourceCountIs('AWS::Cognito::UserPoolIdentityProvider', 6);
+    template.resourceCountIs('AWS::Cognito::UserPoolIdentityProvider', 4);
     template.hasResourceProperties('AWS::Cognito::UserPoolDomain', {
       Domain: 'gachisallim-prod-auth',
     });
@@ -62,12 +62,7 @@ describe('BackendStack', () => {
       AllowedOAuthScopes: Match.arrayWith(['openid', 'email', 'profile']),
       CallbackURLs: ['https://gachisallim.com/auth/callback'],
       LogoutURLs: ['https://gachisallim.com/login'],
-      SupportedIdentityProviders: Match.arrayWith([
-        'COGNITO',
-        'Google',
-        'SignInWithApple',
-        'Kakao',
-      ]),
+      SupportedIdentityProviders: Match.arrayWith(['COGNITO', 'Google', 'Kakao']),
     });
     template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       CallbackURLs: [
@@ -82,14 +77,6 @@ describe('BackendStack', () => {
     template.hasResourceProperties('AWS::Cognito::UserPoolIdentityProvider', {
       ProviderName: 'Google',
       ProviderType: 'Google',
-      AttributeMapping: Match.objectLike({
-        email: 'email',
-        email_verified: 'email_verified',
-      }),
-    });
-    template.hasResourceProperties('AWS::Cognito::UserPoolIdentityProvider', {
-      ProviderName: 'SignInWithApple',
-      ProviderType: 'SignInWithApple',
       AttributeMapping: Match.objectLike({
         email: 'email',
         email_verified: 'email_verified',

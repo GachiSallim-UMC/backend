@@ -271,23 +271,6 @@ export class BackendStack extends Stack {
           },
         },
       );
-      const appleProvider = new cognito.UserPoolIdentityProviderApple(
-        this,
-        `${environment.id}AppleProvider`,
-        {
-          userPool: pool,
-          clientId: socialAuthSecret.secretValueFromJson('appleClientId').unsafeUnwrap(),
-          teamId: socialAuthSecret.secretValueFromJson('appleTeamId').unsafeUnwrap(),
-          keyId: socialAuthSecret.secretValueFromJson('appleKeyId').unsafeUnwrap(),
-          privateKeyValue: socialAuthSecret.secretValueFromJson('applePrivateKey'),
-          scopes: ['name', 'email'],
-          attributeMapping: {
-            email: cognito.ProviderAttribute.APPLE_EMAIL,
-            emailVerified: cognito.ProviderAttribute.APPLE_EMAIL_VERIFIED,
-            fullname: cognito.ProviderAttribute.APPLE_NAME,
-          },
-        },
-      );
       const kakaoProvider = new cognito.UserPoolIdentityProviderOidc(
         this,
         `${environment.id}KakaoProvider`,
@@ -320,7 +303,6 @@ export class BackendStack extends Stack {
         supportedIdentityProviders: [
           cognito.UserPoolClientIdentityProvider.COGNITO,
           cognito.UserPoolClientIdentityProvider.GOOGLE,
-          cognito.UserPoolClientIdentityProvider.APPLE,
           cognito.UserPoolClientIdentityProvider.custom('Kakao'),
         ],
         oAuth: {
@@ -334,7 +316,7 @@ export class BackendStack extends Stack {
         refreshTokenValidity: Duration.days(30),
         enableTokenRevocation: true,
       });
-      client.node.addDependency(googleProvider, appleProvider, kakaoProvider);
+      client.node.addDependency(googleProvider, kakaoProvider);
       const issuer = `https://cognito-idp.${Aws.REGION}.${Aws.URL_SUFFIX}/${pool.userPoolId}`;
       authentication.set(environment.branch, {
         client,

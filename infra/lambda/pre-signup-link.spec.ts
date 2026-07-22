@@ -19,7 +19,6 @@ describe('pre-signup social account linking', () => {
 
   it.each([
     ['Google', 'google-sub'],
-    ['SignInWithApple', 'apple-sub'],
     ['Kakao', 'kakao-sub'],
   ])('links a verified %s identity to the single existing user', async (provider, subject) => {
     const send = jest

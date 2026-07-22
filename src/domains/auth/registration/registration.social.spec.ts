@@ -64,7 +64,6 @@ describe('AuthRegistrationService social signup', () => {
 
   it.each([
     ['Google', 'GOOGLE'],
-    ['SignInWithApple', 'APPLE'],
     ['Kakao', 'KAKAO'],
   ])('creates an active local user for %s', async (providerName, provider) => {
     const authenticatedAt = new Date('2026-07-22T00:00:00.000Z');

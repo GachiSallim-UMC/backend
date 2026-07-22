@@ -15,7 +15,7 @@ interface PreSignupEvent {
   response: Record<string, unknown>;
 }
 
-const SUPPORTED_PROVIDERS = ['Google', 'SignInWithApple', 'Kakao'] as const;
+const SUPPORTED_PROVIDERS = ['Google', 'Kakao'] as const;
 
 type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
 
