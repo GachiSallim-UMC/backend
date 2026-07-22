@@ -6,6 +6,8 @@ import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as lambdaNodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as elbv2Targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -13,6 +15,7 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 
 const DATABASE_PORT = 5432;
@@ -27,12 +30,14 @@ interface BackendStackProps extends StackProps {
 
 interface AuthenticationResources {
   readonly client: cognito.UserPoolClient;
+  readonly domain: cognito.UserPoolDomain;
   readonly issuer: string;
   readonly jwksEndpoint: string;
   readonly pool: cognito.UserPool;
 }
 
 interface RuntimeEnvironment {
+  readonly authDomainPrefix: string;
   readonly branch: 'main' | 'develop';
   readonly corsOrigin: string;
   readonly databaseName: string;
@@ -40,10 +45,13 @@ interface RuntimeEnvironment {
   readonly id: 'Production' | 'Development';
   readonly nodeEnvironment: 'production' | 'development';
   readonly port: number;
+  readonly socialAuthSecretName: string;
+  readonly webAppUrl: string;
 }
 
 const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
   {
+    authDomainPrefix: 'gachisallim-prod-auth',
     branch: 'main',
     corsOrigin: 'https://gachisallim.com',
     databaseName: 'gachisallim',
@@ -51,8 +59,11 @@ const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
     id: 'Production',
     nodeEnvironment: 'production',
     port: 3000,
+    socialAuthSecretName: 'gachisallim/main/social-auth',
+    webAppUrl: 'https://gachisallim.com',
   },
   {
+    authDomainPrefix: 'gachisallim-dev-auth',
     branch: 'develop',
     corsOrigin: '*',
     databaseName: 'gachisallim_develop',
@@ -60,6 +71,8 @@ const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
     id: 'Development',
     nodeEnvironment: 'development',
     port: 3001,
+    socialAuthSecretName: 'gachisallim/develop/social-auth',
+    webAppUrl: 'https://dev.gachisallim.com',
   },
 ];
 
@@ -198,6 +211,23 @@ export class BackendStack extends Stack {
       engineLifecycleSupport: rds.EngineLifecycleSupport.OPEN_SOURCE_RDS_EXTENDED_SUPPORT_DISABLED,
     });
 
+    const preSignupLinkLogGroup = new logs.LogGroup(this, 'PreSignupLinkLogGroup', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    const preSignupLinkFunction = new lambdaNodejs.NodejsFunction(this, 'PreSignupLinkFunction', {
+      entry: join(__dirname, '../lambda/pre-signup-link.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 128,
+      timeout: Duration.seconds(10),
+      logGroup: preSignupLinkLogGroup,
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
     const authentication = new Map<string, AuthenticationResources>();
     for (const environment of RUNTIME_ENVIRONMENTS) {
       const pool = new cognito.UserPool(this, `${environment.id}UserPool`, {
@@ -216,26 +246,107 @@ export class BackendStack extends Stack {
         deletionProtection: true,
         removalPolicy: RemovalPolicy.RETAIN,
       });
+      pool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, preSignupLinkFunction);
+      const domain = pool.addDomain(`${environment.id}UserPoolDomain`, {
+        cognitoDomain: { domainPrefix: environment.authDomainPrefix },
+      });
+      const socialAuthSecret = secretsmanager.Secret.fromSecretNameV2(
+        this,
+        `${environment.id}SocialAuthSecret`,
+        environment.socialAuthSecretName,
+      );
+      const googleProvider = new cognito.UserPoolIdentityProviderGoogle(
+        this,
+        `${environment.id}GoogleProvider`,
+        {
+          userPool: pool,
+          clientId: socialAuthSecret.secretValueFromJson('googleClientId').unsafeUnwrap(),
+          clientSecretValue: socialAuthSecret.secretValueFromJson('googleClientSecret'),
+          scopes: ['openid', 'email', 'profile'],
+          attributeMapping: {
+            email: cognito.ProviderAttribute.GOOGLE_EMAIL,
+            emailVerified: cognito.ProviderAttribute.GOOGLE_EMAIL_VERIFIED,
+            fullname: cognito.ProviderAttribute.GOOGLE_NAME,
+            profilePicture: cognito.ProviderAttribute.GOOGLE_PICTURE,
+          },
+        },
+      );
+      const kakaoProvider = new cognito.UserPoolIdentityProviderOidc(
+        this,
+        `${environment.id}KakaoProvider`,
+        {
+          userPool: pool,
+          name: 'Kakao',
+          clientId: socialAuthSecret.secretValueFromJson('kakaoClientId').unsafeUnwrap(),
+          clientSecret: socialAuthSecret.secretValueFromJson('kakaoClientSecret').unsafeUnwrap(),
+          issuerUrl: 'https://kauth.kakao.com',
+          scopes: ['openid', 'profile', 'account_email'],
+          attributeMapping: {
+            email: cognito.ProviderAttribute.other('email'),
+            emailVerified: cognito.ProviderAttribute.other('email_verified'),
+            nickname: cognito.ProviderAttribute.other('nickname'),
+            profilePicture: cognito.ProviderAttribute.other('picture'),
+          },
+        },
+      );
+      const callbackUrls = [`${environment.webAppUrl}/auth/callback`];
+      const logoutUrls = [`${environment.webAppUrl}/login`];
+      if (environment.branch === 'develop') {
+        callbackUrls.push('http://localhost:5173/auth/callback');
+        logoutUrls.push('http://localhost:5173/login');
+      }
       const client = pool.addClient(`${environment.id}UserPoolClient`, {
         userPoolClientName: `gachisallim-${environment.branch}-web`,
         generateSecret: false,
-        disableOAuth: true,
         authFlows: { userPassword: true },
         preventUserExistenceErrors: true,
-        supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
+        supportedIdentityProviders: [
+          cognito.UserPoolClientIdentityProvider.COGNITO,
+          cognito.UserPoolClientIdentityProvider.GOOGLE,
+          cognito.UserPoolClientIdentityProvider.custom('Kakao'),
+        ],
+        oAuth: {
+          flows: { authorizationCodeGrant: true },
+          scopes: [
+            cognito.OAuthScope.OPENID,
+            cognito.OAuthScope.EMAIL,
+            cognito.OAuthScope.PROFILE,
+            cognito.OAuthScope.COGNITO_ADMIN,
+          ],
+          callbackUrls,
+          logoutUrls,
+        },
         accessTokenValidity: Duration.hours(1),
         idTokenValidity: Duration.hours(1),
         refreshTokenValidity: Duration.days(30),
         enableTokenRevocation: true,
       });
+      client.node.addDependency(googleProvider, kakaoProvider);
       const issuer = `https://cognito-idp.${Aws.REGION}.${Aws.URL_SUFFIX}/${pool.userPoolId}`;
       authentication.set(environment.branch, {
         client,
+        domain,
         issuer,
         jwksEndpoint: `${issuer}/.well-known/jwks.json`,
         pool,
       });
     }
+    const preSignupLinkRole = preSignupLinkFunction.role;
+    if (!preSignupLinkRole) {
+      throw new Error('Pre-signup link function role was not created');
+    }
+    new iam.CfnPolicy(this, 'PreSignupLinkPolicy', {
+      policyName: 'gachisallim-pre-signup-link',
+      roles: [preSignupLinkRole.roleName],
+      policyDocument: new iam.PolicyDocument({
+        statements: [
+          new iam.PolicyStatement({
+            actions: ['cognito-idp:AdminLinkProviderForUser', 'cognito-idp:ListUsers'],
+            resources: Array.from(authentication.values(), ({ pool }) => pool.userPoolArn),
+          }),
+        ],
+      }),
+    });
 
     const instanceRole = new iam.Role(this, 'InstanceRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
@@ -483,6 +594,12 @@ ENVIRONMENT_CONFIG`,
       });
       new CfnOutput(this, `${environment.id}CognitoIssuerUrl`, {
         value: auth.issuer,
+      });
+      new CfnOutput(this, `${environment.id}CognitoDomainUrl`, {
+        value: auth.domain.baseUrl(),
+      });
+      new CfnOutput(this, `${environment.id}CognitoIdpResponseUrl`, {
+        value: `${auth.domain.baseUrl()}/oauth2/idpresponse`,
       });
     }
 
