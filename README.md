@@ -106,9 +106,10 @@ OpenID Connect를 활성화하고 이메일을 필수 동의 항목으로 설정
 
 1. 환경별 `CognitoDomainUrl`의 `/oauth2/authorize`를 Authorization Code + PKCE(S256)로 엽니다.
 2. `identity_provider`는 `Google`, `Kakao` 중 하나를 사용하고 `state`와 `nonce`를 검증합니다.
-3. callback에서 authorization code를 Cognito `/oauth2/token`으로 교환합니다.
-4. access token으로 `GET /api/v1/auth/me`를 호출합니다. 200이면 기존 사용자입니다.
-5. 404이면 이름과 닉네임을 받아 `POST /api/v1/auth/social/signup`을 호출합니다.
+3. scope는 `openid email profile aws.cognito.signin.user.admin`을 요청합니다.
+4. callback에서 authorization code를 Cognito `/oauth2/token`으로 교환합니다.
+5. access token으로 `GET /api/v1/auth/me`를 호출합니다. 200이면 기존 사용자입니다.
+6. 404이면 이름과 닉네임을 받아 `POST /api/v1/auth/social/signup`을 호출합니다.
 
 소셜 가입 요청은 Cognito access token을 Bearer header로 전달하며 body는 다음과 같습니다.
 

@@ -307,7 +307,12 @@ export class BackendStack extends Stack {
         ],
         oAuth: {
           flows: { authorizationCodeGrant: true },
-          scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+          scopes: [
+            cognito.OAuthScope.OPENID,
+            cognito.OAuthScope.EMAIL,
+            cognito.OAuthScope.PROFILE,
+            cognito.OAuthScope.COGNITO_ADMIN,
+          ],
           callbackUrls,
           logoutUrls,
         },

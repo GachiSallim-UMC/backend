@@ -82,7 +82,7 @@ function isVerifiedDestination(user: UserType): boolean {
 
   return (
     user.Enabled === true &&
-    user.UserStatus === 'CONFIRMED' &&
+    (user.UserStatus === 'CONFIRMED' || user.UserStatus === 'EXTERNAL_PROVIDER') &&
     attributes.get('email_verified') === 'true'
   );
 }

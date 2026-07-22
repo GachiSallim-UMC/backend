@@ -18,45 +18,49 @@ describe('pre-signup social account linking', () => {
   });
 
   it.each([
-    ['Google', 'google-sub'],
-    ['Kakao', 'kakao-sub'],
-  ])('links a verified %s identity to the single existing user', async (provider, subject) => {
-    const send = jest
-      .fn()
-      .mockResolvedValueOnce({
-        Users: [
-          {
-            Username: 'existing-user',
-            Enabled: true,
-            UserStatus: 'CONFIRMED',
-            Attributes: [{ Name: 'email_verified', Value: 'true' }],
-          },
-        ],
-      })
-      .mockResolvedValueOnce({});
-    const event = createEvent('PreSignUp_ExternalProvider', `${provider}_${subject}`);
+    ['Google', 'CONFIRMED', 'google-sub'],
+    ['Kakao', 'CONFIRMED', 'kakao-sub'],
+    ['Kakao', 'EXTERNAL_PROVIDER', 'kakao-sub'],
+  ])(
+    'links a verified %s identity to the single %s destination',
+    async (provider, userStatus, subject) => {
+      const send = jest
+        .fn()
+        .mockResolvedValueOnce({
+          Users: [
+            {
+              Username: 'existing-user',
+              Enabled: true,
+              UserStatus: userStatus,
+              Attributes: [{ Name: 'email_verified', Value: 'true' }],
+            },
+          ],
+        })
+        .mockResolvedValueOnce({});
+      const event = createEvent('PreSignUp_ExternalProvider', `${provider}_${subject}`);
 
-    await expect(run(send, event)).resolves.toBe(event);
-    expect(send).toHaveBeenNthCalledWith(1, expect.any(ListUsersCommand));
-    expect(send).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        input: {
-          UserPoolId: userPoolId,
-          DestinationUser: {
-            ProviderName: 'Cognito',
-            ProviderAttributeValue: 'existing-user',
+      await expect(run(send, event)).resolves.toBe(event);
+      expect(send).toHaveBeenNthCalledWith(1, expect.any(ListUsersCommand));
+      expect(send).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          input: {
+            UserPoolId: userPoolId,
+            DestinationUser: {
+              ProviderName: 'Cognito',
+              ProviderAttributeValue: 'existing-user',
+            },
+            SourceUser: {
+              ProviderName: provider,
+              ProviderAttributeName: 'Cognito_Subject',
+              ProviderAttributeValue: subject,
+            },
           },
-          SourceUser: {
-            ProviderName: provider,
-            ProviderAttributeName: 'Cognito_Subject',
-            ProviderAttributeValue: subject,
-          },
-        },
-      }),
-    );
-    expect(send).toHaveBeenNthCalledWith(2, expect.any(AdminLinkProviderForUserCommand));
-  });
+        }),
+      );
+      expect(send).toHaveBeenNthCalledWith(2, expect.any(AdminLinkProviderForUserCommand));
+    },
+  );
 
   it('allows Cognito to create a new federated user when the email is new', async () => {
     const send = jest.fn().mockResolvedValue({ Users: [] });

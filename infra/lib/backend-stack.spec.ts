@@ -59,7 +59,12 @@ describe('BackendStack', () => {
     template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       AllowedOAuthFlows: ['code'],
       AllowedOAuthFlowsUserPoolClient: true,
-      AllowedOAuthScopes: Match.arrayWith(['openid', 'email', 'profile']),
+      AllowedOAuthScopes: Match.arrayWith([
+        'openid',
+        'email',
+        'profile',
+        'aws.cognito.signin.user.admin',
+      ]),
       CallbackURLs: ['https://gachisallim.com/auth/callback'],
       LogoutURLs: ['https://gachisallim.com/login'],
       SupportedIdentityProviders: Match.arrayWith(['COGNITO', 'Google', 'Kakao']),
