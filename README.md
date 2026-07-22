@@ -73,3 +73,58 @@ npx cdk deploy GachiSallimBackendStack \
 
 GitHub repository variable `CD_ENABLED`는 런타임 검증이 끝날 때까지 `false`로 유지하고, 실제 자동 배포를
 시작할 때만 `true`로 바꿉니다.
+
+## 소셜 로그인
+
+Cognito User Pool이 이메일·비밀번호와 Google, Apple, Kakao 로그인의 단일 토큰 발급자입니다. 기존
+`/api/v1/auth/signup`, `/api/v1/auth/login`, `/api/v1/auth/token/refresh`, `/api/v1/auth/logout` 계약은
+변경하지 않습니다.
+
+### 배포 전 설정
+
+환경별 Secrets Manager secret을 먼저 생성합니다.
+
+- 운영: `gachisallim/main/social-auth`
+- 개발: `gachisallim/develop/social-auth`
+
+두 secret은 다음 JSON 필드를 가져야 합니다.
+
+```json
+{
+  "googleClientId": "...",
+  "googleClientSecret": "...",
+  "appleClientId": "...",
+  "appleTeamId": "...",
+  "appleKeyId": "...",
+  "applePrivateKey": "...",
+  "kakaoClientId": "...",
+  "kakaoClientSecret": "..."
+}
+```
+
+Google OAuth redirect URI, Apple Return URL, Kakao Redirect URI에는 CDK 출력
+`ProductionCognitoIdpResponseUrl` 또는 `DevelopmentCognitoIdpResponseUrl`을 등록합니다. Kakao 앱은
+OpenID Connect를 활성화하고 이메일을 필수 동의 항목으로 설정해야 합니다.
+
+### 프론트엔드 계약
+
+1. 환경별 `CognitoDomainUrl`의 `/oauth2/authorize`를 Authorization Code + PKCE(S256)로 엽니다.
+2. `identity_provider`는 `Google`, `SignInWithApple`, `Kakao` 중 하나를 사용하고 `state`와 `nonce`를
+   검증합니다.
+3. callback에서 authorization code를 Cognito `/oauth2/token`으로 교환합니다.
+4. access token으로 `GET /api/v1/auth/me`를 호출합니다. 200이면 기존 사용자입니다.
+5. 404이면 이름과 닉네임을 받아 `POST /api/v1/auth/social/signup`을 호출합니다.
+
+소셜 가입 요청은 Cognito access token을 Bearer header로 전달하며 body는 다음과 같습니다.
+
+```json
+{
+  "name": "홍길동",
+  "nickname": "길동"
+}
+```
+
+운영 callback은 `https://gachisallim.com/auth/callback`, 개발 callback은
+`https://dev.gachisallim.com/auth/callback`과 `http://localhost:5173/auth/callback`입니다. 로그아웃할
+때는 백엔드 `/api/v1/auth/logout` 호출 후 Cognito `/logout`으로 이동해 managed login cookie도
+정리합니다.

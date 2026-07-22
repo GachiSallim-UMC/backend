@@ -5304,6 +5304,182 @@
         }
       }
     },
+    "/api/v1/auth/social/signup": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "소셜 로그인 신규 사용자 등록",
+        "description": "Cognito 소셜 로그인으로 인증된 신규 사용자의 이름과 닉네임을 등록합니다.",
+        "operationId": "postAuthSocialSignup",
+        "responses": {
+          "200": {
+            "description": "성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "userId",
+                        "name",
+                        "nickname",
+                        "email",
+                        "profileImage"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "홍길동"
+                        },
+                        "nickname": {
+                          "type": "string",
+                          "example": "길동"
+                        },
+                        "email": {
+                          "type": "string",
+                          "format": "email",
+                          "example": "user@example.com"
+                        },
+                        "profileImage": {
+                          "type": "string",
+                          "format": "uri",
+                          "nullable": true,
+                          "example": null
+                        }
+                      }
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "userId": 1,
+                    "name": "홍길동",
+                    "nickname": "길동",
+                    "email": "user@example.com",
+                    "profileImage": null
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "검증된 이메일이 없거나 지원하지 않는 provider token 또는 잘못된 요청",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "emailRequired": {
+                    "value": {
+                      "statusCode": 400,
+                      "data": null,
+                      "error": {
+                        "code": "AUTH_SOCIAL_EMAIL_REQUIRED",
+                        "message": "검증된 소셜 로그인 이메일이 필요합니다.",
+                        "errors": []
+                      }
+                    }
+                  },
+                  "unsupportedProvider": {
+                    "value": {
+                      "statusCode": 400,
+                      "data": null,
+                      "error": {
+                        "code": "AUTH_SOCIAL_PROVIDER_UNSUPPORTED",
+                        "message": "지원하지 않는 소셜 로그인 제공자입니다.",
+                        "errors": []
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "description": "동일 이메일의 기존 계정 연결 필요",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 409,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_SOCIAL_ACCOUNT_LINK_REQUIRED",
+                    "message": "기존 계정에 소셜 로그인을 연결해야 합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30,
+                    "example": "홍길동"
+                  },
+                  "nickname": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 10,
+                    "pattern": "^[\\p{L}\\p{N}]+$",
+                    "example": "길동"
+                  }
+                },
+                "required": [
+                  "name",
+                  "nickname"
+                ]
+              },
+              "example": {
+                "name": "홍길동",
+                "nickname": "길동"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
