@@ -81,8 +81,8 @@ describe('RulesService', () => {
       groupId: 1n,
       categoryId: 1n,
       userId: 10n,
-      title: '洹쒖튃 1 ?ㅻ챸',
-      description: '?뚯뒪?몃? ?꾪븳 ?섑뵆 洹쒖튃 ?띿뒪??,
+      title: '규칙 1 설명',
+      description: '테스트를 위한 샘플 규칙 텍스트',
       status: RuleStatusValue.ACTIVE,
     });
 
@@ -90,20 +90,20 @@ describe('RulesService', () => {
       {
         groupId: 1,
         categoryId: 1,
-        title: '洹쒖튃 1 ?ㅻ챸',
-        description: '?뚯뒪?몃? ?꾪븳 ?섑뵆 洹쒖튃 ?띿뒪??,
+        title: '규칙 1 설명',
+        description: '테스트를 위한 샘플 규칙 텍스트',
       },
       10n,
     );
 
-    expect(result).toEqual({ ruleId: 123, title: '洹쒖튃 1 ?ㅻ챸' });
+    expect(result).toEqual({ ruleId: 123, title: '규칙 1 설명' });
     expect(prisma.rule.create).toHaveBeenCalledWith({
       data: {
         groupId: 1n,
         categoryId: 1n,
         userId: 10n,
-        title: '洹쒖튃 1 ?ㅻ챸',
-        description: '?뚯뒪?몃? ?꾪븳 ?섑뵆 洹쒖튃 ?띿뒪??,
+        title: '규칙 1 설명',
+        description: '테스트를 위한 샘플 규칙 텍스트',
         status: RuleStatusValue.ACTIVE,
       },
     });
@@ -117,8 +117,8 @@ describe('RulesService', () => {
         {
           groupId: 999,
           categoryId: 1,
-          title: '??洹몃９ 洹쒖튃',
-          description: '?뚯뒪??,
+          title: '없는 그룹 규칙',
+          description: '테스트',
         },
         10n,
       ),
@@ -134,8 +134,8 @@ describe('RulesService', () => {
         {
           groupId: 1,
           categoryId: 999,
-          title: '移댄뀒怨좊━ ?놁쓬',
-          description: '?녿뒗 移댄뀒怨좊━濡??앹꽦',
+          title: '카테고리 없음',
+          description: '없는 카테고리로 생성',
         },
         10n,
       ),
@@ -151,27 +151,27 @@ describe('RulesService', () => {
       groupId: 1n,
       categoryId: 2n,
       userId: 1n,
-      title: '?섏젙??洹쒖튃 ?쒕ぉ',
+      title: '수정된 규칙 제목',
     });
 
     const result = await service.updateRule(
-      123,
+      123n, // 수정: bigint 인자 적용 (123 -> 123n)
       {
         categoryId: 2,
-        title: '?섏젙??洹쒖튃 ?쒕ぉ',
-        description: '?섏젙???ㅻ챸',
+        title: '수정된 규칙 제목',
+        description: '수정된 설명',
         status: RuleStatusValue.INACTIVE,
       },
       1n,
     );
 
-    expect(result).toEqual({ ruleId: 123, title: '?섏젙??洹쒖튃 ?쒕ぉ' });
+    expect(result).toEqual({ ruleId: 123, title: '수정된 규칙 제목' });
     expect(prisma.rule.update).toHaveBeenCalledWith({
       where: { id: 123n },
       data: {
         categoryId: 2n,
-        title: '?섏젙??洹쒖튃 ?쒕ぉ',
-        description: '?섏젙???ㅻ챸',
+        title: '수정된 규칙 제목',
+        description: '수정된 설명',
         status: RuleStatusValue.INACTIVE,
       },
     });
@@ -181,7 +181,7 @@ describe('RulesService', () => {
     prisma.rule.findUnique.mockResolvedValue(null);
 
     await expect(
-      service.updateRule(999, { categoryId: 1, title: '?놁쓬', description: '?놁쓬', status: RuleStatusValue.ACTIVE }, 1n),
+      service.updateRule(999n, { categoryId: 1, title: '없음', description: '없음', status: RuleStatusValue.ACTIVE }, 1n), // 수정: 999 -> 999n
     ).rejects.toMatchObject({ code: 'COMMON_404' });
     expect(prisma.rule.update).not.toHaveBeenCalled();
   });
@@ -191,8 +191,8 @@ describe('RulesService', () => {
 
     await expect(
       service.updateRule(
-        123,
-        { categoryId: 1, title: '沅뚰븳 ?놁쓬', description: '?섏젙 ?ㅽ뙣', status: RuleStatusValue.ACTIVE },
+        123n, // 수정: 123 -> 123n
+        { categoryId: 1, title: '권한 없음', description: '수정 실패', status: RuleStatusValue.ACTIVE },
         1n,
       ),
     ).rejects.toMatchObject({ code: 'COMMON_403' });
@@ -201,11 +201,11 @@ describe('RulesService', () => {
 
   it('deletes a rule and returns the deleted id', async () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 1n, groupId: 1n });
-    prisma.rule.delete.mockResolvedValue({ id: 123n, title: '??젣 洹쒖튃' });
+    prisma.rule.delete.mockResolvedValue({ id: 123n, title: '삭제 규칙' });
 
     const result = await service.deleteRule(123n, 1n);
 
-    expect(result).toEqual({ ruleId: 123, title: '??젣 洹쒖튃' });
+    expect(result).toEqual({ ruleId: 123, title: '삭제 규칙' });
     expect(prisma.rule.delete).toHaveBeenCalledWith({ where: { id: 123n } });
   });
 
@@ -230,17 +230,17 @@ describe('RulesService', () => {
       groupId: 1n,
       categoryId: 1n,
       userId: 10n,
-      title: '諛?11???댄썑 議곗슜???섍린',
-      description: '??? ?쒓컙?먮뒗 ?뚯쓬??以꾩뿬二쇱꽭??',
+      title: '밤 11시 이후 조용히 하기',
+      description: '늦은 시간에는 소음을 줄여주세요',
       status: 'ACTIVE',
       createdAt: new Date('2026-07-03T13:00:00Z'),
       updatedAt: new Date('2026-07-03T15:00:00Z'),
       category: {
-        name: '?뚯쓬',
+        name: '소음',
       },
       creator: {
         id: 10n,
-        nickname: '?띻만??,
+        nickname: '홍길동',
       },
       agreements: [
         {
@@ -251,7 +251,7 @@ describe('RulesService', () => {
           confirmedAt: new Date('2026-07-03T13:30:00Z'),
           user: {
             id: 10n,
-            nickname: '?띻만??,
+            nickname: '홍길동',
           },
         },
         {
@@ -262,7 +262,7 @@ describe('RulesService', () => {
           confirmedAt: null,
           user: {
             id: 11n,
-            nickname: '源?곹씗',
+            nickname: '김영희',
           },
         },
       ],
@@ -276,7 +276,7 @@ describe('RulesService', () => {
           createdAt: new Date('2026-07-03T13:00:00Z'),
           user: {
             id: 10n,
-            nickname: '?띻만??,
+            nickname: '홍길동',
           },
         },
       ],
@@ -288,13 +288,13 @@ describe('RulesService', () => {
       ruleId: 123,
       groupId: 1,
       categoryId: 1,
-      categoryName: '?뚯쓬',
-      title: '諛?11???댄썑 議곗슜???섍린',
-      description: '??? ?쒓컙?먮뒗 ?뚯쓬??以꾩뿬二쇱꽭??',
+      categoryName: '소음',
+      title: '밤 11시 이후 조용히 하기',
+      description: '늦은 시간에는 소음을 줄여주세요',
       status: 'ACTIVE',
       createdBy: {
         userId: 10,
-        nickname: '?띻만??,
+        nickname: '홍길동',
       },
       myAgreementStatus: 'AGREED',
       agreementSummary: {
@@ -306,13 +306,13 @@ describe('RulesService', () => {
       agreements: [
         {
           userId: 10,
-          nickname: '?띻만??,
+          nickname: '홍길동',
           status: 'AGREED',
           confirmedAt: '2026-07-03T13:30:00.000Z',
         },
         {
           userId: 11,
-          nickname: '源?곹씗',
+          nickname: '김영희',
           status: 'PENDING',
           confirmedAt: null,
         },
@@ -321,7 +321,7 @@ describe('RulesService', () => {
         {
           logId: 29,
           action: 'CREATED',
-          message: '?띻만???섏씠 洹쒖튃???깅줉?덉뒿?덈떎.',
+          message: '홍길동 님이 규칙을 등록했습니다.',
           createdAt: '2026-07-03T13:00:00.000Z',
         },
       ],
@@ -342,7 +342,7 @@ describe('RulesService', () => {
   it('throws when trying to delete a rule by another user', async () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 2n, groupId: 1n });
 
-    await expect(service.deleteRule(123, 1n)).rejects.toMatchObject({ code: 'COMMON_403' });
+    await expect(service.deleteRule(123n, 1n)).rejects.toMatchObject({ code: 'COMMON_403' }); // 수정: 123 -> 123n
     expect(prisma.rule.delete).not.toHaveBeenCalled();
   });
 
@@ -458,12 +458,12 @@ describe('RulesService', () => {
         id: 123n,
         groupId: 10n,
         categoryId: null,
-        title: '洹쒖튃 ?쒕ぉ',
-        description: '?ㅻ챸',
+        title: '규칙 제목',
+        description: '설명',
         status: RuleStatusValue.ACTIVE,
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
         updatedAt: new Date('2026-01-02T00:00:00.000Z'),
-        creator: { id: 8n, nickname: '?묒꽦?? },
+        creator: { id: 8n, nickname: '작성자' },
         agreements: [
           { status: 'AGREED' },
           { status: 'DISAGREED' },
@@ -481,12 +481,12 @@ describe('RulesService', () => {
           ruleId: 123,
           groupId: 10,
           categoryId: null,
-          title: '洹쒖튃 ?쒕ぉ',
-          description: '?ㅻ챸',
+          title: '규칙 제목',
+          description: '설명',
           status: RuleStatusValue.ACTIVE,
           createdBy: {
             userId: 8,
-            nickname: '?묒꽦??,
+            nickname: '작성자',
           },
           agreementSummary: {
             totalCount: 4,
@@ -522,7 +522,7 @@ describe('RulesService', () => {
     prisma.chatRoomMember.findUnique.mockResolvedValue({ id: 20n });
     prisma.message.create.mockResolvedValue({ id: 456n });
 
-    await expect(service.shareRule(123, 5n)).resolves.toEqual({
+    await expect(service.shareRule(123n, 5n)).resolves.toEqual({
       ruleId: 123,
       messageId: 456,
     });
@@ -537,7 +537,7 @@ describe('RulesService', () => {
         chatRoomId: 3n,
         senderId: 5n,
         type: 'CARD_RULE',
-        content: '',
+        content: undefined,
         refId: 123n,
       },
     });
@@ -546,7 +546,7 @@ describe('RulesService', () => {
   it('throws when sharing a missing rule', async () => {
     prisma.rule.findUnique.mockResolvedValue(null);
 
-    await expect(service.shareRule(999, 5n)).rejects.toMatchObject({ code: 'COMMON_404' });
+    await expect(service.shareRule(999n, 5n)).rejects.toMatchObject({ code: 'COMMON_404' });
     expect(prisma.message.create).not.toHaveBeenCalled();
   });
 
@@ -554,8 +554,8 @@ describe('RulesService', () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
     prisma.chatRoom.findFirst.mockResolvedValue(null);
 
-    await expect(service.shareRule(123, 5n)).rejects.toMatchObject({
-      code: 'CHAT_ROOM_404',
+    await expect(service.shareRule(123n, 5n)).rejects.toMatchObject({
+      code: 'CHAT_ROOM_NOT_FOUND',
     });
     expect(prisma.message.create).not.toHaveBeenCalled();
   });
@@ -565,24 +565,26 @@ describe('RulesService', () => {
     prisma.chatRoom.findFirst.mockResolvedValue({ id: 3n, groupId: 1n, isDefault: true });
     prisma.chatRoomMember.findUnique.mockResolvedValue(null);
 
-    await expect(service.shareRule(123, 5n)).rejects.toMatchObject({
-      code: 'CHAT_ROOM_MEMBER_404',
+    await expect(service.shareRule(123n, 5n)).rejects.toMatchObject({
+      code: 'CHAT_ROOM_MEMBER_NOT_FOUND',
     });
     expect(prisma.message.create).not.toHaveBeenCalled();
-`r`n  it('throws when requester is not a group member', async () => {
+  });
+
+  it('throws when requester is not a group member', async () => {
     prisma.groupMember.findUnique.mockResolvedValue(null);
     prisma.rule.findUnique.mockResolvedValue({
       id: 123n,
       groupId: 1n,
       categoryId: null,
       userId: 10n,
-      title: '?뚯뒪??洹쒖튃',
-      description: '?ㅻ챸',
+      title: '테스트 규칙',
+      description: '설명',
       status: 'ACTIVE',
       createdAt: new Date(),
       updatedAt: new Date(),
       category: null,
-      creator: { id: 10n, nickname: '?띻만?? },
+      creator: { id: 10n, nickname: '홍길동' },
       agreements: [],
       logs: [],
     });
