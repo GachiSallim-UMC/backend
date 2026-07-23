@@ -38,6 +38,128 @@ describe('BackendStack', () => {
     expect(listenerRules).toContain('client_id');
   });
 
+  it('adds code-grant social login without replacing the existing Cognito clients', () => {
+    expect(Object.keys(template.findResources('AWS::Cognito::UserPool'))).toEqual(
+      expect.arrayContaining(['ProductionUserPoolD7CBD407', 'DevelopmentUserPool1D648632']),
+    );
+    expect(Object.keys(template.findResources('AWS::Cognito::UserPoolClient'))).toEqual(
+      expect.arrayContaining([
+        'ProductionUserPoolProductionUserPoolClient10192707',
+        'DevelopmentUserPoolDevelopmentUserPoolClient3C175F59',
+      ]),
+    );
+    template.resourceCountIs('AWS::Cognito::UserPoolDomain', 2);
+    template.resourceCountIs('AWS::Cognito::UserPoolIdentityProvider', 4);
+    template.hasResourceProperties('AWS::Cognito::UserPoolDomain', {
+      Domain: 'gachisallim-prod-auth',
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPoolDomain', {
+      Domain: 'gachisallim-dev-auth',
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      AllowedOAuthFlows: ['code'],
+      AllowedOAuthFlowsUserPoolClient: true,
+      AllowedOAuthScopes: Match.arrayWith([
+        'openid',
+        'email',
+        'profile',
+        'aws.cognito.signin.user.admin',
+      ]),
+      CallbackURLs: ['https://gachisallim.com/auth/callback'],
+      LogoutURLs: ['https://gachisallim.com/login'],
+      SupportedIdentityProviders: Match.arrayWith(['COGNITO', 'Google', 'Kakao']),
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      CallbackURLs: [
+        'https://dev.gachisallim.com/auth/callback',
+        'http://localhost:5173/auth/callback',
+      ],
+      LogoutURLs: ['https://dev.gachisallim.com/login', 'http://localhost:5173/login'],
+    });
+  });
+
+  it('maps verified social identity attributes and keeps provider credentials secret', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPoolIdentityProvider', {
+      ProviderName: 'Google',
+      ProviderType: 'Google',
+      AttributeMapping: Match.objectLike({
+        email: 'email',
+        email_verified: 'email_verified',
+      }),
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPoolIdentityProvider', {
+      ProviderName: 'Kakao',
+      ProviderType: 'OIDC',
+      AttributeMapping: Match.objectLike({
+        email: 'email',
+        email_verified: 'email_verified',
+      }),
+      ProviderDetails: Match.objectLike({
+        oidc_issuer: 'https://kauth.kakao.com',
+        authorize_scopes: 'openid profile account_email',
+      }),
+    });
+
+    const providers = JSON.stringify(
+      template.findResources('AWS::Cognito::UserPoolIdentityProvider'),
+    );
+    expect(providers).toContain('secret:gachisallim/main/social-auth:SecretString:');
+    expect(providers).toContain('secret:gachisallim/develop/social-auth:SecretString:');
+  });
+
+  it('links only supported external identities through the pre-signup trigger', () => {
+    template.resourceCountIs('AWS::Lambda::Function', 1);
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      LambdaConfig: Match.objectLike({ PreSignUp: Match.anyValue() }),
+    });
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: ['cognito-idp:AdminLinkProviderForUser', 'cognito-idp:ListUsers'],
+            Effect: 'Allow',
+            Resource: Match.anyValue(),
+          }),
+        ]),
+        Version: '2012-10-17',
+      },
+    });
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('cognito-idp:AdminLinkProviderForUser');
+    expect(policies).toContain('ProductionUserPoolD7CBD407');
+    expect(policies).toContain('DevelopmentUserPool1D648632');
+    expect(policies).not.toContain(':userpool/*');
+  });
+
+  it('exposes Swagger documents only on the development domain', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+      Conditions: Match.arrayWith([
+        {
+          Field: 'host-header',
+          HostHeaderConfig: { Values: ['dev-api.gachisallim.com'] },
+        },
+        {
+          Field: 'path-pattern',
+          PathPatternConfig: {
+            Values: ['/api-docs', '/api-docs/*', '/api-docs-json'],
+          },
+        },
+        {
+          Field: 'http-request-method',
+          HttpRequestMethodConfig: { Values: ['GET'] },
+        },
+      ]),
+    });
+
+    const listenerRules = template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule');
+    const publicSwaggerRules = Object.values(listenerRules).filter((rule) =>
+      JSON.stringify(rule).includes('/api-docs-json'),
+    );
+
+    expect(publicSwaggerRules).toHaveLength(1);
+  });
+
   it('creates DNS-validated TLS and aliases for both backend domains', () => {
     template.hasResourceProperties('AWS::CertificateManager::Certificate', {
       DomainName: 'api.gachisallim.com',

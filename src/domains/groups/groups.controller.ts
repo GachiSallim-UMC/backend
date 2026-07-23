@@ -1,95 +1,108 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
-import { ErrorCode } from '../../common/constants/error-code.constant';
-import { BusinessException } from '../../common/exceptions/business.exception';
 import { parseBigIntId } from '../../common/utils/id.util';
+import { AuthContext } from '../auth/common/auth-context.interface';
+import { CognitoAccessTokenGuard } from '../auth/common/cognito-access-token.guard';
+import { CurrentAuth } from '../auth/common/current-auth.decorator';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { UpdateMemberRoleDto } from './dto/update-member-role.dto';
+import { GroupsAuthenticatedUserService } from './groups-authenticated-user.service';
 import { GroupsService } from './groups.service';
 
-@ApiTags('groups')
+@ApiTags('그룹 관리 (GROUP)')
+@ApiBearerAuth('BearerAuth')
+@UseGuards(CognitoAccessTokenGuard)
 @Controller('groups')
 export class GroupsController {
-  constructor(private readonly groupsService: GroupsService) {}
+  constructor(
+    private readonly groupsService: GroupsService,
+    private readonly authenticatedUsers: GroupsAuthenticatedUserService,
+  ) {}
 
   @Get()
-  listGroups(@Headers('x-user-id') userId: string) {
-    return this.groupsService.listGroups(this.requireUserId(userId));
+  async listGroups(@CurrentAuth() auth: AuthContext) {
+    const userId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.groupsService.listGroups(userId);
   }
 
   @Post()
-  createGroup(@Headers('x-user-id') userId: string, @Body() dto: CreateGroupDto) {
-    return this.groupsService.createGroup(dto, this.requireUserId(userId));
+  async createGroup(@CurrentAuth() auth: AuthContext, @Body() dto: CreateGroupDto) {
+    const userId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.groupsService.createGroup(dto, userId);
   }
 
   @Post('join')
-  joinGroup(@Headers('x-user-id') userId: string, @Body() dto: JoinGroupDto) {
-    return this.groupsService.joinGroup(dto, this.requireUserId(userId));
+  async joinGroup(@CurrentAuth() auth: AuthContext, @Body() dto: JoinGroupDto) {
+    const userId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.groupsService.joinGroup(dto, userId);
   }
 
   @Post(':groupId/invite-code')
-  reissueInviteCode(@Headers('x-user-id') userId: string, @Param('groupId') groupId: string) {
-    return this.groupsService.reissueInviteCode(parseBigIntId(groupId, 'groupId'), this.requireUserId(userId));
+  async reissueInviteCode(@CurrentAuth() auth: AuthContext, @Param('groupId') groupId: string) {
+    const userId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.groupsService.reissueInviteCode(parseBigIntId(groupId, 'groupId'), userId);
   }
 
   @Get(':groupId')
-  getGroupDetail(@Headers('x-user-id') userId: string, @Param('groupId') groupId: string) {
-    return this.groupsService.getGroupDetail(parseBigIntId(groupId, 'groupId'), this.requireUserId(userId));
+  async getGroupDetail(@CurrentAuth() auth: AuthContext, @Param('groupId') groupId: string) {
+    const userId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.groupsService.getGroupDetail(parseBigIntId(groupId, 'groupId'), userId);
   }
 
   @Patch(':groupId')
-  updateGroup(@Headers('x-user-id') userId: string, @Param('groupId') groupId: string, @Body() dto: UpdateGroupDto) {
-    return this.groupsService.updateGroup(parseBigIntId(groupId, 'groupId'), dto, this.requireUserId(userId));
+  async updateGroup(
+    @CurrentAuth() auth: AuthContext,
+    @Param('groupId') groupId: string,
+    @Body() dto: UpdateGroupDto,
+  ) {
+    const userId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.groupsService.updateGroup(parseBigIntId(groupId, 'groupId'), dto, userId);
   }
 
   @Delete(':groupId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  deleteGroup(@Headers('x-user-id') userId: string, @Param('groupId') groupId: string) {
-    return this.groupsService.deleteGroup(parseBigIntId(groupId, 'groupId'), this.requireUserId(userId));
+  async deleteGroup(@CurrentAuth() auth: AuthContext, @Param('groupId') groupId: string) {
+    const userId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.groupsService.deleteGroup(parseBigIntId(groupId, 'groupId'), userId);
   }
 
   @Get(':groupId/members')
-  listMembers(@Headers('x-user-id') userId: string, @Param('groupId') groupId: string) {
-    return this.groupsService.listMembers(parseBigIntId(groupId, 'groupId'), this.requireUserId(userId));
+  async listMembers(@CurrentAuth() auth: AuthContext, @Param('groupId') groupId: string) {
+    const userId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.groupsService.listMembers(parseBigIntId(groupId, 'groupId'), userId);
   }
 
   @Patch(':groupId/members/:userId/role')
-  updateMemberRole(
-    @Headers('x-user-id') currentUserId: string,
+  async updateMemberRole(
+    @CurrentAuth() auth: AuthContext,
     @Param('groupId') groupId: string,
     @Param('userId') targetUserId: string,
     @Body() dto: UpdateMemberRoleDto,
   ) {
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     return this.groupsService.updateMemberRole(
       parseBigIntId(groupId, 'groupId'),
       parseBigIntId(targetUserId, 'userId'),
       dto,
-      this.requireUserId(currentUserId),
+      currentUserId,
     );
   }
 
   @Delete(':groupId/members/:userId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  removeMember(
-    @Headers('x-user-id') currentUserId: string,
+  async removeMember(
+    @CurrentAuth() auth: AuthContext,
     @Param('groupId') groupId: string,
     @Param('userId') targetUserId: string,
   ) {
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     return this.groupsService.removeMember(
       parseBigIntId(groupId, 'groupId'),
       parseBigIntId(targetUserId, 'userId'),
-      this.requireUserId(currentUserId),
+      currentUserId,
     );
-  }
-
-  private requireUserId(userIdHeader?: string): bigint {
-    if (!userIdHeader) {
-      throw new BusinessException(ErrorCode.COMMON_UNAUTHORIZED);
-    }
-
-    return parseBigIntId(userIdHeader, 'x-user-id');
   }
 }
