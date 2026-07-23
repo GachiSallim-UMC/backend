@@ -1,14 +1,44 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { GetActivityQueryDto } from './dto/get-activity-query.dto';
-import { ActivityLogType } from '@prisma/client'; // 💡 Prisma Enum을 임포트하여 타입 매칭 안전성 보장
+import { ActivityLogType } from '@prisma/client';
 
 @Injectable()
 export class ActivitiesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // 1. 활동 자동/백그라운드 기록 (ACT-LOG-01)
+  /**
+   * 그룹 멤버십 권한 검증
+   * @param cognitoSub Cognito 사용자 식별자 (string)
+   * @param groupId 조회하려는 그룹 ID (number)
+   */
+  async validateGroupMembership(cognitoSub: string, groupId: number) {
+    // 1. UserAuthIdentity 테이블에서 cognitoSub로 해당 연동 계정 조회
+    const authIdentity = await this.prisma.userAuthIdentity.findUnique({
+      where: { cognitoSub },
+      select: { userId: true },
+    });
+
+    if (!authIdentity) {
+      throw new ForbiddenException('존재하지 않거나 인증되지 않은 사용자입니다.');
+    }
+
+    // 2. 해당 유저가 해당 그룹의 활성 멤버인지 검증
+    const member = await this.prisma.groupMember.findFirst({
+      where: {
+        userId: authIdentity.userId,
+        groupId: BigInt(groupId),
+        leftAt: null, // 그룹을 탈퇴하지 않은 활성 멤버만 허용
+      },
+    });
+
+    if (!member) {
+      throw new ForbiddenException('해당 그룹의 활동 내역을 조회할 권한이 없습니다.');
+    }
+  }
+
+  // 1. 활동 자동/백그라운드 기록 (도메인 서비스 내부 호출용)
   async logActivity(createActivityDto: CreateActivityDto) {
     const { groupId, userId, type, refId, description } = createActivityDto;
 
