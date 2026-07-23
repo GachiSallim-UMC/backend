@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsEnum } from 'class-validator';
+import { IsInt, IsOptional, IsEnum, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ActivityLogType } from '@prisma/client';
@@ -20,8 +20,10 @@ export class GetActivityQueryDto {
   @Type(() => Number)
   userId?: number;
 
-  @ApiPropertyOptional({ description: '페이지 번호', default: 1, example: 1 })
+  // Swagger 문서에 최소값(minimum: 1) 명시
+  @ApiPropertyOptional({ description: '페이지 번호', default: 1, example: 1, minimum: 1 })
   @IsInt()
+  @Min(1) // 페이지 번호 최소값을 1로 제한 (0 이하 값 요청 시 Validation error)
   @IsOptional()
   @Type(() => Number)
   page: number = 1;
