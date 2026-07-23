@@ -40,6 +40,7 @@ credential을 저장하지 않고 OIDC와 STS로 환경별 IAM 역할을 획득�
 - `develop`: `dev-api.gachisallim.com`, EC2 port `3001`, PostgreSQL database `gachisallim_develop`, development Cognito User Pool
 - 릴리스: ARM64 GitHub runner가 Node.js 런타임, 빌드 결과, production 의존성을 묶어 S3에 업로드
 - 적용: Systems Manager가 환경별 systemd 서비스를 갱신하고 health check 실패 시 이전 릴리스로 복구
+- 네트워크: private backend subnet의 EC2가 단일 `t4g.nano` NAT instance를 통해 Cognito 공개 API에 접근
 
 ### Migration과 롤백 계약
 
@@ -63,7 +64,8 @@ npx cdk deploy GachiSallimDeploymentStack \
   --region ap-northeast-2
 ```
 
-EC2, RDS, ALB, VPC Endpoint, Cognito, ACM, Route 53 레코드는 마지막에 런타임 스택으로 생성합니다.
+EC2, RDS, ALB, NAT instance, VPC Endpoint, Cognito, ACM, Route 53 레코드는 마지막에 런타임
+스택으로 생성합니다.
 
 ```bash
 npx cdk deploy GachiSallimBackendStack \

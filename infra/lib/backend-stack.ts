@@ -80,10 +80,17 @@ export class BackendStack extends Stack {
   constructor(scope: Construct, id: string, props: BackendStackProps) {
     super(scope, id, props);
 
+    const natProvider = ec2.NatProvider.instanceV2({
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
+      associatePublicIpAddress: true,
+      creditSpecification: ec2.CpuCredits.STANDARD,
+      defaultAllowedTraffic: ec2.NatTrafficDirection.OUTBOUND_ONLY,
+    });
     const vpc = new ec2.Vpc(this, 'Vpc', {
       ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
       maxAzs: 2,
-      natGateways: 0,
+      natGateways: 1,
+      natGatewayProvider: natProvider,
       subnetConfiguration: [
         {
           name: 'Ingress',
@@ -92,7 +99,7 @@ export class BackendStack extends Stack {
         },
         {
           name: 'Backend',
-          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
           cidrMask: 24,
         },
       ],
@@ -144,14 +151,19 @@ export class BackendStack extends Stack {
     applicationSecurityGroup.addEgressRule(
       ec2.Peer.anyIpv4(),
       ec2.Port.tcp(443),
-      'Allows HTTPS only through routes available in the isolated subnet.',
+      'Allows HTTPS to VPC endpoints and public AWS service endpoints.',
+    );
+    natProvider.connections.allowFrom(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.tcp(443),
+      'Allows HTTPS forwarding from private VPC resources.',
     );
 
     const backendSubnets: ec2.SubnetSelection = {
-      subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+      subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
     };
     const applicationSubnet: ec2.SubnetSelection = {
-      subnets: [vpc.isolatedSubnets[0]],
+      subnets: [vpc.privateSubnets[0]],
     };
     const endpointOptions = {
       subnets: applicationSubnet,
@@ -165,10 +177,6 @@ export class BackendStack extends Stack {
     });
     vpc.addInterfaceEndpoint('CloudWatchLogsEndpoint', {
       service: ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
-      ...endpointOptions,
-    });
-    vpc.addInterfaceEndpoint('CognitoEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.COGNITO_IDP,
       ...endpointOptions,
     });
     vpc.addInterfaceEndpoint('SystemsManagerEndpoint', {

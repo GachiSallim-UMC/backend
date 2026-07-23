@@ -172,7 +172,7 @@ describe('BackendStack', () => {
     expect(records).toContain('dev-api.gachisallim.com');
   });
 
-  it('creates one private ARM instance sized for two release trees', () => {
+  it('creates one private ARM application instance sized for two release trees', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 't4g.small',
       ImageId: Match.stringLikeRegexp('al2023-ami-kernel-default-arm64'),
@@ -200,6 +200,37 @@ describe('BackendStack', () => {
     });
   });
 
+  it('routes backend HTTPS through one ARM NAT instance', () => {
+    template.resourceCountIs('AWS::EC2::Instance', 2);
+    template.hasResourceProperties('AWS::EC2::Instance', {
+      InstanceType: 't4g.nano',
+      SourceDestCheck: false,
+      NetworkInterfaces: Match.arrayWith([
+        Match.objectLike({
+          AssociatePublicIpAddress: true,
+          SubnetId: { Ref: Match.stringLikeRegexp('IngressSubnet') },
+        }),
+      ]),
+    });
+    template.hasResourceProperties('AWS::EC2::Route', {
+      DestinationCidrBlock: '0.0.0.0/0',
+      InstanceId: { Ref: Match.stringLikeRegexp('NatInstance') },
+      RouteTableId: { Ref: Match.stringLikeRegexp('BackendSubnet') },
+    });
+    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
+      GroupDescription: 'Security Group for NAT instances',
+      SecurityGroupIngress: [
+        {
+          CidrIp: { 'Fn::GetAtt': ['Vpc8378EB38', 'CidrBlock'] },
+          Description: 'Allows HTTPS forwarding from private VPC resources.',
+          FromPort: 443,
+          IpProtocol: 'tcp',
+          ToPort: 443,
+        },
+      ],
+    });
+  });
+
   it('keeps one RDS instance and bootstraps the develop database during deployment', () => {
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.hasResourceProperties('AWS::RDS::DBInstance', {
@@ -220,12 +251,12 @@ describe('BackendStack', () => {
     expect(userData).toContain('gachisallim@.service');
   });
 
-  it('provides private deployment and runtime service endpoints without NAT', () => {
+  it('keeps private AWS service endpoints while Cognito uses public egress', () => {
     const endpoints = JSON.stringify(template.findResources('AWS::EC2::VPCEndpoint'));
 
     expect(endpoints).toContain('.secretsmanager');
     expect(endpoints).toContain('.logs');
-    expect(endpoints).toContain('.cognito-idp');
+    expect(endpoints).not.toContain('.cognito-idp');
     expect(endpoints).toContain('.ssm');
     expect(endpoints).toContain('.ssmmessages');
     expect(endpoints).toContain('.s3');
