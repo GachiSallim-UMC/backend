@@ -108,7 +108,7 @@ describe('RulesService', () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 1n, groupId: 1n });
     prisma.rule.delete.mockResolvedValue({ id: 123n, title: '삭제 규칙' });
 
-    const result = await service.deleteRule(123, 1n);
+    const result = await service.deleteRule(123n, 1n);
 
     expect(result).toEqual({ ruleId: 123, title: '삭제 규칙' });
     expect(prisma.rule.delete).toHaveBeenCalledWith({ where: { id: 123n } });
@@ -117,7 +117,131 @@ describe('RulesService', () => {
   it('throws when the rule does not exist', async () => {
     prisma.rule.findUnique.mockResolvedValue(null);
 
-    await expect(service.deleteRule(999, 1n)).rejects.toBeInstanceOf(BusinessException);
+    await expect(service.deleteRule(999n, 1n)).rejects.toBeInstanceOf(BusinessException);
+  });
+
+  it('returns rule detail with agreement and history summaries', async () => {
+    prisma.groupMember.findUnique.mockResolvedValue({
+      id: 1n,
+      userId: 10n,
+      groupId: 1n,
+      role: 'MEMBER',
+      joinedAt: new Date(),
+      leftAt: null,
+    });
+
+    prisma.rule.findUnique.mockResolvedValue({
+      id: 123n,
+      groupId: 1n,
+      categoryId: 1n,
+      userId: 10n,
+      title: '밤 11시 이후 조용히 하기',
+      description: '늦은 시간에는 소음을 줄여주세요.',
+      status: 'ACTIVE',
+      createdAt: new Date('2026-07-03T13:00:00Z'),
+      updatedAt: new Date('2026-07-03T15:00:00Z'),
+      category: {
+        name: '소음',
+      },
+      creator: {
+        id: 10n,
+        nickname: '홍길동',
+      },
+      agreements: [
+        {
+          id: 1n,
+          ruleId: 123n,
+          userId: 10n,
+          status: 'AGREED',
+          confirmedAt: new Date('2026-07-03T13:30:00Z'),
+          user: {
+            id: 10n,
+            nickname: '홍길동',
+          },
+        },
+        {
+          id: 2n,
+          ruleId: 123n,
+          userId: 11n,
+          status: 'PENDING',
+          confirmedAt: null,
+          user: {
+            id: 11n,
+            nickname: '김영희',
+          },
+        },
+      ],
+      logs: [
+        {
+          id: 29n,
+          ruleId: 123n,
+          userId: 10n,
+          action: 'CREATED',
+          snapshot: null,
+          createdAt: new Date('2026-07-03T13:00:00Z'),
+          user: {
+            id: 10n,
+            nickname: '홍길동',
+          },
+        },
+      ],
+    });
+
+    const result = await service.getRule(123n, 10n);
+
+    expect(result).toEqual({
+      ruleId: 123,
+      groupId: 1,
+      categoryId: 1,
+      categoryName: '소음',
+      title: '밤 11시 이후 조용히 하기',
+      description: '늦은 시간에는 소음을 줄여주세요.',
+      status: 'ACTIVE',
+      createdBy: {
+        userId: 10,
+        nickname: '홍길동',
+      },
+      myAgreementStatus: 'AGREED',
+      agreementSummary: {
+        totalCount: 2,
+        agreedCount: 1,
+        disagreedCount: 0,
+        pendingCount: 1,
+      },
+      agreements: [
+        {
+          userId: 10,
+          nickname: '홍길동',
+          status: 'AGREED',
+          confirmedAt: '2026-07-03T13:30:00.000Z',
+        },
+        {
+          userId: 11,
+          nickname: '김영희',
+          status: 'PENDING',
+          confirmedAt: null,
+        },
+      ],
+      histories: [
+        {
+          logId: 29,
+          action: 'CREATED',
+          message: '홍길동 님이 규칙을 등록했습니다.',
+          createdAt: '2026-07-03T13:00:00.000Z',
+        },
+      ],
+      createdAt: '2026-07-03T13:00:00.000Z',
+      updatedAt: '2026-07-03T15:00:00.000Z',
+    });
+  });
+
+  it('throws COMMON_NOT_FOUND when the requested rule does not exist', async () => {
+    prisma.rule.findUnique.mockResolvedValue(null);
+
+    await expect(service.getRule(999n, 10n)).rejects.toMatchObject({
+      code: 'COMMON_404',
+    });
+    expect(prisma.groupMember.findUnique).not.toHaveBeenCalled();
   });
 
   it('creates or updates a rule agreement and returns it', async () => {
@@ -134,7 +258,7 @@ describe('RulesService', () => {
     });
 
     const result = await service.updateRuleAgreement(
-      123,
+      123n,
       { status: RuleAgreementStatusValue.AGREED },
       5n,
     );
@@ -176,7 +300,7 @@ describe('RulesService', () => {
     });
 
     const result = await service.updateRuleAgreement(
-      123,
+      123n,
       { status: RuleAgreementStatusValue.PENDING },
       5n,
     );
@@ -201,7 +325,7 @@ describe('RulesService', () => {
     prisma.rule.findUnique.mockResolvedValue(null);
 
     await expect(
-      service.updateRuleAgreement(999, { status: RuleAgreementStatusValue.AGREED }, 5n),
+      service.updateRuleAgreement(999n, { status: RuleAgreementStatusValue.AGREED }, 5n),
     ).rejects.toMatchObject({ code: 'COMMON_404' });
     expect(prisma.ruleAgreement.upsert).not.toHaveBeenCalled();
   });
@@ -211,7 +335,7 @@ describe('RulesService', () => {
     prisma.groupMember.findUnique.mockResolvedValue(null);
 
     await expect(
-      service.updateRuleAgreement(123, { status: RuleAgreementStatusValue.AGREED }, 5n),
+      service.updateRuleAgreement(123n, { status: RuleAgreementStatusValue.AGREED }, 5n),
     ).rejects.toMatchObject({ code: 'GROUP_MEMBER_NOT_FOUND' });
     expect(prisma.ruleAgreement.upsert).not.toHaveBeenCalled();
   });
@@ -221,8 +345,29 @@ describe('RulesService', () => {
     prisma.groupMember.findUnique.mockResolvedValue({ id: 1n, leftAt: new Date() });
 
     await expect(
-      service.updateRuleAgreement(123, { status: RuleAgreementStatusValue.DISAGREED }, 5n),
+      service.updateRuleAgreement(123n, { status: RuleAgreementStatusValue.DISAGREED }, 5n),
     ).rejects.toMatchObject({ code: 'GROUP_MEMBER_NOT_FOUND' });
     expect(prisma.ruleAgreement.upsert).not.toHaveBeenCalled();
+  });
+
+  it('throws when requester is not a group member', async () => {
+    prisma.groupMember.findUnique.mockResolvedValue(null);
+    prisma.rule.findUnique.mockResolvedValue({
+      id: 123n,
+      groupId: 1n,
+      categoryId: null,
+      userId: 10n,
+      title: '테스트 규칙',
+      description: '설명',
+      status: 'ACTIVE',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      category: null,
+      creator: { id: 10n, nickname: '홍길동' },
+      agreements: [],
+      logs: [],
+    });
+
+    await expect(service.getRule(123n, 99n)).rejects.toBeInstanceOf(BusinessException);
   });
 });
