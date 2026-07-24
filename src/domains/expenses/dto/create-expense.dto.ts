@@ -1,56 +1,81 @@
-import { IsInt, IsString, IsNotEmpty, IsEnum, IsArray, IsOptional, IsUrl } from 'class-validator';
+import { IsString, IsNumber, IsArray, IsOptional, IsEnum, Min, IsNotEmpty } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ExpenseCategory } from '@prisma/client';
+
+// Prisma의 ExpenseCategory Enum을 다시 export하여 다른 파일에서도 공통 사용 가능하도록 처리
+export { ExpenseCategory };
+
+export enum SplitType {
+  EQUAL = 'EQUAL',
+  EXACT = 'EXACT',
+  PERCENTAGE = 'PERCENTAGE',
+}
 
 export class CreateExpenseDto {
-  @ApiProperty({ description: '그룹 ID', example: 1 })
-  @IsInt()
-  @IsNotEmpty()
-  groupId!: number;
+  @ApiPropertyOptional({ description: '그룹 ID (미입력 시 기본 그룹으로 설정)', example: 1 })
+  @IsNumber()
+  @IsOptional()
+  groupId?: number;
 
-  @ApiProperty({ description: '카테고리 ID', example: 2 })
-  @IsInt()
-  @IsNotEmpty()
-  categoryId!: number;
-
-  @ApiProperty({ description: '선지불자 유저 ID (비용 등록 주체)', example: 1 })
-  @IsInt()
-  @IsNotEmpty()
-  userId!: number;
-
-  @ApiProperty({ description: '지출 항목명', example: '5월 관리비' })
+  @ApiProperty({ description: '지출 항목명', example: '장보기 비용' })
   @IsString()
   @IsNotEmpty()
   title!: string;
 
-  @ApiProperty({ description: '총 지출 금액 (1원 이상)', example: 90000 })
-  @IsInt()
+  @ApiProperty({ description: '총 지출 금액 (1원 이상)', example: 30000 })
+  @IsNumber()
+  @Min(1)
   @IsNotEmpty()
-  totalAmount!: number;
+  amount!: number;
+
+  @ApiProperty({ description: '선결제자 유저 ID', example: '12' })
+  @IsString()
+  @IsNotEmpty()
+  payerId!: string;
+
+  @ApiProperty({ description: '지출 일자 (YYYY-MM-DD)', example: '2026-07-23' })
+  @IsString()
+  @IsNotEmpty()
+  date!: string;
 
   @ApiProperty({ 
     description: '분담 방식', 
-    enum: ['EQUAL', 'RATIO', 'CUSTOM'], 
-    example: 'EQUAL' 
+    enum: SplitType, 
+    example: SplitType.EQUAL 
   })
-  @IsEnum(['EQUAL', 'RATIO', 'CUSTOM'])
+  @IsEnum(SplitType)
   @IsNotEmpty()
-  splitType!: 'EQUAL' | 'RATIO' | 'CUSTOM';
+  splitType!: SplitType;
 
   @ApiProperty({ 
-    description: '분담 대상 유저 ID 목록 (선지불자 본인 포함 가능)', 
-    type: [Number], 
-    example: [1, 2, 3] 
+    description: '지출 카테고리', 
+    enum: ExpenseCategory, 
+    example: ExpenseCategory.FOOD 
+  })
+  @IsEnum(ExpenseCategory)
+  @IsNotEmpty()
+  category!: ExpenseCategory;
+
+  @ApiProperty({ 
+    description: '분담 대상 유저 ID 목록', 
+    type: [String], 
+    example: ['12', '13'] 
   })
   @IsArray()
-  @IsInt({ each: true })
+  @IsString({ each: true })
   @IsNotEmpty()
-  participants!: number[];
+  targetMemberIds!: string[];
+
+  @ApiPropertyOptional({ description: '메모/비고', example: '이마트에서 장본 내역' })
+  @IsString()
+  @IsOptional()
+  memo?: string;
 
   @ApiPropertyOptional({ 
-    description: '영수증 이미지 S3 URL', 
+    description: '영수증 이미지 URL', 
     example: 'https://s3.amazonaws.com/receipt/123.jpg' 
   })
-  @IsUrl()
+  @IsString()
   @IsOptional()
   receiptUrl?: string;
 }

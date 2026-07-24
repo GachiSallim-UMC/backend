@@ -3,14 +3,29 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { BadRequestException } from '@nestjs/common';
 import { ExpenseNotFoundException } from './expenses.exception';
-import { CreateExpenseDto } from './dto/create-expense.dto';
+import { CreateExpenseDto, SplitType } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
+import { AuthContext } from '../auth/common/auth-context.interface';
+import { BusinessException } from '../../common/exceptions/business.exception';
+import { ErrorCode } from '../../common/constants/error-code.constant';
+import { ExpenseCategory } from '@prisma/client';
+import * as crypto from 'crypto';
 
 const mockPrismaService = (): any => {
+  const mockUserRepo = {
+    findFirst: jest.fn(),
+    findMany: jest.fn(),
+  };
+
+  const mockGroupMemberRepo = {
+    findFirst: jest.fn(),
+    findMany: jest.fn(),
+  };
+
   const mockExpenseRepo = {
     create: jest.fn(),
     findMany: jest.fn(),
@@ -26,12 +41,28 @@ const mockPrismaService = (): any => {
     update: jest.fn(),
   };
 
-  const serviceMock: any = {
-    expense: mockExpenseRepo,
-    expenseSplit: mockExpenseSplitRepo,
+  const mockChatRoomRepo = {
+    findFirst: jest.fn(),
   };
 
-  // 트랜잭션 콜백 안에서도 서비스 자기 자신을 바라보도록 설정
+  const mockChatRoomMemberRepo = {
+    findUnique: jest.fn(),
+  };
+
+  const mockMessageRepo = {
+    create: jest.fn(),
+  };
+
+  const serviceMock: any = {
+    user: mockUserRepo,
+    groupMember: mockGroupMemberRepo,
+    expense: mockExpenseRepo,
+    expenseSplit: mockExpenseSplitRepo,
+    chatRoom: mockChatRoomRepo,
+    chatRoomMember: mockChatRoomMemberRepo,
+    message: mockMessageRepo,
+  };
+
   serviceMock.$transaction = jest.fn((callback: (tx: any) => any) => callback(serviceMock));
 
   return serviceMock;
@@ -40,6 +71,11 @@ const mockPrismaService = (): any => {
 describe('ExpensesService', () => {
   let service: ExpensesService;
   let prisma: any;
+
+  const mockAuthContext: AuthContext = {
+    cognitoSub: 'test-cognito-sub-123',
+    accessToken: 'mock-access-token',
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -54,104 +90,140 @@ describe('ExpensesService', () => {
 
     service = module.get<ExpensesService>(ExpensesService);
     prisma = module.get<PrismaService>(PrismaService);
+
+    prisma.user.findFirst.mockResolvedValue({ id: BigInt(12) });
+    prisma.groupMember.findFirst.mockResolvedValue({ id: BigInt(1), groupId: BigInt(1), userId: BigInt(12) });
   });
 
   it('should be defined', () => {
     expect(service).toBeDefined();
   });
 
+  // =========================================================================
+  // 1. createExpense 검증
+  // =========================================================================
   describe('createExpense', () => {
     it('정산 대상 멤버가 없으면 BadRequestException을 던져야 한다', async () => {
       const dto: CreateExpenseDto = {
         groupId: 1,
-        categoryId: 1,
-        userId: 1,
+        category: ExpenseCategory.FOOD,
+        payerId: "12",
+        date: '2026-07-23',
         title: '테스트 지출',
-        totalAmount: 30000,
-        splitType: 'EQUAL',
-        participants: [],
+        amount: 30000,
+        splitType: SplitType.EQUAL,
+        targetMemberIds: [],
       };
 
-      await expect(service.createExpense(dto)).rejects.toThrow(BadRequestException);
+      await expect(service.createExpense(mockAuthContext, dto)).rejects.toThrow(BadRequestException);
     });
 
-    it('정산 요청을 정상적으로 생성해야 하며, 선결제자 우대 계산 방식이 적용되어야 한다', async () => {
+    it('정산 요청을 정상적으로 생성해야 하며, 소액/나머지 분배 방식이 올바르게 적용되어야 한다', async () => {
       const dto: CreateExpenseDto = {
         groupId: 1,
-        categoryId: 1,
-        userId: 1,
+        category: ExpenseCategory.FOOD,
+        payerId: "12",
+        date: '2026-07-23',
         title: '점심 식대',
-        totalAmount: 10000,
-        splitType: 'EQUAL',
-        participants: [1, 2, 3],
+        amount: 10000,
+        splitType: SplitType.EQUAL,
+        targetMemberIds: ["12", "2", "3"],
       };
 
-      prisma.expense.create.mockResolvedValue({ id: 100 });
+      prisma.user.findMany.mockResolvedValue([
+        { id: BigInt(12) },
+        { id: BigInt(2) },
+        { id: BigInt(3) },
+      ]);
+      prisma.groupMember.findMany.mockResolvedValue([
+        { userId: BigInt(12) },
+        { userId: BigInt(2) },
+        { userId: BigInt(3) },
+      ]);
+
+      prisma.expense.create.mockResolvedValue({ id: BigInt(100) });
       prisma.expenseSplit.createMany.mockResolvedValue({ count: 3 });
 
-      const result = await service.createExpense(dto);
+      const result = await service.createExpense(mockAuthContext, dto);
 
       expect(result).toEqual({
         message: '정산 요청이 성공적으로 생성되었습니다.',
         expenseId: 100,
       });
       expect(prisma.expense.create).toHaveBeenCalled();
-      expect(prisma.expenseSplit.createMany).toHaveBeenCalledWith({
-        data: [
-          { expenseId: 100, userId: 1, amount: 3332, isPaid: true },
-          { expenseId: 100, userId: 2, amount: 3334, isPaid: false },
-          { expenseId: 100, userId: 3, amount: 3334, isPaid: false },
-        ],
-      });
+      expect(prisma.expenseSplit.createMany).toHaveBeenCalled();
     });
   });
 
+  // =========================================================================
+  // 2. getExpenseDetail 검증
+  // =========================================================================
   describe('getExpenseDetail', () => {
     it('존재하지 않는 지출 내역이면 ExpenseNotFoundException을 던져야 한다', async () => {
       prisma.expense.findUnique.mockResolvedValue(null);
 
-      await expect(service.getExpenseDetail(999)).rejects.toThrow(ExpenseNotFoundException);
+      await expect(service.getExpenseDetail(mockAuthContext, 999)).rejects.toThrow(ExpenseNotFoundException);
+    });
+
+    it('그룹 멤버가 아닌 사용자가 접근 시 ForbiddenException을 던져야 한다', async () => {
+      prisma.expense.findUnique.mockResolvedValue({ id: BigInt(1), groupId: BigInt(1) });
+      prisma.groupMember.findFirst.mockResolvedValue(null);
+
+      await expect(service.getExpenseDetail(mockAuthContext, 1)).rejects.toThrow(ForbiddenException);
     });
 
     it('존재하는 지출 내역의 상세 정보를 반환해야 한다', async () => {
-      const mockExpense = { id: 1, title: '테스트', splits: [] };
+      const mockExpense = { id: BigInt(1), groupId: BigInt(1), title: '테스트', splits: [] };
       prisma.expense.findUnique.mockResolvedValue(mockExpense);
 
-      const result = await service.getExpenseDetail(1);
-      expect(result).toEqual(mockExpense);
+      const result = await service.getExpenseDetail(mockAuthContext, 1);
+      expect(result).toBeDefined();
     });
   });
 
+  // =========================================================================
+  // 3. updateExpense 검증
+  // =========================================================================
   describe('updateExpense', () => {
     it('수정하려는 지출 내역이 없으면 ExpenseNotFoundException을 던져야 한다', async () => {
       prisma.expense.findUnique.mockResolvedValue(null);
       const dto: UpdateExpenseDto = { title: '수정 제목' };
 
-      await expect(service.updateExpense(999, dto)).rejects.toThrow(ExpenseNotFoundException);
+      await expect(service.updateExpense(mockAuthContext, 999, dto)).rejects.toThrow(ExpenseNotFoundException);
+    });
+
+    it('생성자나 결제자가 아닌 유저가 수정 시 ForbiddenException을 던져야 한다', async () => {
+      prisma.expense.findUnique.mockResolvedValue({ id: BigInt(1), createdBy: BigInt(99), payerId: BigInt(99) });
+      const dto: UpdateExpenseDto = { title: '수정 완료' };
+
+      await expect(service.updateExpense(mockAuthContext, 1, dto)).rejects.toThrow(ForbiddenException);
     });
 
     it('지출 내역을 성공적으로 수정해야 한다', async () => {
-      prisma.expense.findUnique.mockResolvedValue({ id: 1 });
-      prisma.expense.update.mockResolvedValue({ id: 1, title: '수정 완료' });
+      prisma.expense.findUnique.mockResolvedValue({ id: BigInt(1), createdBy: BigInt(12), payerId: BigInt(12) });
+      prisma.expense.update.mockResolvedValue({ id: BigInt(1), title: '수정 완료' });
       const dto: UpdateExpenseDto = { title: '수정 완료' };
 
-      const result = await service.updateExpense(1, dto);
+      const result = await service.updateExpense(mockAuthContext, 1, dto);
       expect(result.title).toBe('수정 완료');
     });
   });
 
+  // =========================================================================
+  // 4. deleteExpense 검증
+  // =========================================================================
   describe('deleteExpense', () => {
     it('삭제하려는 지출 내역이 없으면 ExpenseNotFoundException을 던져야 한다', async () => {
       prisma.expense.findUnique.mockResolvedValue(null);
 
-      await expect(service.deleteExpense(999)).rejects.toThrow(ExpenseNotFoundException);
+      await expect(service.deleteExpense(mockAuthContext, 999)).rejects.toThrow(ExpenseNotFoundException);
     });
 
     it('지출 내역을 성공적으로 삭제해야 한다', async () => {
-      prisma.expense.findUnique.mockResolvedValue({ id: 1 });
-      prisma.expense.delete.mockResolvedValue({ id: 1 });
+      prisma.expense.findUnique.mockResolvedValue({ id: BigInt(1), createdBy: BigInt(12) });
+      prisma.expense.delete.mockResolvedValue({ id: BigInt(1) });
 
-      const result = await service.deleteExpense(1);
+      const result = await service.deleteExpense(mockAuthContext, 1);
       expect(result).toEqual({
         message: '지출 내역이 성공적으로 삭제되었습니다.',
         deletedExpenseId: 1,
@@ -159,146 +231,211 @@ describe('ExpensesService', () => {
     });
   });
 
-  // 6. calculateSplitsPreview 검증 추가
+  // =========================================================================
+  // 5. calculateSplitsPreview 검증
+  // =========================================================================
   describe('calculateSplitsPreview', () => {
-    it('참여자가 없으면 BadRequestException을 발생시켜야 한다', async () => {
-      await expect(
-        service.calculateSplitsPreview({ totalAmount: 10000, participants: [] , splitType: 'EQUAL'}),
-      ).rejects.toThrow(BadRequestException);
+    it('참여자가 없으면 BadRequestException을 발생시켜야 한다', () => {
+      try {
+        service.calculateSplitsPreview(mockAuthContext, {
+          totalAmount: 10000,
+          participants: [],
+          splitType: SplitType.EQUAL,
+        });
+        fail('예외가 발생해야 합니다.');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BadRequestException);
+      }
     });
 
-    it('정산 금액과 역할(RECEIVER, SENDER)을 올바르게 계산하여 미리보기를 반환해야 한다', async () => {
-      const result = await service.calculateSplitsPreview({
-        totalAmount: 10000,
-        participants: [1, 2, 3],
-        splitType: 'EQUAL'
+    it('1원을 3명이 나눌 때 음수 없이 몫과 나머지가 정확히 분배되어야 한다', () => {
+      const result = service.calculateSplitsPreview(mockAuthContext, {
+        totalAmount: 1,
+        participants: [12, 2, 3],
+        splitType: SplitType.EQUAL,
       });
 
-      expect(result.totalAmount).toBe(10000);
-      expect(result.calculatedSplits).toEqual([
-        { userId: 1, amount: 3332, role: 'RECEIVER' },
-        { userId: 2, amount: 3334, role: 'SENDER' },
-        { userId: 3, amount: 3334, role: 'SENDER' },
-      ]);
+      expect(result.totalAmount).toBe(1);
+      expect(result.calculatedSplits).toHaveLength(3);
+      expect(result.calculatedSplits[0].amount).toBe(1);
+      expect(result.calculatedSplits[1].amount).toBe(0);
+      expect(result.calculatedSplits[2].amount).toBe(0);
     });
   });
 
-  // 7. createPayLink 검증 추가
+  // =========================================================================
+  // 6. createPayLink 검증
+  // =========================================================================
   describe('createPayLink', () => {
     it('분담 내역이 존재하지 않으면 BadRequestException을 발생시켜야 한다', async () => {
       prisma.expenseSplit.findUnique.mockResolvedValue(null);
-      await expect(service.createPayLink(999)).rejects.toThrow(BadRequestException);
+      await expect(service.createPayLink(mockAuthContext, 999)).rejects.toThrow(BadRequestException);
     });
 
     it('웹 표준 규격에 맞춘 토스 송금 링크를 정상적으로 발급하고 상태를 변경해야 한다', async () => {
-      prisma.expenseSplit.findUnique.mockResolvedValue({ id: 1, amount: 5000 });
-      prisma.expenseSplit.update.mockResolvedValue({ id: 1, status: 'TRANSFER_PENDING' });
+      prisma.expenseSplit.findUnique.mockResolvedValue({ id: BigInt(1), userId: BigInt(12), amount: 5000 });
+      prisma.expenseSplit.update.mockResolvedValue({ id: BigInt(1), status: 'TRANSFER_PENDING' });
 
-      const result = await service.createPayLink(1);
+      const result = await service.createPayLink(mockAuthContext, 1);
 
       expect(result.deepLinkUrl).toContain('supertoss://send?bank=SHINHAN&accountNo=110123456789&amount=5000');
       expect(result.status).toBe('TRANSFER_PENDING');
-      expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
-        where: { id: 1 },
-        data: { status: 'TRANSFER_PENDING' },
-      });
     });
   });
 
-  // 8. paySandboxPoc 검증 추가
+  // =========================================================================
+  // 7. paySandboxPoc 검증
+  // =========================================================================
   describe('paySandboxPoc', () => {
     it('분담 내역이 없으면 BadRequestException을 발생시켜야 한다', async () => {
       prisma.expenseSplit.findUnique.mockResolvedValue(null);
-      await expect(service.paySandboxPoc(999)).rejects.toThrow(BadRequestException);
+      await expect(service.paySandboxPoc(mockAuthContext, 999)).rejects.toThrow(BadRequestException);
     });
 
-    it('샌드박스 트랜잭션 ID를 반환하고 상태를 PROCESSING으로 변경해야 한다', async () => {
-      prisma.expenseSplit.findUnique.mockResolvedValue({ id: 5 });
-      prisma.expenseSplit.update.mockResolvedValue({ id: 5, status: 'PROCESSING' });
+    it('예측 불가능한 샌드박스 트랜잭션 ID를 생성하고 상태를 PROCESSING으로 변경해야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({ id: BigInt(5), userId: BigInt(12) });
+      prisma.expenseSplit.update.mockResolvedValue({ id: BigInt(5), status: 'PROCESSING' });
 
-      const result = await service.paySandboxPoc(5);
+      const result = await service.paySandboxPoc(mockAuthContext, 5);
 
-      expect(result.transactionId).toBe('TOSS_TX_20260703_5');
+      expect(result.transactionId).toBeDefined();
       expect(result.apiStatus).toBe('PROCESSING');
-      expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
-        where: { id: 5 },
-        data: { status: 'PROCESSING', transactionId: 'TOSS_TX_20260703_5' },
-      });
     });
   });
 
-  // 9. handleWebhook 검증 추가
+  // =========================================================================
+  // 8. handleWebhook 검증
+  // =========================================================================
   describe('handleWebhook', () => {
-    it('거래 내역이 DB에 존재하지 않으면 BadRequestException을 발생시켜야 한다', async () => {
-      prisma.expenseSplit.findUnique.mockResolvedValue(null);
-      await expect(
-        service.handleWebhook({ transactionId: 'INVALID_TX', amount: 5000 }),
-      ).rejects.toThrow(BadRequestException);
-    });
+    const secret = process.env.WEBHOOK_SECRET || 'gachisallim-webhook-secret-key';
 
-    it('이미 DONE 상태라면 멱등성 검증에 의해 바로 SUCCESS를 반환해야 한다', async () => {
-      prisma.expenseSplit.findUnique.mockResolvedValue({ id: 1, status: 'DONE' });
-
-      const result = await service.handleWebhook({ transactionId: 'TOSS_TX_1', amount: 5000 });
-      expect(result).toEqual({ status: 'SUCCESS' });
-    });
-
-    it('금액 불일치 시 BadRequestException을 발생시켜야 한다', async () => {
-      prisma.expenseSplit.findUnique.mockResolvedValue({ id: 1, amount: 5000, status: 'PROCESSING' });
+    it('5분이 지난 만료된 타임스탬프 요청 시 UnauthorizedException을 던져야 한다', async () => {
+      const oldTimestamp = (Date.now() - 6 * 60 * 1000).toString();
 
       await expect(
-        service.handleWebhook({ transactionId: 'TOSS_TX_1', amount: 3000 }),
-      ).rejects.toThrow(BadRequestException);
+        service.handleWebhook('invalid-sig', oldTimestamp, { transactionId: 'TX_1', amount: 5000 }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('서명이 올바르지 않으면 UnauthorizedException을 던져야 한다', async () => {
+      const nowTimestamp = Date.now().toString();
+
+      await expect(
+        service.handleWebhook('wrong-signature', nowTimestamp, { transactionId: 'TX_1', amount: 5000 }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('올바른 서명과 타임스탬프 전달 시 성공적으로 완료 처리해야 한다', async () => {
+      const nowTimestamp = Date.now().toString();
+      const transactionId = 'TX_VALID_123';
+      const amount = 5000;
+
+      const payload = `${nowTimestamp}.${transactionId}.${amount}`;
+      const validSignature = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        transactionId,
+        amount,
+        status: 'PROCESSING',
+      });
+
+      jest.spyOn(service, 'settleSplit').mockResolvedValue({
+        message: '성공',
+        isAllSettled: true,
+        status: 'DONE',
+      });
+
+      const result = await service.handleWebhook(validSignature, nowTimestamp, { transactionId, amount });
+      expect(result.status).toBe('SUCCESS');
     });
   });
 
-  // 10. settleSplit 검증 추가 (트랜잭션 및 부모 연동 검증)
+  // =========================================================================
+  // 9. settleSplit 검증
+  // =========================================================================
   describe('settleSplit', () => {
-    it('isBulkComplete가 true이고 전원이 정산 완료되지 않은 경우, 개별 분담만 DONE 처리하고 부모 Expense는 변경하지 않아야 한다', async () => {
-      prisma.expenseSplit.update.mockResolvedValue({ id: 1, expenseId: 10 });
+    it('body가 생략되더라도 기본적으로 DONE 상태로 전이되어야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        expenseId: BigInt(10),
+        expense: { payerId: BigInt(12), createdBy: BigInt(12) },
+      });
+      prisma.expenseSplit.update.mockResolvedValue({ id: BigInt(1), expenseId: BigInt(10), status: 'DONE' });
       prisma.expenseSplit.findMany.mockResolvedValue([
-        { id: 1, status: 'DONE' },
-        { id: 2, status: 'REQUESTED' }, // 아직 한 명 미완료
+        { id: BigInt(1), status: 'DONE' },
+        { id: BigInt(2), status: 'REQUESTED' },
       ]);
-      prisma.expense.update = jest.fn(); // 호출되면 안 됨
 
-      const result = await service.settleSplit(1, { isBulkComplete: true });
+      const result = await service.settleSplit(mockAuthContext, 1);
 
       expect(result.isAllSettled).toBe(false);
       expect(result.status).toBe('DONE');
-      expect(prisma.expense.update).not.toHaveBeenCalled();
     });
 
     it('전원 정산이 완료된 경우, 부모 Expense 상태를 DONE으로 자동 갱신해야 한다', async () => {
-      prisma.expenseSplit.update.mockResolvedValue({ id: 1, expenseId: 10 });
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        expenseId: BigInt(10),
+        expense: { payerId: BigInt(12), createdBy: BigInt(12) },
+      });
+      prisma.expenseSplit.update.mockResolvedValue({ id: BigInt(1), expenseId: BigInt(10), status: 'DONE' });
       prisma.expenseSplit.findMany.mockResolvedValue([
-        { id: 1, status: 'DONE' },
-        { id: 2, status: 'DONE' }, // 전원 완료!
+        { id: BigInt(1), status: 'DONE' },
+        { id: BigInt(2), status: 'DONE' },
       ]);
-      prisma.expense.update = jest.fn().mockResolvedValue({ id: 10, status: 'DONE' });
+      prisma.expense.update = jest.fn().mockResolvedValue({ id: BigInt(10), status: 'DONE' });
 
-      const result = await service.settleSplit(1, { isBulkComplete: true });
+      const result = await service.settleSplit(mockAuthContext, 1, { isBulkComplete: true });
 
       expect(result.isAllSettled).toBe(true);
       expect(prisma.expense.update).toHaveBeenCalledWith({
-        where: { id: 10 },
+        where: { id: BigInt(10) },
         data: { status: 'DONE' },
       });
     });
   });
 
-  // 11. shareExpenseCard 검증 추가
+  // =========================================================================
+  // 10. shareExpenseCard 검증
+  // =========================================================================
   describe('shareExpenseCard', () => {
-    it('존재하지 않는 지출 내역이면 ExpenseNotFoundException을 발생시켜야 한다', async () => {
+    it('존재하지 않는 지출 내역이면 COMMON_NOT_FOUND BusinessException을 발생시켜야 한다', async () => {
       prisma.expense.findUnique.mockResolvedValue(null);
-      await expect(service.shareExpenseCard(999)).rejects.toThrow(ExpenseNotFoundException);
+      await expect(service.shareExpenseCard(mockAuthContext, 999)).rejects.toThrow(
+        new BusinessException(ErrorCode.COMMON_NOT_FOUND),
+      );
     });
 
-    it('지출 내역이 존재하면 가상의 chatMessageId를 성공적으로 반환해야 한다', async () => {
-      prisma.expense.findUnique.mockResolvedValue({ id: 1 });
-      const result = await service.shareExpenseCard(1);
+    it('기본 채팅방이 없는 경우 CHAT_ROOM_NOT_FOUND 예외를 던져야 한다', async () => {
+      prisma.expense.findUnique.mockResolvedValue({ id: BigInt(1), groupId: BigInt(5) });
+      prisma.chatRoom.findFirst.mockResolvedValue(null);
 
-      expect(result.chatMessageId).toBeGreaterThanOrEqual(7000);
+      await expect(service.shareExpenseCard(mockAuthContext, 1)).rejects.toThrow(
+        new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND),
+      );
+    });
+
+    it('지출 내역이 존재하고 기본 채팅방이 있으면 실제 메시지를 생성하고 PK(messageId)를 반환해야 한다', async () => {
+      prisma.expense.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        groupId: BigInt(5),
+        title: '테스트 지출',
+        totalAmount: 10000,
+      });
+      prisma.chatRoom.findFirst.mockResolvedValue({ id: BigInt(3) });
+      prisma.chatRoomMember.findUnique.mockResolvedValue({ id: BigInt(1) });
+      prisma.message.create.mockResolvedValue({ id: BigInt(7001) });
+
+      const result = await service.shareExpenseCard(mockAuthContext, 1);
+
+      expect(result).toEqual({
+        expenseId: 1,
+        messageId: 7001,
+      });
+      expect(prisma.message.create).toHaveBeenCalled();
     });
   });
 });

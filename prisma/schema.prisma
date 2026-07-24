@@ -174,39 +174,27 @@ model Chore {
 
 // =====================================================
 // EXPENSE
-// =====================================================
-
-model ExpenseCategory {
-  id        BigInt   @id @default(autoincrement())
-  name      String   @unique @db.VarChar(20)
-  sortOrder Int      @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  expenses Expense[]
-
-  @@map("expense_categories")
-}
-
+// ====================================================
 model Expense {
-  id          BigInt        @id @default(autoincrement())
-  categoryId  BigInt?       @map("category_id")
-  groupId     BigInt        @map("group_id")
-  payerId     BigInt        @map("payer_id")
-  createdBy   BigInt        @map("created_by")
-  title       String        @db.VarChar(100)
-  totalAmount Int           @map("total_amount")
-  splitType   SplitType     @default(EQUAL) @map("split_type")
-  status      ExpenseStatus @default(PENDING)
-  receiptUrl  String?       @map("receipt_url") @db.VarChar(512)
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
+  id          BigInt          @id @default(autoincrement())
+  category    ExpenseCategory @default(ETC)
+  groupId     BigInt          @map("group_id")
+  payerId     BigInt          @map("payer_id")
+  createdBy   BigInt          @map("created_by")
+  title       String          @db.VarChar(100)
+  memo        String?         @db.VarChar(255)
+  totalAmount Int             @map("total_amount")
+  splitType   SplitType       @default(EQUAL) @map("split_type")
+  status      ExpenseStatus   @default(PENDING)
+  receiptUrl  String?         @map("receipt_url") @db.VarChar(512)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  group    Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  payer    User             @relation("ExpensePayer", fields: [payerId], references: [id])
-  creator  User             @relation("ExpenseCreator", fields: [createdBy], references: [id])
-  splits   ExpenseSplit[]
-  logs     ExpenseLog[]
+  group   Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer   User           @relation("ExpensePayer", fields: [payerId], references: [id])
+  creator User           @relation("ExpenseCreator", fields: [createdBy], references: [id])
+  splits  ExpenseSplit[]
+  logs    ExpenseLog[]
   supplies Supply[]
 
   @@map("expenses")
@@ -366,9 +354,9 @@ model ChatRoom {
   createdBy BigInt   @map("created_by")
   createdAt DateTime @default(now()) @map("created_at")
 
-  group    Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  creator  User             @relation(fields: [createdBy], references: [id])
-  members  ChatRoomMember[]
+  group   Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  creator User             @relation(fields: [createdBy], references: [id])
+  members ChatRoomMember[]
   messages Message[]
 
   @@map("chat_rooms")
@@ -472,6 +460,13 @@ enum RepeatType {
 enum ChoreStatus {
   PENDING
   DONE
+}
+
+enum ExpenseCategory {
+  FOOD
+  SHOPPING
+  UTILITIES
+  ETC
 }
 
 enum SplitType {
