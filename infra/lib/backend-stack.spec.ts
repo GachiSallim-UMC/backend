@@ -263,6 +263,39 @@ describe('BackendStack', () => {
     expect(endpoints).toContain('.scheduler');
   });
 
+  it('ships main and develop service logs to retained CloudWatch streams', () => {
+    template.hasResource('AWS::Logs::LogGroup', {
+      Properties: {
+        LogGroupName: '/gachisallim/backend/application',
+        RetentionInDays: 30,
+      },
+      DeletionPolicy: 'Retain',
+      UpdateReplacePolicy: 'Retain',
+    });
+
+    const instancePolicies = Object.values(template.findResources('AWS::IAM::Policy')).filter(
+      (policy) => JSON.stringify(policy).includes('InstanceRole'),
+    );
+    const instancePolicyJson = JSON.stringify(instancePolicies);
+    expect(instancePolicyJson).toContain('logs:CreateLogStream');
+    expect(instancePolicyJson).toContain('logs:PutLogEvents');
+    expect(instancePolicyJson).toContain('logs:DescribeLogStreams');
+
+    const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
+    expect(userData).toContain('StandardOutput=append:/var/log/gachisallim/%i.log');
+
+    const runtimeConfiguration = JSON.stringify(
+      template.findResources('AWS::SSM::Document'),
+    );
+    expect(runtimeConfiguration).toContain('dnf install -y amazon-cloudwatch-agent logrotate');
+    expect(runtimeConfiguration).toContain('/var/log/gachisallim/main.log');
+    expect(runtimeConfiguration).toContain('/var/log/gachisallim/develop.log');
+    expect(runtimeConfiguration).toContain('main/{instance_id}');
+    expect(runtimeConfiguration).toContain('develop/{instance_id}');
+    expect(runtimeConfiguration).toContain('/etc/logrotate.d/gachisallim');
+    expect(runtimeConfiguration).toContain('amazon-cloudwatch-agent-ctl -a fetch-config');
+  });
+
   it('creates encrypted notification push queues and dead-letter queues per environment', () => {
     template.resourceCountIs('AWS::SQS::Queue', 12);
     template.resourceCountIs('AWS::KMS::Key', 1);
@@ -382,6 +415,7 @@ describe('BackendStack', () => {
       template.findResources('AWS::SSM::Document'),
     );
     expect(runtimeConfiguration).toContain('/usr/local/bin/gachisallim-deploy');
+    expect(runtimeConfiguration).toContain('/etc/systemd/system/gachisallim@.service');
     expect(runtimeConfiguration).toContain('systemctl enable');
   });
 

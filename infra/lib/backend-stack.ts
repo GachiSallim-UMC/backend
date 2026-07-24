@@ -211,6 +211,61 @@ export class BackendStack extends Stack {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: RemovalPolicy.RETAIN,
     });
+    const applicationLogDirectory = '/var/log/gachisallim';
+    const applicationServiceUnit = `[Unit]
+Description=GachiSallim backend (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+EnvironmentFile=/etc/gachisallim/%i.env
+WorkingDirectory=/opt/gachisallim/current/%i
+ExecStart=/opt/gachisallim/current/%i/bin/node dist/main.js
+Restart=always
+RestartSec=5
+LogsDirectory=gachisallim
+LogsDirectoryMode=0750
+StandardOutput=append:${applicationLogDirectory}/%i.log
+StandardError=inherit
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target`;
+    const cloudWatchAgentConfiguration = JSON.stringify(
+      {
+        agent: {
+          region: Aws.REGION,
+        },
+        logs: {
+          logs_collected: {
+            files: {
+              collect_list: RUNTIME_ENVIRONMENTS.map((environment) => ({
+                file_path: `${applicationLogDirectory}/${environment.branch}.log`,
+                log_group_name: applicationLogGroup.logGroupName,
+                log_stream_name: `${environment.branch}/{instance_id}`,
+                timezone: 'UTC',
+              })),
+            },
+          },
+        },
+      },
+      null,
+      2,
+    );
+    const applicationLogrotateConfiguration = `${applicationLogDirectory}/*.log {
+  daily
+  rotate 7
+  maxsize 50M
+  compress
+  delaycompress
+  missingok
+  notifempty
+  copytruncate
+}`;
 
     const notificationQueueKey = new kms.Key(this, 'NotificationQueueKey', {
       alias: 'alias/gachisallim-notification-queues',
@@ -543,6 +598,12 @@ export class BackendStack extends Stack {
     databaseSecret.grantRead(instanceRole);
     props.artifactBucket.grantRead(instanceRole, 'releases/*');
     applicationLogGroup.grantWrite(instanceRole);
+    instanceRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['logs:DescribeLogStreams'],
+        resources: [applicationLogGroup.logGroupArn],
+      }),
+    );
     for (const queue of notificationPushQueues.values()) {
       queue.grantSendMessages(instanceRole);
     }
@@ -620,30 +681,10 @@ export class BackendStack extends Stack {
       'utf8',
     );
     instance.userData.addCommands(
-      'mkdir -p /etc/gachisallim /opt/gachisallim/current /opt/gachisallim/releases',
+      `mkdir -p /etc/gachisallim /opt/gachisallim/current /opt/gachisallim/releases ${applicationLogDirectory}`,
       `cat > /usr/local/bin/gachisallim-deploy <<'DEPLOY_SCRIPT'\n${bootstrapDeployScript}\nDEPLOY_SCRIPT`,
       'chmod 0755 /usr/local/bin/gachisallim-deploy',
-      `cat > /etc/systemd/system/gachisallim@.service <<'SYSTEMD_UNIT'
-[Unit]
-Description=GachiSallim backend (%i)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=ec2-user
-Group=ec2-user
-EnvironmentFile=/etc/gachisallim/%i.env
-WorkingDirectory=/opt/gachisallim/current/%i
-ExecStart=/opt/gachisallim/current/%i/bin/node dist/main.js
-Restart=always
-RestartSec=5
-NoNewPrivileges=true
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-SYSTEMD_UNIT`,
+      `cat > /etc/systemd/system/gachisallim@.service <<'SYSTEMD_UNIT'\n${applicationServiceUnit}\nSYSTEMD_UNIT`,
       'systemctl daemon-reload',
       'systemctl enable amazon-ssm-agent --now',
     );
@@ -670,9 +711,16 @@ ENVIRONMENT_CONFIG`,
     const deployScript = readFileSync(join(__dirname, '../../scripts/deploy-release.sh'), 'utf8');
     const runtimeConfigurationCommands = [
       'set -euo pipefail',
-      'mkdir -p /etc/gachisallim /opt/gachisallim/current /opt/gachisallim/releases',
+      `mkdir -p /etc/gachisallim /opt/gachisallim/current /opt/gachisallim/releases ${applicationLogDirectory}`,
+      `touch ${applicationLogDirectory}/main.log ${applicationLogDirectory}/develop.log`,
+      `chown ec2-user:ec2-user ${applicationLogDirectory}/main.log ${applicationLogDirectory}/develop.log`,
+      'dnf install -y amazon-cloudwatch-agent logrotate',
       `cat > /usr/local/bin/gachisallim-deploy <<'DEPLOY_SCRIPT'\n${deployScript}\nDEPLOY_SCRIPT`,
       'chmod 0755 /usr/local/bin/gachisallim-deploy',
+      `cat > /etc/systemd/system/gachisallim@.service <<'SYSTEMD_UNIT'\n${applicationServiceUnit}\nSYSTEMD_UNIT`,
+      `cat > /opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json <<'CLOUDWATCH_AGENT_CONFIGURATION'\n${cloudWatchAgentConfiguration}\nCLOUDWATCH_AGENT_CONFIGURATION`,
+      `cat > /etc/logrotate.d/gachisallim <<'LOGROTATE_CONFIGURATION'\n${applicationLogrotateConfiguration}\nLOGROTATE_CONFIGURATION`,
+      '/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json',
     ];
     for (const environment of RUNTIME_ENVIRONMENTS) {
       const auth = authentication.get(environment.branch)!;
@@ -707,6 +755,7 @@ ENVIRONMENT_CONFIG`,
       `for environment_name in main develop; do
   if [[ -e "/opt/gachisallim/current/\${environment_name}/dist/main.js" ]]; then
     systemctl enable "gachisallim@\${environment_name}.service"
+    systemctl try-restart "gachisallim@\${environment_name}.service"
   fi
 done`,
       'echo "Applied runtime configuration {{ ConfigurationVersion }}"',

@@ -81,6 +81,8 @@ credential을 저장하지 않고 OIDC와 STS로 환경별 IAM 역할을 획득�
 - 릴리스: ARM64 GitHub runner가 Node.js 런타임, 빌드 결과, production 의존성을 묶어 S3에 업로드
 - 적용: Systems Manager가 환경별 systemd 서비스를 갱신하고 health check 실패 시 이전 릴리스로 복구
 - 네트워크: private backend subnet의 EC2가 단일 `t4g.nano` NAT instance를 통해 Cognito 공개 API에 접근
+- 로그: `main`과 `develop`의 stdout/stderr를 CloudWatch Logs
+  `/gachisallim/backend/application` 그룹의 환경별 스트림에 30일간 보관
 
 ### Migration과 롤백 계약
 
