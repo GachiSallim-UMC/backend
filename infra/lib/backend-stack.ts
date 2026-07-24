@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -612,10 +613,15 @@ export class BackendStack extends Stack {
     });
     Tags.of(instance).add('GachiSallimDeploymentTarget', 'true');
 
-    const deployScript = readFileSync(join(__dirname, '../../scripts/deploy-release.sh'), 'utf8');
+    // Keep this bootstrap payload stable. Mutable scripts and configuration are applied below
+    // through SSM State Manager so an update does not rely on UserData running again.
+    const bootstrapDeployScript = readFileSync(
+      join(__dirname, '../../scripts/bootstrap-deploy-release.sh'),
+      'utf8',
+    );
     instance.userData.addCommands(
       'mkdir -p /etc/gachisallim /opt/gachisallim/current /opt/gachisallim/releases',
-      `cat > /usr/local/bin/gachisallim-deploy <<'DEPLOY_SCRIPT'\n${deployScript}\nDEPLOY_SCRIPT`,
+      `cat > /usr/local/bin/gachisallim-deploy <<'DEPLOY_SCRIPT'\n${bootstrapDeployScript}\nDEPLOY_SCRIPT`,
       'chmod 0755 /usr/local/bin/gachisallim-deploy',
       `cat > /etc/systemd/system/gachisallim@.service <<'SYSTEMD_UNIT'
 [Unit]
@@ -656,6 +662,33 @@ CORS_ORIGIN='${environment.corsOrigin}'
 AWS_REGION='${Aws.REGION}'
 COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
 COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
+ENVIRONMENT_CONFIG`,
+        `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
+      );
+    }
+
+    const deployScript = readFileSync(join(__dirname, '../../scripts/deploy-release.sh'), 'utf8');
+    const runtimeConfigurationCommands = [
+      'set -euo pipefail',
+      'mkdir -p /etc/gachisallim /opt/gachisallim/current /opt/gachisallim/releases',
+      `cat > /usr/local/bin/gachisallim-deploy <<'DEPLOY_SCRIPT'\n${deployScript}\nDEPLOY_SCRIPT`,
+      'chmod 0755 /usr/local/bin/gachisallim-deploy',
+    ];
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      const auth = authentication.get(environment.branch)!;
+      runtimeConfigurationCommands.push(
+        `cat > /etc/gachisallim/${environment.branch}.config <<'ENVIRONMENT_CONFIG'
+ARTIFACT_BUCKET='${props.artifactBucket.bucketName}'
+DATABASE_SECRET_ARN='${databaseSecret.secretArn}'
+DATABASE_NAME='${environment.databaseName}'
+NODE_ENV='${environment.nodeEnvironment}'
+PORT='${environment.port}'
+APP_NAME='GachiSallim Backend (${environment.branch})'
+APP_VERSION='0.1.0'
+CORS_ORIGIN='${environment.corsOrigin}'
+AWS_REGION='${Aws.REGION}'
+COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
+COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
 NOTIFICATION_PUSH_QUEUE_URL='${notificationPushQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_PUSH_RESULT_QUEUE_URL='${notificationPushResultQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_VAPID_PUBLIC_KEY='${notificationVapidPublicKeys.get(environment.branch)!}'
@@ -669,6 +702,58 @@ ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
     }
+    runtimeConfigurationCommands.push(
+      'systemctl daemon-reload',
+      `for environment_name in main develop; do
+  if [[ -e "/opt/gachisallim/current/\${environment_name}/dist/main.js" ]]; then
+    systemctl enable "gachisallim@\${environment_name}.service"
+  fi
+done`,
+      'echo "Applied runtime configuration {{ ConfigurationVersion }}"',
+    );
+    const runtimeConfigurationScript = runtimeConfigurationCommands.join('\n');
+    const runtimeConfigurationVersion = createHash('sha256')
+      .update(runtimeConfigurationScript)
+      .digest('hex');
+    const runtimeConfigurationDocument = new ssm.CfnDocument(
+      this,
+      'ApplicationRuntimeConfigurationDocument',
+      {
+        documentType: 'Command',
+        targetType: '/AWS::EC2::Instance',
+        updateMethod: 'NewVersion',
+        content: {
+          schemaVersion: '2.2',
+          description: 'Applies mutable GachiSallim application runtime configuration.',
+          parameters: {
+            ConfigurationVersion: {
+              type: 'String',
+              description: 'Hash of the desired runtime configuration.',
+            },
+          },
+          mainSteps: [
+            {
+              action: 'aws:runShellScript',
+              name: 'configureApplicationRuntime',
+              inputs: { runCommand: [runtimeConfigurationScript] },
+            },
+          ],
+        },
+      },
+    );
+    const runtimeConfigurationAssociation = new ssm.CfnAssociation(
+      this,
+      'ApplicationRuntimeConfigurationAssociation',
+      {
+        name: runtimeConfigurationDocument.ref,
+        associationName: 'gachisallim-application-runtime-configuration',
+        documentVersion: '$LATEST',
+        parameters: { ConfigurationVersion: [runtimeConfigurationVersion] },
+        targets: [{ key: 'InstanceIds', values: [instance.instanceId] }],
+        waitForSuccessTimeoutSeconds: 600,
+      },
+    );
+    runtimeConfigurationAssociation.addDependency(runtimeConfigurationDocument);
 
     const targetGroups = new Map<string, elbv2.ApplicationTargetGroup>();
     for (const environment of RUNTIME_ENVIRONMENTS) {

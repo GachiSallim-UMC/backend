@@ -282,11 +282,13 @@ describe('BackendStack', () => {
       RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
     });
 
-    const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
-    expect(userData).toContain('NOTIFICATION_PUSH_QUEUE_URL');
-    expect(userData).toContain('NOTIFICATION_PUSH_RESULT_QUEUE_URL');
-    expect(userData).toContain('NOTIFICATION_VAPID_PUBLIC_KEY');
-    expect(userData).not.toContain('NOTIFICATION_VAPID_SECRET_ID');
+    const runtimeConfiguration = JSON.stringify(
+      template.findResources('AWS::SSM::Document'),
+    );
+    expect(runtimeConfiguration).toContain('NOTIFICATION_PUSH_QUEUE_URL');
+    expect(runtimeConfiguration).toContain('NOTIFICATION_PUSH_RESULT_QUEUE_URL');
+    expect(runtimeConfiguration).toContain('NOTIFICATION_VAPID_PUBLIC_KEY');
+    expect(runtimeConfiguration).not.toContain('NOTIFICATION_VAPID_SECRET_ID');
   });
 
   it('runs isolated web push workers with partial batch retry and VAPID secret access', () => {
@@ -333,10 +335,54 @@ describe('BackendStack', () => {
     expect(policies).toContain('iam:PassRole');
     expect(policies).toContain('iam:PassedToService');
 
+    const runtimeConfiguration = JSON.stringify(
+      template.findResources('AWS::SSM::Document'),
+    );
+    expect(runtimeConfiguration).toContain('NOTIFICATION_COMMAND_QUEUE_URL');
+    expect(runtimeConfiguration).toContain('CHORE_DUE_SCHEDULE_GROUP');
+    expect(runtimeConfiguration).toContain('CHORE_DUE_SCHEDULE_ROLE_ARN');
+  });
+
+  it('applies mutable instance configuration through an SSM association', () => {
+    template.resourceCountIs('AWS::SSM::Document', 1);
+    template.hasResourceProperties('AWS::SSM::Document', {
+      DocumentType: 'Command',
+      TargetType: '/AWS::EC2::Instance',
+      UpdateMethod: 'NewVersion',
+      Content: Match.objectLike({
+        schemaVersion: '2.2',
+        mainSteps: [
+          Match.objectLike({
+            action: 'aws:runShellScript',
+            name: 'configureApplicationRuntime',
+          }),
+        ],
+      }),
+    });
+    template.hasResourceProperties('AWS::SSM::Association', {
+      AssociationName: 'gachisallim-application-runtime-configuration',
+      DocumentVersion: '$LATEST',
+      Parameters: {
+        ConfigurationVersion: [Match.stringLikeRegexp('^[0-9a-f]{64}$')],
+      },
+      Targets: [
+        {
+          Key: 'InstanceIds',
+          Values: [Match.anyValue()],
+        },
+      ],
+      WaitForSuccessTimeoutSeconds: 600,
+    });
+
     const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
-    expect(userData).toContain('NOTIFICATION_COMMAND_QUEUE_URL');
-    expect(userData).toContain('CHORE_DUE_SCHEDULE_GROUP');
-    expect(userData).toContain('CHORE_DUE_SCHEDULE_ROLE_ARN');
+    expect(userData).not.toContain('NOTIFICATION_PUSH_QUEUE_URL');
+    expect(userData).not.toContain('NOTIFICATION_COMMAND_QUEUE_URL');
+
+    const runtimeConfiguration = JSON.stringify(
+      template.findResources('AWS::SSM::Document'),
+    );
+    expect(runtimeConfiguration).toContain('/usr/local/bin/gachisallim-deploy');
+    expect(runtimeConfiguration).toContain('systemctl enable');
   });
 
   it('allows the instance to receive SSM commands and access only required Cognito pools', () => {
