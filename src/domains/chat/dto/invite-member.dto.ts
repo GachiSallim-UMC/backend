@@ -1,8 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumberString } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsNumberString } from 'class-validator';
 
 export class InviteMemberDto {
-  @ApiProperty({ description: '초대할 사용자 ID', example: '2' })
-  @IsNumberString()
-  userId!: string;
+  @ApiProperty({ description: '초대할 사용자 ID 목록', type: [String], example: ['2', '3'] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsNumberString({}, { each: true })
+  userIds!: string[];
 }

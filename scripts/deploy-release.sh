@@ -31,6 +31,8 @@ aws s3 cp "${artifact_prefix}.tar.gz.sha256" "${temporary_directory}/release.tar
 
 mkdir -p "${release_directory}" "$(dirname "${current_link}")"
 tar -C "${release_directory}" -xzf "${temporary_directory}/release.tar.gz"
+chown -R root:root "${release_directory}"
+chmod -R a+rX "${release_directory}"
 chmod 0755 "${release_directory}/bin/node"
 
 secret_json="$(aws secretsmanager get-secret-value \
@@ -48,7 +50,7 @@ password = quote(secret['password'], safe='')
 host = secret['host']
 port = secret.get('port', 5432)
 database = os.environ['DATABASE_NAME']
-print(f'postgresql://{username}:{password}@{host}:{port}/{database}?schema=public')
+print(f'postgresql://{username}:{password}@{host}:{port}/{database}?schema=public&sslmode=require')
 PY
 )"
 
@@ -84,7 +86,7 @@ PATH="${release_directory}/bin:${PATH}" \
   --schema "${release_directory}/prisma/schema.prisma"
 
 previous_release="$(readlink -f "${current_link}" 2>/dev/null || true)"
-ln -sfn "${release_directory}" "${current_link}"
+ln -sfnT "${release_directory}" "${current_link}"
 systemctl daemon-reload
 systemctl restart "gachisallim@${environment_name}.service"
 
@@ -98,13 +100,16 @@ for _ in {1..30}; do
 done
 
 if [[ "${healthy}" != true ]]; then
-  if [[ -n "${previous_release}" && -d "${previous_release}" ]]; then
-    ln -sfn "${previous_release}" "${current_link}"
+  if [[ -n "${previous_release}" \
+    && "${previous_release}" != "${release_directory}" \
+    && -d "${previous_release}" ]]; then
+    ln -sfnT "${previous_release}" "${current_link}"
     systemctl restart "gachisallim@${environment_name}.service"
   else
+    rm -f "${current_link}"
     systemctl stop "gachisallim@${environment_name}.service"
   fi
-  echo 'Health check failed; the previous application release was restored.' >&2
+  echo 'Health check failed; application deployment was rolled back.' >&2
   exit 1
 fi
 

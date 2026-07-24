@@ -35,12 +35,14 @@ interface BackendStackProps extends StackProps {
 
 interface AuthenticationResources {
   readonly client: cognito.UserPoolClient;
+  readonly domain: cognito.UserPoolDomain;
   readonly issuer: string;
   readonly jwksEndpoint: string;
   readonly pool: cognito.UserPool;
 }
 
 interface RuntimeEnvironment {
+  readonly authDomainPrefix: string;
   readonly branch: 'main' | 'develop';
   readonly corsOrigin: string;
   readonly databaseName: string;
@@ -48,10 +50,13 @@ interface RuntimeEnvironment {
   readonly id: 'Production' | 'Development';
   readonly nodeEnvironment: 'production' | 'development';
   readonly port: number;
+  readonly socialAuthSecretName: string;
+  readonly webAppUrl: string;
 }
 
 const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
   {
+    authDomainPrefix: 'gachisallim-prod-auth',
     branch: 'main',
     corsOrigin: 'https://gachisallim.com',
     databaseName: 'gachisallim',
@@ -59,8 +64,11 @@ const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
     id: 'Production',
     nodeEnvironment: 'production',
     port: 3000,
+    socialAuthSecretName: 'gachisallim/main/social-auth',
+    webAppUrl: 'https://gachisallim.com',
   },
   {
+    authDomainPrefix: 'gachisallim-dev-auth',
     branch: 'develop',
     corsOrigin: '*',
     databaseName: 'gachisallim_develop',
@@ -68,6 +76,8 @@ const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
     id: 'Development',
     nodeEnvironment: 'development',
     port: 3001,
+    socialAuthSecretName: 'gachisallim/develop/social-auth',
+    webAppUrl: 'https://dev.gachisallim.com',
   },
 ];
 
@@ -75,10 +85,17 @@ export class BackendStack extends Stack {
   constructor(scope: Construct, id: string, props: BackendStackProps) {
     super(scope, id, props);
 
+    const natProvider = ec2.NatProvider.instanceV2({
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
+      associatePublicIpAddress: true,
+      creditSpecification: ec2.CpuCredits.STANDARD,
+      defaultAllowedTraffic: ec2.NatTrafficDirection.OUTBOUND_ONLY,
+    });
     const vpc = new ec2.Vpc(this, 'Vpc', {
       ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
       maxAzs: 2,
-      natGateways: 0,
+      natGateways: 1,
+      natGatewayProvider: natProvider,
       subnetConfiguration: [
         {
           name: 'Ingress',
@@ -87,7 +104,7 @@ export class BackendStack extends Stack {
         },
         {
           name: 'Backend',
-          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
           cidrMask: 24,
         },
       ],
@@ -139,14 +156,19 @@ export class BackendStack extends Stack {
     applicationSecurityGroup.addEgressRule(
       ec2.Peer.anyIpv4(),
       ec2.Port.tcp(443),
-      'Allows HTTPS only through routes available in the isolated subnet.',
+      'Allows HTTPS to VPC endpoints and public AWS service endpoints.',
+    );
+    natProvider.connections.allowFrom(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.tcp(443),
+      'Allows HTTPS forwarding from private VPC resources.',
     );
 
     const backendSubnets: ec2.SubnetSelection = {
-      subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+      subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
     };
     const applicationSubnet: ec2.SubnetSelection = {
-      subnets: [vpc.isolatedSubnets[0]],
+      subnets: [vpc.privateSubnets[0]],
     };
     const endpointOptions = {
       subnets: applicationSubnet,
@@ -160,10 +182,6 @@ export class BackendStack extends Stack {
     });
     vpc.addInterfaceEndpoint('CloudWatchLogsEndpoint', {
       service: ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
-      ...endpointOptions,
-    });
-    vpc.addInterfaceEndpoint('CognitoEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.COGNITO_IDP,
       ...endpointOptions,
     });
     vpc.addInterfaceEndpoint('SystemsManagerEndpoint', {
@@ -257,21 +275,17 @@ export class BackendStack extends Stack {
           removalPolicy: RemovalPolicy.RETAIN,
         },
       );
-      const resultQueue = new sqs.Queue(
-        this,
-        `${environment.id}NotificationPushResultQueue`,
-        {
-          queueName: `gachisallim-${environment.branch}-notification-push-result`,
-          encryption: sqs.QueueEncryption.KMS,
-          encryptionMasterKey: notificationQueueKey,
-          enforceSSL: true,
-          receiveMessageWaitTime: Duration.seconds(20),
-          retentionPeriod: Duration.days(4),
-          visibilityTimeout: Duration.seconds(60),
-          deadLetterQueue: { queue: resultDeadLetterQueue, maxReceiveCount: 5 },
-          removalPolicy: RemovalPolicy.RETAIN,
-        },
-      );
+      const resultQueue = new sqs.Queue(this, `${environment.id}NotificationPushResultQueue`, {
+        queueName: `gachisallim-${environment.branch}-notification-push-result`,
+        encryption: sqs.QueueEncryption.KMS,
+        encryptionMasterKey: notificationQueueKey,
+        enforceSSL: true,
+        receiveMessageWaitTime: Duration.seconds(20),
+        retentionPeriod: Duration.days(4),
+        visibilityTimeout: Duration.seconds(60),
+        deadLetterQueue: { queue: resultDeadLetterQueue, maxReceiveCount: 5 },
+        removalPolicy: RemovalPolicy.RETAIN,
+      });
       notificationPushResultQueues.set(environment.branch, resultQueue);
 
       const vapidSecret = secretsmanager.Secret.fromSecretNameV2(
@@ -300,15 +314,11 @@ export class BackendStack extends Stack {
           timeout: Duration.seconds(30),
           memorySize: 256,
           reservedConcurrentExecutions: 20,
-          logGroup: new logs.LogGroup(
-            this,
-            `${environment.id}NotificationWebPushWorkerLogGroup`,
-            {
-              logGroupName: `/aws/lambda/gachisallim-${environment.branch}-notification-web-push`,
-              retention: logs.RetentionDays.ONE_MONTH,
-              removalPolicy: RemovalPolicy.RETAIN,
-            },
-          ),
+          logGroup: new logs.LogGroup(this, `${environment.id}NotificationWebPushWorkerLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-notification-web-push`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
           environment: {
             NOTIFICATION_VAPID_SECRET_ID: vapidSecret.secretArn,
             NOTIFICATION_PUSH_RESULT_QUEUE_URL: resultQueue.queueUrl,
@@ -386,6 +396,23 @@ export class BackendStack extends Stack {
       engineLifecycleSupport: rds.EngineLifecycleSupport.OPEN_SOURCE_RDS_EXTENDED_SUPPORT_DISABLED,
     });
 
+    const preSignupLinkLogGroup = new logs.LogGroup(this, 'PreSignupLinkLogGroup', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    const preSignupLinkFunction = new lambdaNodejs.NodejsFunction(this, 'PreSignupLinkFunction', {
+      entry: join(__dirname, '../lambda/pre-signup-link.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 128,
+      timeout: Duration.seconds(10),
+      logGroup: preSignupLinkLogGroup,
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
     const authentication = new Map<string, AuthenticationResources>();
     for (const environment of RUNTIME_ENVIRONMENTS) {
       const pool = new cognito.UserPool(this, `${environment.id}UserPool`, {
@@ -404,26 +431,107 @@ export class BackendStack extends Stack {
         deletionProtection: true,
         removalPolicy: RemovalPolicy.RETAIN,
       });
+      pool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, preSignupLinkFunction);
+      const domain = pool.addDomain(`${environment.id}UserPoolDomain`, {
+        cognitoDomain: { domainPrefix: environment.authDomainPrefix },
+      });
+      const socialAuthSecret = secretsmanager.Secret.fromSecretNameV2(
+        this,
+        `${environment.id}SocialAuthSecret`,
+        environment.socialAuthSecretName,
+      );
+      const googleProvider = new cognito.UserPoolIdentityProviderGoogle(
+        this,
+        `${environment.id}GoogleProvider`,
+        {
+          userPool: pool,
+          clientId: socialAuthSecret.secretValueFromJson('googleClientId').unsafeUnwrap(),
+          clientSecretValue: socialAuthSecret.secretValueFromJson('googleClientSecret'),
+          scopes: ['openid', 'email', 'profile'],
+          attributeMapping: {
+            email: cognito.ProviderAttribute.GOOGLE_EMAIL,
+            emailVerified: cognito.ProviderAttribute.GOOGLE_EMAIL_VERIFIED,
+            fullname: cognito.ProviderAttribute.GOOGLE_NAME,
+            profilePicture: cognito.ProviderAttribute.GOOGLE_PICTURE,
+          },
+        },
+      );
+      const kakaoProvider = new cognito.UserPoolIdentityProviderOidc(
+        this,
+        `${environment.id}KakaoProvider`,
+        {
+          userPool: pool,
+          name: 'Kakao',
+          clientId: socialAuthSecret.secretValueFromJson('kakaoClientId').unsafeUnwrap(),
+          clientSecret: socialAuthSecret.secretValueFromJson('kakaoClientSecret').unsafeUnwrap(),
+          issuerUrl: 'https://kauth.kakao.com',
+          scopes: ['openid', 'profile', 'account_email'],
+          attributeMapping: {
+            email: cognito.ProviderAttribute.other('email'),
+            emailVerified: cognito.ProviderAttribute.other('email_verified'),
+            nickname: cognito.ProviderAttribute.other('nickname'),
+            profilePicture: cognito.ProviderAttribute.other('picture'),
+          },
+        },
+      );
+      const callbackUrls = [`${environment.webAppUrl}/auth/callback`];
+      const logoutUrls = [`${environment.webAppUrl}/login`];
+      if (environment.branch === 'develop') {
+        callbackUrls.push('http://localhost:5173/auth/callback');
+        logoutUrls.push('http://localhost:5173/login');
+      }
       const client = pool.addClient(`${environment.id}UserPoolClient`, {
         userPoolClientName: `gachisallim-${environment.branch}-web`,
         generateSecret: false,
-        disableOAuth: true,
         authFlows: { userPassword: true },
         preventUserExistenceErrors: true,
-        supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
+        supportedIdentityProviders: [
+          cognito.UserPoolClientIdentityProvider.COGNITO,
+          cognito.UserPoolClientIdentityProvider.GOOGLE,
+          cognito.UserPoolClientIdentityProvider.custom('Kakao'),
+        ],
+        oAuth: {
+          flows: { authorizationCodeGrant: true },
+          scopes: [
+            cognito.OAuthScope.OPENID,
+            cognito.OAuthScope.EMAIL,
+            cognito.OAuthScope.PROFILE,
+            cognito.OAuthScope.COGNITO_ADMIN,
+          ],
+          callbackUrls,
+          logoutUrls,
+        },
         accessTokenValidity: Duration.hours(1),
         idTokenValidity: Duration.hours(1),
         refreshTokenValidity: Duration.days(30),
         enableTokenRevocation: true,
       });
+      client.node.addDependency(googleProvider, kakaoProvider);
       const issuer = `https://cognito-idp.${Aws.REGION}.${Aws.URL_SUFFIX}/${pool.userPoolId}`;
       authentication.set(environment.branch, {
         client,
+        domain,
         issuer,
         jwksEndpoint: `${issuer}/.well-known/jwks.json`,
         pool,
       });
     }
+    const preSignupLinkRole = preSignupLinkFunction.role;
+    if (!preSignupLinkRole) {
+      throw new Error('Pre-signup link function role was not created');
+    }
+    new iam.CfnPolicy(this, 'PreSignupLinkPolicy', {
+      policyName: 'gachisallim-pre-signup-link',
+      roles: [preSignupLinkRole.roleName],
+      policyDocument: new iam.PolicyDocument({
+        statements: [
+          new iam.PolicyStatement({
+            actions: ['cognito-idp:AdminLinkProviderForUser', 'cognito-idp:ListUsers'],
+            resources: Array.from(authentication.values(), ({ pool }) => pool.userPoolArn),
+          }),
+        ],
+      }),
+    });
 
     const instanceRole = new iam.Role(this, 'InstanceRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
@@ -652,6 +760,17 @@ ENVIRONMENT_CONFIG`,
         ],
         action: elbv2.ListenerAction.forward([targetGroup]),
       });
+      if (environment.branch === 'develop') {
+        httpsListener.addAction('DevelopmentPublicSwagger', {
+          priority: priorityOffset + 21,
+          conditions: [
+            hostCondition,
+            elbv2.ListenerCondition.pathPatterns(['/api-docs', '/api-docs/*', '/api-docs-json']),
+            elbv2.ListenerCondition.httpRequestMethods(['GET']),
+          ],
+          action: elbv2.ListenerAction.forward([targetGroup]),
+        });
+      }
       httpsListener.addAction(`${environment.id}CorsPreflight`, {
         priority: priorityOffset + 30,
         conditions: [hostCondition, elbv2.ListenerCondition.httpRequestMethods(['OPTIONS'])],
@@ -707,6 +826,12 @@ ENVIRONMENT_CONFIG`,
       });
       new CfnOutput(this, `${environment.id}CognitoIssuerUrl`, {
         value: auth.issuer,
+      });
+      new CfnOutput(this, `${environment.id}CognitoDomainUrl`, {
+        value: auth.domain.baseUrl(),
+      });
+      new CfnOutput(this, `${environment.id}CognitoIdpResponseUrl`, {
+        value: `${auth.domain.baseUrl()}/oauth2/idpresponse`,
       });
       new CfnOutput(this, `${environment.id}NotificationPushQueueUrl`, {
         value: notificationPushQueues.get(environment.branch)!.queueUrl,
