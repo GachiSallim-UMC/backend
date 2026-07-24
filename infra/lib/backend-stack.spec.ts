@@ -108,7 +108,6 @@ describe('BackendStack', () => {
   });
 
   it('links only supported external identities through the pre-signup trigger', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 1);
     template.hasResourceProperties('AWS::Cognito::UserPool', {
       LambdaConfig: Match.objectLike({ PreSignUp: Match.anyValue() }),
     });
@@ -260,6 +259,130 @@ describe('BackendStack', () => {
     expect(endpoints).toContain('.ssm');
     expect(endpoints).toContain('.ssmmessages');
     expect(endpoints).toContain('.s3');
+    expect(endpoints).toContain('.sqs');
+    expect(endpoints).toContain('.scheduler');
+  });
+
+  it('creates encrypted notification push queues and dead-letter queues per environment', () => {
+    template.resourceCountIs('AWS::SQS::Queue', 12);
+    template.resourceCountIs('AWS::KMS::Key', 1);
+    template.hasResourceProperties('AWS::KMS::Key', {
+      EnableKeyRotation: true,
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'gachisallim-main-notification-push',
+      ReceiveMessageWaitTimeSeconds: 20,
+      VisibilityTimeout: 180,
+      RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'gachisallim-develop-notification-push',
+      ReceiveMessageWaitTimeSeconds: 20,
+      VisibilityTimeout: 180,
+      RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
+    });
+
+    const runtimeConfiguration = JSON.stringify(
+      template.findResources('AWS::SSM::Document'),
+    );
+    expect(runtimeConfiguration).toContain('NOTIFICATION_PUSH_QUEUE_URL');
+    expect(runtimeConfiguration).toContain('NOTIFICATION_PUSH_RESULT_QUEUE_URL');
+    expect(runtimeConfiguration).toContain('NOTIFICATION_VAPID_PUBLIC_KEY');
+    expect(runtimeConfiguration).not.toContain('NOTIFICATION_VAPID_SECRET_ID');
+  });
+
+  it('runs isolated web push workers with partial batch retry and VAPID secret access', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'gachisallim-main-notification-web-push',
+      Architectures: ['arm64'],
+      MemorySize: 256,
+      ReservedConcurrentExecutions: 20,
+      Runtime: 'nodejs22.x',
+      Timeout: 30,
+      Environment: {
+        Variables: Match.objectLike({ NOTIFICATION_VAPID_SECRET_ID: Match.anyValue() }),
+      },
+    });
+    template.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
+      BatchSize: 10,
+      FunctionResponseTypes: ['ReportBatchItemFailures'],
+      ScalingConfig: { MaximumConcurrency: 10 },
+    });
+
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('secretsmanager:GetSecretValue');
+    expect(policies).toContain('sqs:ReceiveMessage');
+    expect(JSON.stringify(template.toJSON())).toContain(
+      '/gachisallim/main/notification-vapid-public-key',
+    );
+  });
+
+  it('creates environment-scoped chore due Scheduler resources and command queues', () => {
+    template.resourceCountIs('AWS::Scheduler::ScheduleGroup', 2);
+    template.hasResourceProperties('AWS::Scheduler::ScheduleGroup', {
+      Name: 'gachisallim-main-chore-due',
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'gachisallim-main-notification-command',
+      ReceiveMessageWaitTimeSeconds: 20,
+      RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
+    });
+
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('scheduler:CreateSchedule');
+    expect(policies).toContain('scheduler:UpdateSchedule');
+    expect(policies).toContain('scheduler:DeleteSchedule');
+    expect(policies).toContain('iam:PassRole');
+    expect(policies).toContain('iam:PassedToService');
+
+    const runtimeConfiguration = JSON.stringify(
+      template.findResources('AWS::SSM::Document'),
+    );
+    expect(runtimeConfiguration).toContain('NOTIFICATION_COMMAND_QUEUE_URL');
+    expect(runtimeConfiguration).toContain('CHORE_DUE_SCHEDULE_GROUP');
+    expect(runtimeConfiguration).toContain('CHORE_DUE_SCHEDULE_ROLE_ARN');
+  });
+
+  it('applies mutable instance configuration through an SSM association', () => {
+    template.resourceCountIs('AWS::SSM::Document', 1);
+    template.hasResourceProperties('AWS::SSM::Document', {
+      DocumentType: 'Command',
+      TargetType: '/AWS::EC2::Instance',
+      UpdateMethod: 'NewVersion',
+      Content: Match.objectLike({
+        schemaVersion: '2.2',
+        mainSteps: [
+          Match.objectLike({
+            action: 'aws:runShellScript',
+            name: 'configureApplicationRuntime',
+          }),
+        ],
+      }),
+    });
+    template.hasResourceProperties('AWS::SSM::Association', {
+      AssociationName: 'gachisallim-application-runtime-configuration',
+      DocumentVersion: '$LATEST',
+      Parameters: {
+        ConfigurationVersion: [Match.stringLikeRegexp('^[0-9a-f]{64}$')],
+      },
+      Targets: [
+        {
+          Key: 'InstanceIds',
+          Values: [Match.anyValue()],
+        },
+      ],
+      WaitForSuccessTimeoutSeconds: 600,
+    });
+
+    const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
+    expect(userData).not.toContain('NOTIFICATION_PUSH_QUEUE_URL');
+    expect(userData).not.toContain('NOTIFICATION_COMMAND_QUEUE_URL');
+
+    const runtimeConfiguration = JSON.stringify(
+      template.findResources('AWS::SSM::Document'),
+    );
+    expect(runtimeConfiguration).toContain('/usr/local/bin/gachisallim-deploy');
+    expect(runtimeConfiguration).toContain('systemctl enable');
   });
 
   it('allows the instance to receive SSM commands and access only required Cognito pools', () => {
@@ -282,5 +405,11 @@ describe('BackendStack', () => {
         ]),
       },
     });
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('sqs:SendMessage');
+    const instancePolicies = Object.values(template.findResources('AWS::IAM::Policy')).filter(
+      (policy) => JSON.stringify(policy).includes('InstanceRole'),
+    );
+    expect(JSON.stringify(instancePolicies)).not.toContain('notification-vapid');
   });
 });

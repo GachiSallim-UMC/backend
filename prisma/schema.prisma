@@ -92,7 +92,8 @@ model NotificationPushSubscription {
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationPushDelivery[]
 
   @@map("notification_push_subscriptions")
 }
@@ -417,14 +418,38 @@ model Notification {
   message   String           @db.VarChar(255)
   isRead    Boolean          @default(false) @map("is_read")
   hiddenAt  DateTime?        @map("hidden_at")
+  dedupeKey String?          @unique @map("dedupe_key") @db.VarChar(255)
   createdAt DateTime         @default(now()) @map("created_at")
 
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group Group? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user           User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group          Group?                     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  pushDeliveries NotificationPushDelivery[]
 
   @@index([userId, isRead])
   @@index([userId, hiddenAt, createdAt])
   @@map("notifications")
+}
+
+model NotificationPushDelivery {
+  id              BigInt                         @id @default(autoincrement())
+  notificationId  BigInt                         @map("notification_id")
+  subscriptionId  BigInt                         @map("subscription_id")
+  status          NotificationPushDeliveryStatus @default(PENDING)
+  publishAttempts Int                            @default(0) @map("publish_attempts")
+  nextAttemptAt   DateTime                       @default(now()) @map("next_attempt_at")
+  enqueuedAt      DateTime?                      @map("enqueued_at")
+  sentAt          DateTime?                      @map("sent_at")
+  failedAt        DateTime?                      @map("failed_at")
+  lastError       String?                        @map("last_error") @db.VarChar(255)
+  createdAt       DateTime                       @default(now()) @map("created_at")
+  updatedAt       DateTime                       @updatedAt @map("updated_at")
+
+  notification Notification                 @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  subscription NotificationPushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, subscriptionId])
+  @@index([status, nextAttemptAt])
+  @@map("notification_push_deliveries")
 }
 
 // =====================================================
@@ -549,6 +574,13 @@ enum NotificationType {
   NEW_MESSAGE
   GROUP_INVITE
   EXPENSE_DONE
+}
+
+enum NotificationPushDeliveryStatus {
+  PENDING
+  ENQUEUED
+  SENT
+  FAILED
 }
 
 enum ActivityLogType {

@@ -7332,6 +7332,64 @@
         }
       }
     },
+    "/api/v1/notification-push-subscriptions/vapid-public-key": {
+      "get": {
+        "tags": [
+          "알림"
+        ],
+        "summary": "웹 푸시 구독용 VAPID 공개 키 조회",
+        "description": "인증된 클라이언트가 PushManager.subscribe의 applicationServerKey로 사용할 환경별 공개 키를 반환합니다.",
+        "operationId": "getNotificationPushSubscriptionsVapidPublicKey",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/VapidPublicKeyResponse"
+                    },
+                    "error": {
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "publicKey": "BExampleUrlSafeBase64PublicKey"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/notification-push-subscriptions/{subscriptionId}": {
       "delete": {
         "tags": [
@@ -7739,6 +7797,19 @@
             "items": {
               "$ref": "#/components/schemas/NotificationPushSubscription"
             }
+          }
+        }
+      },
+      "VapidPublicKeyResponse": {
+        "type": "object",
+        "required": [
+          "publicKey"
+        ],
+        "properties": {
+          "publicKey": {
+            "type": "string",
+            "description": "PushManager.subscribe의 applicationServerKey에 사용할 URL-safe Base64 공개 키",
+            "example": "BExampleUrlSafeBase64PublicKey"
           }
         }
       },

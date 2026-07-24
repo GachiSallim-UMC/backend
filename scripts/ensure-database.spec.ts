@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { buildAdminUrl } = require('./ensure-database.cjs') as {
   buildAdminUrl: (databaseUrl: string) => string;
 };

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -6,7 +7,9 @@ import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as lambdaNodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as elbv2Targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
@@ -16,6 +19,9 @@ import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as scheduler from 'aws-cdk-lib/aws-scheduler';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 const DATABASE_PORT = 5432;
@@ -187,6 +193,14 @@ export class BackendStack extends Stack {
       service: ec2.InterfaceVpcEndpointAwsService.SSM_MESSAGES,
       ...endpointOptions,
     });
+    vpc.addInterfaceEndpoint('SqsEndpoint', {
+      service: ec2.InterfaceVpcEndpointAwsService.SQS,
+      ...endpointOptions,
+    });
+    vpc.addInterfaceEndpoint('SchedulerEndpoint', {
+      service: new ec2.InterfaceVpcEndpointAwsService('scheduler'),
+      ...endpointOptions,
+    });
     vpc.addGatewayEndpoint('S3Endpoint', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
       subnets: [applicationSubnet],
@@ -197,6 +211,170 @@ export class BackendStack extends Stack {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: RemovalPolicy.RETAIN,
     });
+
+    const notificationQueueKey = new kms.Key(this, 'NotificationQueueKey', {
+      alias: 'alias/gachisallim-notification-queues',
+      description: 'Encrypts notification delivery queues.',
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    const notificationPushQueues = new Map<string, sqs.Queue>();
+    const notificationPushResultQueues = new Map<string, sqs.Queue>();
+    const notificationVapidSecrets = new Map<string, secretsmanager.ISecret>();
+    const notificationVapidPublicKeys = new Map<string, string>();
+    const notificationCommandQueues = new Map<string, sqs.Queue>();
+    const notificationCommandDeadLetterQueues = new Map<string, sqs.Queue>();
+    const choreDueScheduleGroups = new Map<string, scheduler.CfnScheduleGroup>();
+    const choreDueScheduleRoles = new Map<string, iam.Role>();
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      const deadLetterQueue = new sqs.Queue(
+        this,
+        `${environment.id}NotificationPushDeadLetterQueue`,
+        {
+          queueName: `gachisallim-${environment.branch}-notification-push-dlq`,
+          encryption: sqs.QueueEncryption.KMS,
+          encryptionMasterKey: notificationQueueKey,
+          enforceSSL: true,
+          retentionPeriod: Duration.days(14),
+          removalPolicy: RemovalPolicy.RETAIN,
+        },
+      );
+      const queue = new sqs.Queue(this, `${environment.id}NotificationPushQueue`, {
+        queueName: `gachisallim-${environment.branch}-notification-push`,
+        encryption: sqs.QueueEncryption.KMS,
+        encryptionMasterKey: notificationQueueKey,
+        enforceSSL: true,
+        receiveMessageWaitTime: Duration.seconds(20),
+        retentionPeriod: Duration.days(4),
+        visibilityTimeout: Duration.seconds(180),
+        deadLetterQueue: { queue: deadLetterQueue, maxReceiveCount: 5 },
+        removalPolicy: RemovalPolicy.RETAIN,
+      });
+      notificationPushQueues.set(environment.branch, queue);
+
+      const resultDeadLetterQueue = new sqs.Queue(
+        this,
+        `${environment.id}NotificationPushResultDeadLetterQueue`,
+        {
+          queueName: `gachisallim-${environment.branch}-notification-push-result-dlq`,
+          encryption: sqs.QueueEncryption.KMS,
+          encryptionMasterKey: notificationQueueKey,
+          enforceSSL: true,
+          retentionPeriod: Duration.days(14),
+          removalPolicy: RemovalPolicy.RETAIN,
+        },
+      );
+      const commandDeadLetterQueue = new sqs.Queue(
+        this,
+        `${environment.id}NotificationCommandDeadLetterQueue`,
+        {
+          queueName: `gachisallim-${environment.branch}-notification-command-dlq`,
+          encryption: sqs.QueueEncryption.KMS,
+          encryptionMasterKey: notificationQueueKey,
+          enforceSSL: true,
+          retentionPeriod: Duration.days(14),
+          removalPolicy: RemovalPolicy.RETAIN,
+        },
+      );
+      const resultQueue = new sqs.Queue(this, `${environment.id}NotificationPushResultQueue`, {
+        queueName: `gachisallim-${environment.branch}-notification-push-result`,
+        encryption: sqs.QueueEncryption.KMS,
+        encryptionMasterKey: notificationQueueKey,
+        enforceSSL: true,
+        receiveMessageWaitTime: Duration.seconds(20),
+        retentionPeriod: Duration.days(4),
+        visibilityTimeout: Duration.seconds(60),
+        deadLetterQueue: { queue: resultDeadLetterQueue, maxReceiveCount: 5 },
+        removalPolicy: RemovalPolicy.RETAIN,
+      });
+      notificationPushResultQueues.set(environment.branch, resultQueue);
+
+      const vapidSecret = secretsmanager.Secret.fromSecretNameV2(
+        this,
+        `${environment.id}NotificationVapidSecret`,
+        `gachisallim/${environment.branch}/notification-vapid`,
+      );
+      notificationVapidSecrets.set(environment.branch, vapidSecret);
+      notificationVapidPublicKeys.set(
+        environment.branch,
+        ssm.StringParameter.valueForStringParameter(
+          this,
+          `/gachisallim/${environment.branch}/notification-vapid-public-key`,
+        ),
+      );
+
+      const worker = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}NotificationWebPushWorker`,
+        {
+          functionName: `gachisallim-${environment.branch}-notification-web-push`,
+          entry: join(__dirname, '../lambda/notification-web-push.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(30),
+          memorySize: 256,
+          reservedConcurrentExecutions: 20,
+          logGroup: new logs.LogGroup(this, `${environment.id}NotificationWebPushWorkerLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-notification-web-push`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          environment: {
+            NOTIFICATION_VAPID_SECRET_ID: vapidSecret.secretArn,
+            NOTIFICATION_PUSH_RESULT_QUEUE_URL: resultQueue.queueUrl,
+          },
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+      worker.addEventSource(
+        new lambdaEventSources.SqsEventSource(queue, {
+          batchSize: 10,
+          maxConcurrency: 10,
+          reportBatchItemFailures: true,
+        }),
+      );
+      vapidSecret.grantRead(worker);
+      resultQueue.grantSendMessages(worker);
+      const commandQueue = new sqs.Queue(this, `${environment.id}NotificationCommandQueue`, {
+        queueName: `gachisallim-${environment.branch}-notification-command`,
+        encryption: sqs.QueueEncryption.KMS,
+        encryptionMasterKey: notificationQueueKey,
+        enforceSSL: true,
+        receiveMessageWaitTime: Duration.seconds(20),
+        retentionPeriod: Duration.days(4),
+        visibilityTimeout: Duration.seconds(60),
+        deadLetterQueue: { queue: commandDeadLetterQueue, maxReceiveCount: 5 },
+        removalPolicy: RemovalPolicy.RETAIN,
+      });
+      notificationCommandQueues.set(environment.branch, commandQueue);
+      notificationCommandDeadLetterQueues.set(environment.branch, commandDeadLetterQueue);
+
+      const scheduleGroupName = `gachisallim-${environment.branch}-chore-due`;
+      const scheduleGroup = new scheduler.CfnScheduleGroup(
+        this,
+        `${environment.id}ChoreDueScheduleGroup`,
+        { name: scheduleGroupName },
+      );
+      choreDueScheduleGroups.set(environment.branch, scheduleGroup);
+      const scheduleGroupArn = this.formatArn({
+        service: 'scheduler',
+        resource: 'schedule-group',
+        resourceName: scheduleGroupName,
+      });
+      const scheduleRole = new iam.Role(this, `${environment.id}ChoreDueScheduleRole`, {
+        roleName: `gachisallim-${environment.branch}-chore-due-scheduler`,
+        assumedBy: new iam.ServicePrincipal('scheduler.amazonaws.com', {
+          conditions: {
+            StringEquals: { 'aws:SourceAccount': Aws.ACCOUNT_ID },
+            ArnEquals: { 'aws:SourceArn': scheduleGroupArn },
+          },
+        }),
+      });
+      commandQueue.grantSendMessages(scheduleRole);
+      commandDeadLetterQueue.grantSendMessages(scheduleRole);
+      choreDueScheduleRoles.set(environment.branch, scheduleRole);
+    }
 
     const database = new rds.DatabaseInstance(this, 'Database', {
       engine: rds.DatabaseInstanceEngine.postgres({
@@ -365,6 +543,44 @@ export class BackendStack extends Stack {
     databaseSecret.grantRead(instanceRole);
     props.artifactBucket.grantRead(instanceRole, 'releases/*');
     applicationLogGroup.grantWrite(instanceRole);
+    for (const queue of notificationPushQueues.values()) {
+      queue.grantSendMessages(instanceRole);
+    }
+    for (const queue of notificationPushResultQueues.values()) {
+      queue.grantConsumeMessages(instanceRole);
+    }
+    for (const queue of notificationCommandQueues.values()) {
+      queue.grantSendMessages(instanceRole);
+      queue.grantConsumeMessages(instanceRole);
+    }
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      const scheduleGroup = choreDueScheduleGroups.get(environment.branch)!;
+      const scheduleRole = choreDueScheduleRoles.get(environment.branch)!;
+      instanceRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            'scheduler:CreateSchedule',
+            'scheduler:UpdateSchedule',
+            'scheduler:DeleteSchedule',
+            'scheduler:GetSchedule',
+          ],
+          resources: [
+            this.formatArn({
+              service: 'scheduler',
+              resource: 'schedule',
+              resourceName: `${scheduleGroup.name}/*`,
+            }),
+          ],
+        }),
+      );
+      instanceRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['iam:PassRole'],
+          resources: [scheduleRole.roleArn],
+          conditions: { StringEquals: { 'iam:PassedToService': 'scheduler.amazonaws.com' } },
+        }),
+      );
+    }
     instanceRole.addToPolicy(
       new iam.PolicyStatement({
         actions: ['cognito-idp:AdminDeleteUser', 'cognito-idp:AdminGetUser'],
@@ -397,10 +613,15 @@ export class BackendStack extends Stack {
     });
     Tags.of(instance).add('GachiSallimDeploymentTarget', 'true');
 
-    const deployScript = readFileSync(join(__dirname, '../../scripts/deploy-release.sh'), 'utf8');
+    // Keep this bootstrap payload stable. Mutable scripts and configuration are applied below
+    // through SSM State Manager so an update does not rely on UserData running again.
+    const bootstrapDeployScript = readFileSync(
+      join(__dirname, '../../scripts/bootstrap-deploy-release.sh'),
+      'utf8',
+    );
     instance.userData.addCommands(
       'mkdir -p /etc/gachisallim /opt/gachisallim/current /opt/gachisallim/releases',
-      `cat > /usr/local/bin/gachisallim-deploy <<'DEPLOY_SCRIPT'\n${deployScript}\nDEPLOY_SCRIPT`,
+      `cat > /usr/local/bin/gachisallim-deploy <<'DEPLOY_SCRIPT'\n${bootstrapDeployScript}\nDEPLOY_SCRIPT`,
       'chmod 0755 /usr/local/bin/gachisallim-deploy',
       `cat > /etc/systemd/system/gachisallim@.service <<'SYSTEMD_UNIT'
 [Unit]
@@ -445,6 +666,96 @@ ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
     }
+
+    const deployScript = readFileSync(join(__dirname, '../../scripts/deploy-release.sh'), 'utf8');
+    const runtimeConfigurationCommands = [
+      'set -euo pipefail',
+      'mkdir -p /etc/gachisallim /opt/gachisallim/current /opt/gachisallim/releases',
+      `cat > /usr/local/bin/gachisallim-deploy <<'DEPLOY_SCRIPT'\n${deployScript}\nDEPLOY_SCRIPT`,
+      'chmod 0755 /usr/local/bin/gachisallim-deploy',
+    ];
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      const auth = authentication.get(environment.branch)!;
+      runtimeConfigurationCommands.push(
+        `cat > /etc/gachisallim/${environment.branch}.config <<'ENVIRONMENT_CONFIG'
+ARTIFACT_BUCKET='${props.artifactBucket.bucketName}'
+DATABASE_SECRET_ARN='${databaseSecret.secretArn}'
+DATABASE_NAME='${environment.databaseName}'
+NODE_ENV='${environment.nodeEnvironment}'
+PORT='${environment.port}'
+APP_NAME='GachiSallim Backend (${environment.branch})'
+APP_VERSION='0.1.0'
+CORS_ORIGIN='${environment.corsOrigin}'
+AWS_REGION='${Aws.REGION}'
+COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
+COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
+NOTIFICATION_PUSH_QUEUE_URL='${notificationPushQueues.get(environment.branch)!.queueUrl}'
+NOTIFICATION_PUSH_RESULT_QUEUE_URL='${notificationPushResultQueues.get(environment.branch)!.queueUrl}'
+NOTIFICATION_VAPID_PUBLIC_KEY='${notificationVapidPublicKeys.get(environment.branch)!}'
+NOTIFICATION_COMMAND_QUEUE_URL='${notificationCommandQueues.get(environment.branch)!.queueUrl}'
+NOTIFICATION_COMMAND_QUEUE_ARN='${notificationCommandQueues.get(environment.branch)!.queueArn}'
+NOTIFICATION_COMMAND_DLQ_ARN='${notificationCommandDeadLetterQueues.get(environment.branch)!.queueArn}'
+CHORE_DUE_SCHEDULE_GROUP='${choreDueScheduleGroups.get(environment.branch)!.name}'
+CHORE_DUE_SCHEDULE_ROLE_ARN='${choreDueScheduleRoles.get(environment.branch)!.roleArn}'
+CHORE_DUE_SCHEDULE_PREFIX='${environment.branch}'
+ENVIRONMENT_CONFIG`,
+        `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
+      );
+    }
+    runtimeConfigurationCommands.push(
+      'systemctl daemon-reload',
+      `for environment_name in main develop; do
+  if [[ -e "/opt/gachisallim/current/\${environment_name}/dist/main.js" ]]; then
+    systemctl enable "gachisallim@\${environment_name}.service"
+  fi
+done`,
+      'echo "Applied runtime configuration {{ ConfigurationVersion }}"',
+    );
+    const runtimeConfigurationScript = runtimeConfigurationCommands.join('\n');
+    const runtimeConfigurationVersion = createHash('sha256')
+      .update(readFileSync(__filename, 'utf8'))
+      .update('\0')
+      .update(deployScript)
+      .digest('hex');
+    const runtimeConfigurationDocument = new ssm.CfnDocument(
+      this,
+      'ApplicationRuntimeConfigurationDocument',
+      {
+        documentType: 'Command',
+        targetType: '/AWS::EC2::Instance',
+        updateMethod: 'NewVersion',
+        content: {
+          schemaVersion: '2.2',
+          description: 'Applies mutable GachiSallim application runtime configuration.',
+          parameters: {
+            ConfigurationVersion: {
+              type: 'String',
+              description: 'Hash of the desired runtime configuration.',
+            },
+          },
+          mainSteps: [
+            {
+              action: 'aws:runShellScript',
+              name: 'configureApplicationRuntime',
+              inputs: { runCommand: [runtimeConfigurationScript] },
+            },
+          ],
+        },
+      },
+    );
+    const runtimeConfigurationAssociation = new ssm.CfnAssociation(
+      this,
+      'ApplicationRuntimeConfigurationAssociation',
+      {
+        name: runtimeConfigurationDocument.ref,
+        associationName: 'gachisallim-application-runtime-configuration',
+        documentVersion: '$LATEST',
+        parameters: { ConfigurationVersion: [runtimeConfigurationVersion] },
+        targets: [{ key: 'InstanceIds', values: [instance.instanceId] }],
+        waitForSuccessTimeoutSeconds: 600,
+      },
+    );
+    runtimeConfigurationAssociation.addDependency(runtimeConfigurationDocument);
 
     const targetGroups = new Map<string, elbv2.ApplicationTargetGroup>();
     for (const environment of RUNTIME_ENVIRONMENTS) {
@@ -608,6 +919,18 @@ ENVIRONMENT_CONFIG`,
       });
       new CfnOutput(this, `${environment.id}CognitoIdpResponseUrl`, {
         value: `${auth.domain.baseUrl()}/oauth2/idpresponse`,
+      });
+      new CfnOutput(this, `${environment.id}NotificationPushQueueUrl`, {
+        value: notificationPushQueues.get(environment.branch)!.queueUrl,
+      });
+      new CfnOutput(this, `${environment.id}NotificationPushResultQueueUrl`, {
+        value: notificationPushResultQueues.get(environment.branch)!.queueUrl,
+      });
+      new CfnOutput(this, `${environment.id}NotificationCommandQueueUrl`, {
+        value: notificationCommandQueues.get(environment.branch)!.queueUrl,
+      });
+      new CfnOutput(this, `${environment.id}ChoreDueScheduleGroupName`, {
+        value: choreDueScheduleGroups.get(environment.branch)!.name!,
       });
     }
 

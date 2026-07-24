@@ -1,5 +1,45 @@
 # GachiSallim Backend
 
+## Web Push VAPID prerequisite
+
+Before deploying the notification web-push workers, provision one environment-specific VAPID
+key pair. The command is idempotent and never prints the generated keys:
+
+```bash
+npm run vapid:provision -- \
+  --environment develop \
+  --subject mailto:ops@gachisallim.com \
+  --profile gachisallim \
+  --region ap-northeast-2
+```
+
+Use `--environment main` with a separately generated key pair for production. The command creates:
+
+- Secrets Manager: `gachisallim/{environment}/notification-vapid`
+- SSM Parameter: `/gachisallim/{environment}/notification-vapid-public-key`
+
+The secret contains non-empty `publicKey`, `privateKey`, and `subject` fields. The matching public
+key is stored separately so the backend does not need permission to read the signing secret. If
+both resources already exist, the command does not rotate them. CDK grants each secret's read
+permission only to the corresponding Lambda worker.
+
+Authenticated clients obtain the public key from
+`GET /api/v1/notification-push-subscriptions/vapid-public-key` and pass it as
+`applicationServerKey` when calling `PushManager.subscribe`.
+
+### Web Push delivery guarantee
+
+Web Push delivery is at-least-once. If a push service accepts a notification but publishing the
+corresponding result message fails, Lambda retries the original SQS message and the user can
+receive a duplicate notification. The stable `deliveryId` makes result processing idempotent, but
+it cannot make the external push service call exactly-once.
+
+The worker emits a structured `RESULT_PUBLISH_FAILURE_AFTER_PUSH` CloudWatch log with
+`deliveryId`, source SQS `messageId`, and `receiveCount` before requesting a retry. Use this event
+to identify possible duplicates and correlate repeated attempts for the same delivery. The Web
+Push `topic` may collapse still-pending notifications at providers that support it, but it is not
+treated as a correctness guarantee.
+
 GachiSallim 서비스의 NestJS 백엔드입니다. Prisma, PostgreSQL, ESLint, Prettier, AWS CDK를 사용합니다.
 
 ## 시작하기
