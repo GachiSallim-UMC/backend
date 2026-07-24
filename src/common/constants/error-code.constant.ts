@@ -173,7 +173,7 @@ export const ErrorCode = {
   SUP_INVALID_CATEGORY: {
     status: 400,
     code: 'SUP_400_CATEGORY',
-    message: '구매 완료 처리 시 정산 카테고리(categoryId)는 필수입니다.',
+    message: '구매 완료 처리 시 정산 카테고리(category)는 필수입니다.',
   },
   SUP_FORBIDDEN: {
     status: 403,

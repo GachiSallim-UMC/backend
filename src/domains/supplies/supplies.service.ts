@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  ExpenseCategory,
   ExpenseStatus,
   GroupRole,
   MessageType,
@@ -146,7 +147,7 @@ export class SuppliesService {
   }
 
   async purchase(supplyId: bigint, dto: PurchaseSupplyDto, cognitoSub: string) {
-    if (dto.categoryId === undefined) {
+    if (dto.category === undefined) {
       throw new BusinessException(ErrorCode.SUP_INVALID_CATEGORY);
     }
 
@@ -157,7 +158,7 @@ export class SuppliesService {
     }
 
     const userId = await this.supplyUsers.resolveActiveUserId(cognitoSub);
-    const categoryId = BigInt(dto.categoryId);
+    const category: ExpenseCategory = dto.category;
     const amount = dto.amount;
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -180,7 +181,7 @@ export class SuppliesService {
 
       const expense = await tx.expense.create({
         data: {
-          categoryId,
+          category,
           groupId: supply.groupId,
           payerId: userId,
           createdBy: userId,
@@ -221,7 +222,7 @@ export class SuppliesService {
       log: { prevStatus, nextStatus: SupplyStatus.PURCHASED, note: null },
       expense: {
         expenseId: Number(result.expense.id),
-        categoryId: result.expense.categoryId !== null ? Number(result.expense.categoryId) : null,
+        category: result.expense.category,
         title: result.expense.title,
         payerId: Number(result.expense.payerId),
         totalAmount: result.expense.totalAmount,

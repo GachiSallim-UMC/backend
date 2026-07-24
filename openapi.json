@@ -2725,7 +2725,7 @@
           "물품"
         ],
         "summary": "구매 완료 및 정산 연결 (SUP-BUY-01)",
-        "description": "물품 상태를 PURCHASED로 전환하고, 구매 금액(amount)으로 Expense를 생성해 linkedExpenseId로 연결합니다. 생성되는 Expense의 payerId(선지불자)는 Access Token의 요청자로 설정하며, title은 물품명, splitType은 EQUAL, status는 PENDING으로 초기화됩니다. Expense.totalAmount는 NOT NULL이므로 amount는 필수입니다. 정산 카테고리(categoryId)도 필수입니다. 이미 구매 완료된 물품은 재처리할 수 없습니다. (우선순위: P1) ※ 생성되는 Expense의 payerId/splitType 처리 방식은 EXP 도메인 담당자와 최종 협의 대상입니다.",
+        "description": "물품 상태를 PURCHASED로 전환하고, 구매 금액(amount)으로 Expense를 생성해 linkedExpenseId로 연결합니다. 생성되는 Expense의 payerId(선지불자)는 Access Token의 요청자로 설정하며, title은 물품명, splitType은 EQUAL, status는 PENDING으로 초기화됩니다. Expense.totalAmount는 NOT NULL이므로 amount는 필수입니다. 정산 카테고리(category)도 필수입니다. 이미 구매 완료된 물품은 재처리할 수 없습니다. (우선순위: P1) ※ 생성되는 Expense의 payerId/splitType 처리 방식은 EXP 도메인 담당자와 최종 협의 대상입니다.",
         "parameters": [
           {
             "name": "supplyId",
@@ -2745,14 +2745,20 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "categoryId",
+                  "category",
                   "amount"
                 ],
                 "properties": {
-                  "categoryId": {
-                    "type": "integer",
-                    "description": "정산 카테고리 ID (Expense.categoryId, 필수)",
-                    "example": 3
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "FOOD",
+                      "SHOPPING",
+                      "UTILITIES",
+                      "ETC"
+                    ],
+                    "description": "정산 카테고리 (Expense.category, 필수). FOOD(식비), SHOPPING(쇼핑), UTILITIES(공과금), ETC(기타)",
+                    "example": "SHOPPING"
                   },
                   "amount": {
                     "type": "integer",
@@ -2783,7 +2789,7 @@
                     },
                     "expense": {
                       "expenseId": 88,
-                      "categoryId": 3,
+                      "category": "SHOPPING",
                       "title": "화장지",
                       "payerId": 5,
                       "totalAmount": 8900,
@@ -2798,18 +2804,18 @@
             }
           },
           "400": {
-            "description": "categoryId 또는 amount 누락",
+            "description": "category 또는 amount 누락",
             "content": {
               "application/json": {
                 "examples": {
                   "categoryRequired": {
-                    "summary": "categoryId 누락",
+                    "summary": "category 누락",
                     "value": {
                       "statusCode": 400,
                       "data": null,
                       "error": {
                         "code": "SUP_400_CATEGORY",
-                        "message": "구매 완료 처리 시 정산 카테고리(categoryId)는 필수입니다.",
+                        "message": "구매 완료 처리 시 정산 카테고리(category)는 필수입니다.",
                         "errors": []
                       }
                     }
