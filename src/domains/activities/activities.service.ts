@@ -3,6 +3,45 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { GetActivityQueryDto } from './dto/get-activity-query.dto';
 
+// --- 동적 모델 접근을 위한 명확한 타입 인터페이스 정의 ---
+interface BaseEntity {
+  id: bigint;
+  groupId: bigint;
+  createdAt: Date;
+  updatedAt?: Date;
+  createdBy: bigint;
+  updatedBy?: bigint;
+}
+
+interface ExpenseEntity extends BaseEntity {
+  title: string;
+  status?: string;
+}
+
+interface ChoreEntity extends BaseEntity {
+  title: string;
+  assigneeId?: bigint;
+  isCompleted?: boolean;
+  status?: string;
+}
+
+interface RuleEntity extends BaseEntity {
+  title: string;
+}
+
+interface SupplyEntity extends BaseEntity {
+  name?: string;
+  title?: string;
+}
+
+interface DynamicPrismaDelegate<T> {
+  findMany(args: {
+    where: { groupId: bigint };
+    orderBy: { updatedAt: 'desc' };
+    take: number;
+  }): Promise<T[]>;
+}
+
 @Injectable()
 export class ActivitiesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -106,7 +145,8 @@ export class ActivitiesService {
 
     // 1️. 지출 (EXPENSE_CREATED, EXPENSE_DONE)
     if ('expense' in this.prisma) {
-      const expenses = await (this.prisma as any).expense.findMany({
+      const expenseDelegate = (this.prisma as unknown as { expense: DynamicPrismaDelegate<ExpenseEntity> }).expense;
+      const expenses = await expenseDelegate.findMany({
         where: { groupId: groupBigInt },
         orderBy: { updatedAt: 'desc' },
         take: 20,
@@ -155,7 +195,8 @@ export class ActivitiesService {
 
     // 2️. 집안일 (CHORE_CREATED, CHORE_DONE)
     if ('chore' in this.prisma) {
-      const chores = await (this.prisma as any).chore.findMany({
+      const choreDelegate = (this.prisma as unknown as { chore: DynamicPrismaDelegate<ChoreEntity> }).chore;
+      const chores = await choreDelegate.findMany({
         where: { groupId: groupBigInt },
         orderBy: { updatedAt: 'desc' },
         take: 20,
@@ -204,7 +245,8 @@ export class ActivitiesService {
 
     // 3️. 규칙 (RULE_CREATED, RULE_EDITED)
     if ('rule' in this.prisma) {
-      const rules = await (this.prisma as any).rule.findMany({
+      const ruleDelegate = (this.prisma as unknown as { rule: DynamicPrismaDelegate<RuleEntity> }).rule;
+      const rules = await ruleDelegate.findMany({
         where: { groupId: groupBigInt },
         orderBy: { updatedAt: 'desc' },
         take: 20,
@@ -253,7 +295,8 @@ export class ActivitiesService {
 
     // 4️. 생필품 (SUPPLY_CHANGED)
     if ('supply' in this.prisma) {
-      const supplies = await (this.prisma as any).supply.findMany({
+      const supplyDelegate = (this.prisma as unknown as { supply: DynamicPrismaDelegate<SupplyEntity> }).supply;
+      const supplies = await supplyDelegate.findMany({
         where: { groupId: groupBigInt },
         orderBy: { updatedAt: 'desc' },
         take: 20,
@@ -271,7 +314,7 @@ export class ActivitiesService {
               userId: supply.updatedBy || supply.createdBy,
               type: 'SUPPLY_CHANGED',
               refId: supply.id,
-              description: `생필품 ${supply.name || supply.title} 상태가 변경되었습니다.`,
+              description: `생필품 ${supply.name || supply.title || ''} 상태가 변경되었습니다.`,
               createdAt: supply.updatedAt || supply.createdAt,
             },
           });
