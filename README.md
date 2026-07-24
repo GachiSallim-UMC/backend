@@ -27,6 +27,19 @@ Authenticated clients obtain the public key from
 `GET /api/v1/notification-push-subscriptions/vapid-public-key` and pass it as
 `applicationServerKey` when calling `PushManager.subscribe`.
 
+### Web Push delivery guarantee
+
+Web Push delivery is at-least-once. If a push service accepts a notification but publishing the
+corresponding result message fails, Lambda retries the original SQS message and the user can
+receive a duplicate notification. The stable `deliveryId` makes result processing idempotent, but
+it cannot make the external push service call exactly-once.
+
+The worker emits a structured `RESULT_PUBLISH_FAILURE_AFTER_PUSH` CloudWatch log with
+`deliveryId`, source SQS `messageId`, and `receiveCount` before requesting a retry. Use this event
+to identify possible duplicates and correlate repeated attempts for the same delivery. The Web
+Push `topic` may collapse still-pending notifications at providers that support it, but it is not
+treated as a correctness guarantee.
+
 GachiSallim 서비스의 NestJS 백엔드입니다. Prisma, PostgreSQL, ESLint, Prettier, AWS CDK를 사용합니다.
 
 ## 시작하기

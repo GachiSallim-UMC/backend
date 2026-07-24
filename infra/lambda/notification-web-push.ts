@@ -80,7 +80,12 @@ async function processRecord(record: SQSRecord, dependencies: WorkerDependencies
       }),
       { TTL: 300, urgency: 'normal', topic: `notification-${job.notification.notificationId}` },
     );
-    await dependencies.sendResult(result(job, 'SENT'));
+    try {
+      await dependencies.sendResult(result(job, 'SENT'));
+    } catch (error) {
+      logResultPublishFailureAfterPush(record, job.deliveryId, error);
+      throw error;
+    }
     log('SENT', record.messageId);
   } catch (error) {
     const statusCode = (error as PushError).statusCode;
@@ -157,6 +162,23 @@ function errorName(error: unknown): string {
 
 function log(outcome: string, messageId: string, errorCode?: string): void {
   console.log(JSON.stringify({ event: 'notification_web_push', outcome, messageId, errorCode }));
+}
+
+function logResultPublishFailureAfterPush(
+  record: SQSRecord,
+  deliveryId: string,
+  error: unknown,
+): void {
+  console.warn(
+    JSON.stringify({
+      event: 'notification_web_push',
+      outcome: 'RESULT_PUBLISH_FAILURE_AFTER_PUSH',
+      messageId: record.messageId,
+      deliveryId,
+      receiveCount: Number(record.attributes.ApproximateReceiveCount),
+      errorCode: errorName(error),
+    }),
+  );
 }
 
 async function getVapidSecret(): Promise<VapidSecret> {

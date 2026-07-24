@@ -63,6 +63,28 @@ describe('notification web push Lambda', () => {
     expect(sendResult).not.toHaveBeenCalled();
   });
 
+  it('logs a possible duplicate before retrying when result publishing fails after push success', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation();
+    sendResult.mockRejectedValue(new Error('result queue unavailable'));
+
+    await expect(handler(event())).resolves.toEqual({
+      batchItemFailures: [{ itemIdentifier: 'message-1' }],
+    });
+    expect(sendPush).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(
+      JSON.stringify({
+        event: 'notification_web_push',
+        outcome: 'RESULT_PUBLISH_FAILURE_AFTER_PUSH',
+        messageId: 'message-1',
+        deliveryId: '31',
+        receiveCount: 1,
+        errorCode: 'Error',
+      }),
+    );
+
+    warning.mockRestore();
+  });
+
   it('continues processing remaining subscriptions when one fails', async () => {
     sendPush.mockRejectedValueOnce(Object.assign(new Error('temporary'), { statusCode: 503 }));
     const second = record('message-2');

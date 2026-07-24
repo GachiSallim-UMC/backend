@@ -713,7 +713,9 @@ done`,
     );
     const runtimeConfigurationScript = runtimeConfigurationCommands.join('\n');
     const runtimeConfigurationVersion = createHash('sha256')
-      .update(runtimeConfigurationScript)
+      .update(readFileSync(__filename, 'utf8'))
+      .update('\0')
+      .update(deployScript)
       .digest('hex');
     const runtimeConfigurationDocument = new ssm.CfnDocument(
       this,
