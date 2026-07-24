@@ -183,6 +183,7 @@ describe('ActivitiesService (최근 활동 내역)', () => {
           {
             id: 10,
             type: ActivityLogType.EXPENSE_CREATED,
+            refId: 123, // 👈 refId 필드 반영!
             description: '지현님이 새로운 생활비 [5월 관리비] 정산을 요청했습니다.',
             createdAt: new Date('2026-07-02T16:40:00Z'),
             user: {
@@ -193,6 +194,7 @@ describe('ActivitiesService (최근 활동 내역)', () => {
           {
             id: 9,
             type: ActivityLogType.CHORE_DONE,
+            refId: 45, // 👈 refId 필드 반영!
             description: '지현님이 [화장실 청소]를 완료했습니다.',
             createdAt: new Date('2026-07-02T15:00:00Z'),
             user: {
