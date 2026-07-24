@@ -125,6 +125,7 @@ export class ActivitiesService {
     const formattedActivities = logs.map((log) => ({
       id: Number(log.id),
       type: log.type,
+      refId: log.refId ? Number(log.refId) : null,
       description: log.description,
       createdAt: log.createdAt,
       user: {
