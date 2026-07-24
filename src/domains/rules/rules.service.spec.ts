@@ -517,7 +517,8 @@ describe('RulesService', () => {
   });
 
   it('creates a CARD_RULE message in the default group chat room', async () => {
-    prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
+    const ruleTitle = '규칙 제목';
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n, title: ruleTitle });
     prisma.chatRoom.findFirst.mockResolvedValue({ id: 3n, groupId: 1n, isDefault: true });
     prisma.chatRoomMember.findUnique.mockResolvedValue({ id: 20n });
     prisma.message.create.mockResolvedValue({ id: 456n });
@@ -537,7 +538,7 @@ describe('RulesService', () => {
         chatRoomId: 3n,
         senderId: 5n,
         type: 'CARD_RULE',
-        content: undefined,
+        content: ruleTitle,
         refId: 123n,
       },
     });
