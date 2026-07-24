@@ -148,15 +148,18 @@ model GroupMember {
 // =====================================================
 
 model Chore {
-  id          BigInt      @id @default(autoincrement())
-  parentId    BigInt?     @map("parent_id")
-  groupId     BigInt      @map("group_id")
-  title       String      @db.VarChar(100)
-  assigneeId  BigInt      @map("assignee_id")
-  startDate   DateTime    @map("start_date")
-  dueDate     DateTime?   @map("due_date")
-  repeatType  RepeatType  @default(NONE) @map("repeat_type")
-  status      ChoreStatus @default(PENDING)
+  id          BigInt        @id @default(autoincrement())
+  parentId    BigInt?       @map("parent_id")
+  groupId     BigInt        @map("group_id")
+  title       String        @db.VarChar(100)
+  category    ChoreCategory @default(ETC)
+  assigneeId  BigInt        @map("assignee_id")
+  startDate   DateTime      @map("start_date")
+  dueDate     DateTime?     @map("due_date")
+  repeatType  RepeatType    @default(NONE) @map("repeat_type")
+  repeatDays  Weekday[]     @map("repeat_days")
+  memo        String?       @db.VarChar(255)
+  status      ChoreStatus   @default(PENDING)
   completedBy BigInt?     @map("completed_by")
   completedAt DateTime?   @map("completed_at")
   createdBy   BigInt      @map("created_by")
@@ -485,6 +488,28 @@ enum RepeatType {
 enum ChoreStatus {
   PENDING
   DONE
+}
+
+enum ChoreCategory {
+  CLEANING
+  DISHWASHING
+  LAUNDRY
+  TRASH
+  TIDYING
+  SHOPPING
+  COOKING
+  PET_PLANT
+  ETC
+}
+
+enum Weekday {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
 }
 
 enum ExpenseCategory {

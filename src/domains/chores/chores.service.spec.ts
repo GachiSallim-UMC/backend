@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ChoreStatus, RepeatType } from '@prisma/client';
+import { ChoreCategory, ChoreStatus, RepeatType, Weekday } from '@prisma/client';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChoresService } from './chores.service';
@@ -13,6 +13,7 @@ describe('ChoresService', () => {
       create: jest.Mock;
       update: jest.Mock;
     };
+    groupMember: { findUnique: jest.Mock };
     chatRoom: { findUnique: jest.Mock };
     chatRoomMember: { findUnique: jest.Mock };
     message: { create: jest.Mock };
@@ -26,6 +27,7 @@ describe('ChoresService', () => {
         create: jest.fn(),
         update: jest.fn(),
       },
+      groupMember: { findUnique: jest.fn() },
       chatRoom: { findUnique: jest.fn() },
       chatRoomMember: { findUnique: jest.fn() },
       message: { create: jest.fn() },
@@ -45,6 +47,7 @@ describe('ChoresService', () => {
           {
             groupId: 1,
             title: '설거지',
+            category: ChoreCategory.DISHWASHING,
             assigneeId: 1,
             startDate: '2026-07-10',
             dueDate: '2026-07-01',
@@ -55,6 +58,85 @@ describe('ChoresService', () => {
       ).rejects.toThrow(BusinessException);
 
       expect(prisma.chore.create).not.toHaveBeenCalled();
+    });
+
+    it('repeatType이 WEEKLY인데 repeatDays가 비어 있으면 400 예외를 던진다', async () => {
+      await expect(
+        service.createChore(
+          {
+            groupId: 1,
+            title: '분리수거',
+            category: ChoreCategory.TRASH,
+            assigneeId: 1,
+            startDate: '2026-07-01',
+            repeatType: RepeatType.WEEKLY,
+          },
+          BigInt(1),
+        ),
+      ).rejects.toThrow(BusinessException);
+
+      expect(prisma.chore.create).not.toHaveBeenCalled();
+    });
+
+    it('repeatType이 WEEKLY가 아닌데 repeatDays를 보내면 400 예외를 던진다', async () => {
+      await expect(
+        service.createChore(
+          {
+            groupId: 1,
+            title: '분리수거',
+            category: ChoreCategory.TRASH,
+            assigneeId: 1,
+            startDate: '2026-07-01',
+            repeatType: RepeatType.DAILY,
+            repeatDays: [Weekday.MON],
+          },
+          BigInt(1),
+        ),
+      ).rejects.toThrow(BusinessException);
+
+      expect(prisma.chore.create).not.toHaveBeenCalled();
+    });
+
+    it('dueDate를 생략하면 dueDate가 null로 저장된다', async () => {
+      prisma.groupMember.findUnique.mockResolvedValue({ id: BigInt(1), leftAt: null });
+      prisma.chore.create.mockResolvedValue({
+        id: BigInt(11),
+        parentId: null,
+        groupId: BigInt(1),
+        title: '설거지',
+        category: ChoreCategory.DISHWASHING,
+        startDate: new Date('2026-07-01T00:00:00Z'),
+        dueDate: null,
+        repeatType: RepeatType.NONE,
+        repeatDays: [],
+        memo: null,
+        status: ChoreStatus.PENDING,
+        createdAt: new Date('2026-07-01T00:00:00Z'),
+        updatedAt: new Date('2026-07-01T00:00:00Z'),
+        assignee: { id: BigInt(1), nickname: '홍길동' },
+        completer: null,
+        creator: { id: BigInt(1), nickname: '홍길동' },
+      });
+
+      const result = await service.createChore(
+        {
+          groupId: 1,
+          title: '설거지',
+          category: ChoreCategory.DISHWASHING,
+          assigneeId: 1,
+          startDate: '2026-07-01',
+        },
+        BigInt(1),
+      );
+
+      const createCalls = prisma.chore.create.mock.calls as [{ data: Record<string, unknown> }][];
+      const createArgs = createCalls[0][0];
+
+      expect(createArgs.data.dueDate).toBeNull();
+      expect(createArgs.data.repeatDays).toEqual([]);
+      expect(createArgs.data.memo).toBeNull();
+      expect(result.dueDate).toBeNull();
+      expect(result.category).toBe(ChoreCategory.DISHWASHING);
     });
   });
 

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ChoreStatus, GroupRole, MessageType, Prisma, RepeatType } from '@prisma/client';
+import { ChoreStatus, GroupRole, MessageType, Prisma, RepeatType, Weekday } from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -29,18 +29,48 @@ function mapUser(user: { id: bigint; nickname: string }) {
   return { userId: Number(user.id), nickname: user.nickname };
 }
 
-function addInterval(date: Date, repeatType: RepeatType): Date {
+const WEEKDAY_BY_UTC_INDEX: readonly Weekday[] = [
+  Weekday.SUN,
+  Weekday.MON,
+  Weekday.TUE,
+  Weekday.WED,
+  Weekday.THU,
+  Weekday.FRI,
+  Weekday.SAT,
+];
+
+/**
+ * repeatType이 WEEKLY이고 반복 요일이 지정된 경우, 기준일 다음으로 오는 지정 요일까지의 일수.
+ * 그 외에는 기존 주기(일/주/월)를 그대로 사용한다.
+ */
+function daysUntilNextRepeatDay(date: Date, repeatDays: readonly Weekday[]): number {
+  const baseIndex = date.getUTCDay();
+
+  for (let offset = 1; offset <= 7; offset += 1) {
+    if (repeatDays.includes(WEEKDAY_BY_UTC_INDEX[(baseIndex + offset) % 7])) {
+      return offset;
+    }
+  }
+
+  return 7;
+}
+
+function addInterval(
+  date: Date,
+  repeatType: RepeatType,
+  repeatDays: readonly Weekday[] = [],
+): Date {
   const next = new Date(date);
 
   switch (repeatType) {
     case RepeatType.DAILY:
-      next.setDate(next.getDate() + 1);
+      next.setUTCDate(next.getUTCDate() + 1);
       break;
     case RepeatType.WEEKLY:
-      next.setDate(next.getDate() + 7);
+      next.setUTCDate(next.getUTCDate() + (repeatDays.length > 0 ? daysUntilNextRepeatDay(date, repeatDays) : 7));
       break;
     case RepeatType.MONTHLY:
-      next.setMonth(next.getMonth() + 1);
+      next.setUTCMonth(next.getUTCMonth() + 1);
       break;
     default:
       break;
@@ -68,10 +98,16 @@ export class ChoresService {
   }
 
   async createChore(dto: CreateChoreDto, createdBy: bigint) {
+    const repeatType = dto.repeatType ?? RepeatType.NONE;
+    const repeatDays = dto.repeatDays ?? [];
     const startDate = new Date(dto.startDate);
-    const dueDate = new Date(dto.dueDate);
+    const dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
 
-    this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate);
+    this.assertRepeatDaysMatchRepeatType(repeatType, repeatDays);
+
+    if (dueDate) {
+      this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate as string);
+    }
 
     await this.assertAssigneeInGroup(
       BigInt(dto.assigneeId),
@@ -83,10 +119,13 @@ export class ChoresService {
       data: {
         groupId: BigInt(dto.groupId),
         title: dto.title,
+        category: dto.category,
         assigneeId: BigInt(dto.assigneeId),
         startDate,
         dueDate,
-        repeatType: dto.repeatType ?? RepeatType.NONE,
+        repeatType,
+        repeatDays,
+        memo: dto.memo ?? null,
         createdBy,
       },
       include: CHORE_WITH_USERS,
@@ -98,10 +137,16 @@ export class ChoresService {
   async updateChore(choreId: bigint, dto: UpdateChoreDto) {
     const existing = await this.findChoreOrThrow(choreId);
 
+    const repeatType = dto.repeatType ?? RepeatType.NONE;
+    const repeatDays = dto.repeatDays ?? [];
     const startDate = new Date(dto.startDate);
-    const dueDate = new Date(dto.dueDate);
+    const dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
 
-    this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate);
+    this.assertRepeatDaysMatchRepeatType(repeatType, repeatDays);
+
+    if (dueDate) {
+      this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate as string);
+    }
 
     await this.assertAssigneeInGroup(
       BigInt(dto.assigneeId),
@@ -113,10 +158,13 @@ export class ChoresService {
       where: { id: choreId },
       data: {
         title: dto.title,
+        category: dto.category,
         assigneeId: BigInt(dto.assigneeId),
         startDate,
         dueDate,
-        repeatType: dto.repeatType,
+        repeatType,
+        repeatDays,
+        memo: dto.memo ?? null,
       },
       include: CHORE_WITH_USERS,
     });
@@ -142,23 +190,29 @@ export class ChoresService {
     let nextOccurrence: {
       choreId: number;
       parentId: number;
-      dueDate: string;
+      startDate: string;
+      dueDate: string | null;
       status: ChoreStatus;
     } | null = null;
 
-    if (updated.repeatType !== RepeatType.NONE && updated.dueDate) {
-      const nextStartDate = addInterval(updated.startDate, updated.repeatType);
-      const nextDueDate = addInterval(updated.dueDate, updated.repeatType);
+    if (updated.repeatType !== RepeatType.NONE) {
+      const nextStartDate = addInterval(updated.startDate, updated.repeatType, updated.repeatDays);
+      const nextDueDate = updated.dueDate
+        ? addInterval(updated.dueDate, updated.repeatType, updated.repeatDays)
+        : null;
 
       const created = await this.prisma.chore.create({
         data: {
           parentId: updated.id,
           groupId: updated.groupId,
           title: updated.title,
+          category: updated.category,
           assigneeId: updated.assigneeId,
           startDate: nextStartDate,
           dueDate: nextDueDate,
           repeatType: updated.repeatType,
+          repeatDays: updated.repeatDays,
+          memo: updated.memo,
           createdBy: updated.createdBy,
         },
       });
@@ -166,7 +220,8 @@ export class ChoresService {
       nextOccurrence = {
         choreId: Number(created.id),
         parentId: Number(created.parentId),
-        dueDate: toDateOnly(created.dueDate as Date),
+        startDate: toDateOnly(created.startDate),
+        dueDate: created.dueDate ? toDateOnly(created.dueDate) : null,
         status: created.status,
       };
     }
@@ -281,6 +336,27 @@ export class ChoresService {
     return chore;
   }
 
+  private assertRepeatDaysMatchRepeatType(
+    repeatType: RepeatType,
+    repeatDays: readonly Weekday[],
+  ): void {
+    if (repeatType === RepeatType.WEEKLY && repeatDays.length === 0) {
+      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+        { field: 'repeatDays', value: '[]', reason: '매주 반복은 반복 요일을 1개 이상 선택해야 합니다.' },
+      ]);
+    }
+
+    if (repeatType !== RepeatType.WEEKLY && repeatDays.length > 0) {
+      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+        {
+          field: 'repeatDays',
+          value: repeatDays.join(','),
+          reason: '반복 요일은 repeatType이 WEEKLY일 때만 사용할 수 있습니다.',
+        },
+      ]);
+    }
+  }
+
   private assertDueDateAfterStart(startDate: Date, dueDate: Date, rawDueDate: string): void {
     if (dueDate < startDate) {
       throw new BusinessException(ErrorCode.CHORE_INVALID_DATE, [
@@ -295,10 +371,13 @@ export class ChoresService {
       groupId: Number(chore.groupId),
       parentId: chore.parentId ? Number(chore.parentId) : null,
       title: chore.title,
+      category: chore.category,
       assignee: mapUser(chore.assignee),
       startDate: toDateOnly(chore.startDate),
       dueDate: chore.dueDate ? toDateOnly(chore.dueDate) : null,
       repeatType: chore.repeatType,
+      repeatDays: chore.repeatDays,
+      memo: chore.memo,
       status: chore.status,
       completedBy: chore.completer ? mapUser(chore.completer) : null,
       completedAt: chore.completedAt ? toIsoNoMillis(chore.completedAt) : null,
@@ -314,10 +393,13 @@ export class ChoresService {
       groupId: Number(chore.groupId),
       parentId: chore.parentId ? Number(chore.parentId) : null,
       title: chore.title,
+      category: chore.category,
       assignee: mapUser(chore.assignee),
       startDate: toDateOnly(chore.startDate),
       dueDate: chore.dueDate ? toDateOnly(chore.dueDate) : null,
       repeatType: chore.repeatType,
+      repeatDays: chore.repeatDays,
+      memo: chore.memo,
       status: chore.status,
       createdBy: mapUser(chore.creator),
       createdAt: toIsoNoMillis(chore.createdAt),
@@ -331,10 +413,13 @@ export class ChoresService {
       groupId: Number(chore.groupId),
       parentId: chore.parentId ? Number(chore.parentId) : null,
       title: chore.title,
+      category: chore.category,
       assignee: mapUser(chore.assignee),
       startDate: toDateOnly(chore.startDate),
       dueDate: chore.dueDate ? toDateOnly(chore.dueDate) : null,
       repeatType: chore.repeatType,
+      repeatDays: chore.repeatDays,
+      memo: chore.memo,
       status: chore.status,
       updatedAt: toIsoNoMillis(chore.updatedAt),
     };
