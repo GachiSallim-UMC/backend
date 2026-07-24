@@ -838,7 +838,7 @@
           "집안일 관리 (CHORE)"
         ],
         "summary": "집안일 수정 (CHORE-EDIT-01)",
-        "description": "등록과 동일한 유효성 검사(과거 날짜 제한, 마감일 ≥ 시작일, 담당자 그룹 구성원 검증)를 거쳐 집안일 정보를 수정합니다. 전달된 필드만 부분 수정됩니다. (우선순위: P1)",
+        "description": "등록과 동일한 유효성 검사(과거 날짜 제한, 종료일 ≥ 시작일, 담당자 그룹 구성원 검증)를 거쳐 집안일 정보를 수정합니다. 전체 교체(PUT) 방식이므로 title·category·assigneeId·startDate는 항상 전달해야 하며, 생략한 선택 필드(dueDate·repeatDays·memo)는 비워집니다. (우선순위: P1)",
         "parameters": [
           {
             "name": "choreId",
@@ -857,12 +857,28 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "description": "수정할 필드만 전달 (부분 수정)",
+                "description": "전체 교체(PUT). 생략한 선택 필드는 null 또는 빈 배열로 초기화됩니다.",
                 "properties": {
                   "title": {
                     "type": "string",
                     "maxLength": 100,
                     "example": "설거지 및 분리수거"
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "CLEANING",
+                      "DISHWASHING",
+                      "LAUNDRY",
+                      "TRASH",
+                      "TIDYING",
+                      "SHOPPING",
+                      "COOKING",
+                      "PET_PLANT",
+                      "ETC"
+                    ],
+                    "description": "집안일 카테고리 (필수). CLEANING(청소), DISHWASHING(설거지), LAUNDRY(세탁), TRASH(쓰레기/분리수거), TIDYING(정리정돈), SHOPPING(장보기/물품관리), COOKING(요리/식사), PET_PLANT(반려동물/식물), ETC(기타)",
+                    "example": "TRASH"
                   },
                   "assigneeId": {
                     "type": "integer",
@@ -877,7 +893,8 @@
                   "dueDate": {
                     "type": "string",
                     "format": "date",
-                    "example": "2026-07-06"
+                    "example": "2026-07-06",
+                    "description": "종료일 (선택, 생략 시 null로 초기화)"
                   },
                   "repeatType": {
                     "type": "string",
@@ -888,8 +905,42 @@
                       "MONTHLY"
                     ],
                     "example": "WEEKLY"
+                  },
+                  "repeatDays": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "MON",
+                        "TUE",
+                        "WED",
+                        "THU",
+                        "FRI",
+                        "SAT",
+                        "SUN"
+                      ]
+                    },
+                    "uniqueItems": true,
+                    "maxItems": 7,
+                    "description": "반복 요일 (선택). repeatType이 WEEKLY일 때만 사용하며 최소 1개 이상 필요합니다. WEEKLY가 아닌데 값을 보내면 400을 반환합니다.",
+                    "example": [
+                      "MON",
+                      "THU"
+                    ]
+                  },
+                  "memo": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "메모 (선택, 최대 255자)",
+                    "example": "분리수거는 화요일 밤에"
                   }
-                }
+                },
+                "required": [
+                  "title",
+                  "category",
+                  "assigneeId",
+                  "startDate"
+                ]
               }
             }
           }
@@ -906,6 +957,7 @@
                     "groupId": 1,
                     "parentId": null,
                     "title": "설거지 및 분리수거",
+                    "category": "TRASH",
                     "assignee": {
                       "userId": 6,
                       "nickname": "김영희"
@@ -913,6 +965,11 @@
                     "startDate": "2026-07-04",
                     "dueDate": "2026-07-06",
                     "repeatType": "WEEKLY",
+                    "repeatDays": [
+                      "MON",
+                      "THU"
+                    ],
+                    "memo": "분리수거는 화요일 밤에",
                     "status": "PENDING",
                     "updatedAt": "2026-07-03T11:00:00Z"
                   },
@@ -1213,6 +1270,7 @@
                       "groupId": 1,
                       "parentId": null,
                       "title": "설거지",
+                      "category": "DISHWASHING",
                       "assignee": {
                         "userId": 5,
                         "nickname": "홍길동"
@@ -1220,6 +1278,8 @@
                       "startDate": "2026-07-03",
                       "dueDate": "2026-07-05",
                       "repeatType": "DAILY",
+                      "repeatDays": [],
+                      "memo": "분리수거는 화요일 밤에",
                       "status": "PENDING",
                       "completedBy": null,
                       "completedAt": null,
@@ -1281,7 +1341,7 @@
           "집안일 관리 (CHORE)"
         ],
         "summary": "집안일 등록 (CHORE-REG-01)",
-        "description": "집안일명·담당자·시작일·마감일·반복 주기를 입력받아 필수값 및 날짜 유효성(과거 날짜 제한, 마감일 ≥ 시작일)을 검증한 뒤 등록합니다. 담당자(assigneeId)는 해당 그룹의 구성원이어야 합니다. 등록자(createdBy)는 Access Token에서 식별합니다. (우선순위: P0)",
+        "description": "집안일명·카테고리·담당자·시작일·종료일·반복 주기·반복 요일·메모를 입력받아 필수값 및 날짜 유효성(과거 날짜 제한, 종료일 ≥ 시작일)을 검증한 뒤 등록합니다. 담당자(assigneeId)는 해당 그룹의 구성원이어야 합니다. 등록자(createdBy)는 Access Token에서 식별합니다. (우선순위: P0)",
         "requestBody": {
           "required": true,
           "content": {
@@ -1291,6 +1351,7 @@
                 "required": [
                   "groupId",
                   "title",
+                  "category",
                   "assigneeId",
                   "startDate"
                 ],
@@ -1306,6 +1367,22 @@
                     "description": "집안일명 (필수)",
                     "example": "설거지"
                   },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "CLEANING",
+                      "DISHWASHING",
+                      "LAUNDRY",
+                      "TRASH",
+                      "TIDYING",
+                      "SHOPPING",
+                      "COOKING",
+                      "PET_PLANT",
+                      "ETC"
+                    ],
+                    "description": "집안일 카테고리 (필수). CLEANING(청소), DISHWASHING(설거지), LAUNDRY(세탁), TRASH(쓰레기/분리수거), TIDYING(정리정돈), SHOPPING(장보기/물품관리), COOKING(요리/식사), PET_PLANT(반려동물/식물), ETC(기타)",
+                    "example": "DISHWASHING"
+                  },
                   "assigneeId": {
                     "type": "integer",
                     "description": "담당자 사용자 ID (해당 그룹 구성원이어야 함)",
@@ -1320,7 +1397,7 @@
                   "dueDate": {
                     "type": "string",
                     "format": "date",
-                    "description": "마감일 (선택, 미입력 시 null). 입력 시 시작일보다 빠를 수 없음",
+                    "description": "종료일 (선택, 미입력 시 null). 입력 시 시작일보다 빠를 수 없음",
                     "example": "2026-07-05"
                   },
                   "repeatType": {
@@ -1334,6 +1411,34 @@
                     "default": "NONE",
                     "description": "반복 주기 (기본 NONE)",
                     "example": "DAILY"
+                  },
+                  "repeatDays": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "MON",
+                        "TUE",
+                        "WED",
+                        "THU",
+                        "FRI",
+                        "SAT",
+                        "SUN"
+                      ]
+                    },
+                    "uniqueItems": true,
+                    "maxItems": 7,
+                    "description": "반복 요일 (선택). repeatType이 WEEKLY일 때만 사용하며 최소 1개 이상 필요합니다. WEEKLY가 아닌데 값을 보내면 400을 반환합니다.",
+                    "example": [
+                      "MON",
+                      "THU"
+                    ]
+                  },
+                  "memo": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "메모 (선택, 최대 255자)",
+                    "example": "분리수거는 화요일 밤에"
                   }
                 }
               }
@@ -1352,6 +1457,7 @@
                     "groupId": 1,
                     "parentId": null,
                     "title": "설거지",
+                    "category": "DISHWASHING",
                     "assignee": {
                       "userId": 5,
                       "nickname": "홍길동"
@@ -1359,6 +1465,8 @@
                     "startDate": "2026-07-03",
                     "dueDate": "2026-07-05",
                     "repeatType": "DAILY",
+                    "repeatDays": [],
+                    "memo": "분리수거는 화요일 밤에",
                     "status": "PENDING",
                     "completedBy": null,
                     "completedAt": null,
