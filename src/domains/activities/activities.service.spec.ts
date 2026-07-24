@@ -1,15 +1,36 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { ActivitiesService } from './activities.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActivityLogType, ActivityLog } from '@prisma/client';
 
 describe('ActivitiesService (최근 활동 내역)', () => {
   let service: ActivitiesService;
-  let prisma: PrismaService;
 
+  // 서비스 내부에서 사용하는 모든 Prisma 모델 및 메서드 Mocking
   const mockPrismaService = {
+    userAuthIdentity: {
+      findUnique: jest.fn(),
+    },
+    groupMember: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
     activityLog: {
       create: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
+    expense: {
+      findMany: jest.fn(),
+    },
+    chore: {
+      findMany: jest.fn(),
+    },
+    rule: {
+      findMany: jest.fn(),
+    },
+    supply: {
       findMany: jest.fn(),
     },
   };
@@ -26,11 +47,32 @@ describe('ActivitiesService (최근 활동 내역)', () => {
     }).compile();
 
     service = module.get<ActivitiesService>(ActivitiesService);
-    prisma = module.get<PrismaService>(PrismaService);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  describe('validateGroupMembership', () => {
+    it('인증된 유저이자 그룹 멤버일 경우 통과해야 한다', async () => {
+      mockPrismaService.userAuthIdentity.findUnique.mockResolvedValue({ userId: BigInt(2) });
+      mockPrismaService.groupMember.findFirst.mockResolvedValue({ id: BigInt(1), userId: BigInt(2), groupId: BigInt(1) });
+
+      await expect(service.validateGroupMembership('cognito-sub-123', 1)).resolves.not.toThrow();
+    });
+
+    it('인증되지 않은 유저일 경우 ForbiddenException을 던져야 한다', async () => {
+      mockPrismaService.userAuthIdentity.findUnique.mockResolvedValue(null);
+
+      await expect(service.validateGroupMembership('cognito-sub-invalid', 1)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('그룹 멤버가 아닐 경우 ForbiddenException을 던져야 한다', async () => {
+      mockPrismaService.userAuthIdentity.findUnique.mockResolvedValue({ userId: BigInt(2) });
+      mockPrismaService.groupMember.findFirst.mockResolvedValue(null);
+
+      await expect(service.validateGroupMembership('cognito-sub-123', 1)).rejects.toThrow(ForbiddenException);
+    });
   });
 
   describe('logActivity (ACT-LOG-01)', () => {
@@ -43,7 +85,7 @@ describe('ActivitiesService (최근 활동 내역)', () => {
         description: '지현님이 새로운 생활비 [5월 관리비] 정산을 요청했습니다.',
       };
 
-      const mockCreatedLog: ActivityLog = {
+      const mockCreatedLog = {
         id: BigInt(10),
         groupId: BigInt(createDto.groupId),
         userId: BigInt(createDto.userId),
@@ -51,15 +93,13 @@ describe('ActivitiesService (최근 활동 내역)', () => {
         refId: BigInt(createDto.refId),
         description: createDto.description,
         createdAt: new Date(),
-      };
+      } as ActivityLog;
 
-      const createSpy = jest.spyOn(prisma.activityLog, 'create');
-      createSpy.mockResolvedValue(mockCreatedLog);
+      mockPrismaService.activityLog.create.mockResolvedValue(mockCreatedLog);
 
       const result = await service.logActivity(createDto);
 
-      // 서비스 내부에서 BigInt로 변환하여 Prisma에 주입하므로, 매칭값을 정확히 대응
-      expect(createSpy).toHaveBeenCalledWith({
+      expect(mockPrismaService.activityLog.create).toHaveBeenCalledWith({
         data: {
           groupId: BigInt(createDto.groupId),
           userId: BigInt(createDto.userId),
@@ -76,13 +116,20 @@ describe('ActivitiesService (최근 활동 내역)', () => {
   });
 
   describe('getActivities (ACT-LIST-01)', () => {
-    it('활동 내역이 존재할 때 타겟 라우팅 경로를 포함한 최신순 목록을 반환해야 한다', async () => {
+    it('동기화 과정을 거친 뒤 포맷팅된 활동 내역 목록을 정상 반환해야 한다', async () => {
       const queryDto = {
         groupId: 1,
         page: 1,
       };
 
-      const mockLogs: ActivityLog[] = [
+      // 동기화 루프용 기본 Mock 반환값 설정
+      mockPrismaService.expense.findMany.mockResolvedValue([]);
+      mockPrismaService.chore.findMany.mockResolvedValue([]);
+      mockPrismaService.rule.findMany.mockResolvedValue([]);
+      mockPrismaService.supply.findMany.mockResolvedValue([]);
+      mockPrismaService.groupMember.findMany.mockResolvedValue([]);
+
+      const mockLogsWithUser = [
         {
           id: BigInt(10),
           groupId: BigInt(1),
@@ -91,6 +138,10 @@ describe('ActivitiesService (최근 활동 내역)', () => {
           refId: BigInt(123),
           description: '지현님이 새로운 생활비 [5월 관리비] 정산을 요청했습니다.',
           createdAt: new Date('2026-07-02T16:40:00Z'),
+          user: {
+            id: BigInt(2),
+            nickname: '지현',
+          },
         },
         {
           id: BigInt(9),
@@ -100,47 +151,76 @@ describe('ActivitiesService (최근 활동 내역)', () => {
           refId: BigInt(45),
           description: '지현님이 [화장실 청소]를 완료했습니다.',
           createdAt: new Date('2026-07-02T15:00:00Z'),
+          user: {
+            id: BigInt(3),
+            nickname: '룸메이트',
+          },
         },
       ];
 
-      const findManySpy = jest.spyOn(prisma.activityLog, 'findMany');
-      findManySpy.mockResolvedValue(mockLogs);
+      mockPrismaService.activityLog.findMany.mockResolvedValue(mockLogsWithUser);
 
       const result = await service.getActivities(queryDto);
 
-      // 서비스 내부에서 BigInt(groupId)로 비교 조건이 들어가므로 매칭값 보정
-      expect(findManySpy).toHaveBeenCalledWith({
+      expect(mockPrismaService.activityLog.findMany).toHaveBeenCalledWith({
         where: { groupId: BigInt(1) },
+        include: {
+          user: {
+            select: {
+              id: true,
+              nickname: true,
+            },
+          },
+        },
         orderBy: { createdAt: 'desc' },
         skip: 0,
         take: 10,
       });
 
-      const activities = result as { data: unknown[] };
-      expect(activities.data).toHaveLength(2);
-      expect(activities.data[0]).toEqual({
-        id: 10,
-        groupId: 1,
-        userId: 2,
-        type: ActivityLogType.EXPENSE_CREATED,
-        refId: 123,
-        targetRoute: 'EXP-123',
-        description: '지현님이 새로운 생활비 [5월 관리비] 정산을 요청했습니다.',
-        createdAt: expect.any(Date) as Date,
+      expect(result).toEqual({
+        statusCode: 200,
+        data: [
+          {
+            id: 10,
+            type: ActivityLogType.EXPENSE_CREATED,
+            description: '지현님이 새로운 생활비 [5월 관리비] 정산을 요청했습니다.',
+            createdAt: new Date('2026-07-02T16:40:00Z'),
+            user: {
+              id: 2,
+              nickname: '지현',
+            },
+          },
+          {
+            id: 9,
+            type: ActivityLogType.CHORE_DONE,
+            description: '지현님이 [화장실 청소]를 완료했습니다.',
+            createdAt: new Date('2026-07-02T15:00:00Z'),
+            user: {
+              id: 3,
+              nickname: '룸메이트',
+            },
+          },
+        ],
+        error: null,
       });
     });
 
-    it('활동 기록이 하나도 없을 때 기획서 빈 상태 조건에 맞는 빈 배열과 메시지를 반환해야 한다', async () => {
+    it('활동 기록이 없을 경우 빈 배열을 포맷에 맞게 반환해야 한다', async () => {
       const queryDto = { groupId: 1, page: 1 };
 
-      const findManySpy = jest.spyOn(prisma.activityLog, 'findMany');
-      findManySpy.mockResolvedValue([]);
+      mockPrismaService.expense.findMany.mockResolvedValue([]);
+      mockPrismaService.chore.findMany.mockResolvedValue([]);
+      mockPrismaService.rule.findMany.mockResolvedValue([]);
+      mockPrismaService.supply.findMany.mockResolvedValue([]);
+      mockPrismaService.groupMember.findMany.mockResolvedValue([]);
+      mockPrismaService.activityLog.findMany.mockResolvedValue([]);
 
       const result = await service.getActivities(queryDto);
 
       expect(result).toEqual({
+        statusCode: 200,
         data: [],
-        message: '최근 활동이 없습니다.',
+        error: null,
       });
     });
   });

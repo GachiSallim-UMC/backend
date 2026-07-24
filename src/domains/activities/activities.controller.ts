@@ -14,7 +14,7 @@ import { CurrentAuth } from '../auth/common/current-auth.decorator';
 import { AuthContext } from '../auth/common/auth-context.interface';
 
 @ApiTags('최근 활동 내역 (ACT)')
-@ApiBearerAuth()
+@ApiBearerAuth('BearerAuth')
 @UseGuards(CognitoAccessTokenGuard)
 @Controller('activities')
 export class ActivitiesController {
@@ -25,6 +25,7 @@ export class ActivitiesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '그룹 최근 활동 목록 조회 (ACT-LIST-01)' })
   @ApiResponse({ status: 200, description: '활동 목록 조회 성공' })
+  @ApiResponse({ status: 401, description: '인증되지 않은 사용자' })
   @ApiResponse({ status: 403, description: '해당 그룹에 접근 권한이 없음' })
   async getActivities(
     @CurrentAuth() auth: AuthContext,
