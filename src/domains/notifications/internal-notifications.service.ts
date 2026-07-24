@@ -6,6 +6,7 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateInternalNotificationDto } from './dto/create-internal-notification.dto';
 import { NotificationResponseDto } from './dto/notification-response.dto';
+import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationUsersService } from './notification-users.service';
 
 @Injectable()
@@ -13,6 +14,7 @@ export class InternalNotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationUsers: NotificationUsersService,
+    private readonly notificationDelivery: NotificationDeliveryService,
   ) {}
 
   async createNotification(
@@ -27,14 +29,12 @@ export class InternalNotificationsService {
     await this.assertActorIsAdmin(groupId, actorUserId);
     await this.assertTargetIsActiveMember(groupId, targetUserId);
 
-    const notification = await this.prisma.notification.create({
-      data: {
-        userId: targetUserId,
-        groupId,
-        type: dto.type,
-        refId: dto.refId === undefined ? null : BigInt(dto.refId),
-        message: dto.message,
-      },
+    const notification = await this.notificationDelivery.createNotification({
+      userId: targetUserId,
+      groupId,
+      type: dto.type,
+      refId: dto.refId === undefined ? null : BigInt(dto.refId),
+      message: dto.message,
     });
 
     return this.toResponse(notification);

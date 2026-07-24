@@ -23,7 +23,9 @@ const CHAT_ROOM_MEMBER_SELECT = {
 export class ChatService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listChatRooms(groupId: bigint) {
+  async listChatRooms(groupId: bigint, currentUserId: bigint) {
+    await this.findActiveGroupMemberOrThrow(groupId, currentUserId);
+
     return this.prisma.chatRoom.findMany({
       where: { groupId },
       orderBy: { createdAt: 'asc' },
@@ -51,7 +53,7 @@ export class ChatService {
     });
   }
 
-  async getChatRoomDetail(roomId: bigint) {
+  async getChatRoomDetail(roomId: bigint, currentUserId: bigint) {
     const chatRoom = await this.prisma.chatRoom.findUnique({
       where: { id: roomId },
       include: { members: { select: CHAT_ROOM_MEMBER_SELECT } },
@@ -61,35 +63,62 @@ export class ChatService {
       throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND);
     }
 
+    await this.findChatRoomMemberOrThrow(roomId, currentUserId);
+
     return chatRoom;
   }
 
-  async deleteChatRoom(roomId: bigint): Promise<void> {
-    await this.findChatRoomOrThrow(roomId);
+  async deleteChatRoom(roomId: bigint, currentUserId: bigint): Promise<void> {
+    const chatRoom = await this.findChatRoomOrThrow(roomId);
+
+    if (chatRoom.createdBy !== currentUserId) {
+      throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+    }
 
     await this.prisma.chatRoom.delete({ where: { id: roomId } });
   }
 
-  async inviteMember(roomId: bigint, userId: bigint) {
+  async inviteMember(roomId: bigint, userIds: bigint[], currentUserId: bigint) {
     const chatRoom = await this.findChatRoomOrThrow(roomId);
-    await this.findActiveGroupMemberOrThrow(chatRoom.groupId, userId);
+    await this.findChatRoomMemberOrThrow(roomId, currentUserId);
 
-    const existingMember = await this.prisma.chatRoomMember.findUnique({
-      where: { chatRoomId_userId: { chatRoomId: roomId, userId } },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      for (const userId of userIds) {
+        const member = await tx.groupMember.findUnique({
+          where: { userId_groupId: { userId, groupId: chatRoom.groupId } },
+        });
 
-    if (existingMember) {
-      throw new BusinessException(ErrorCode.CHAT_ROOM_MEMBER_ALREADY_JOINED);
-    }
+        if (!member || member.leftAt) {
+          throw new BusinessException(ErrorCode.GROUP_MEMBER_NOT_FOUND);
+        }
 
-    return this.prisma.chatRoomMember.create({
-      data: { chatRoomId: roomId, userId },
-      select: CHAT_ROOM_MEMBER_SELECT,
+        const existingMember = await tx.chatRoomMember.findUnique({
+          where: { chatRoomId_userId: { chatRoomId: roomId, userId } },
+        });
+
+        if (existingMember) {
+          throw new BusinessException(ErrorCode.CHAT_ROOM_MEMBER_ALREADY_JOINED);
+        }
+      }
+
+      await tx.chatRoomMember.createMany({
+        data: userIds.map((userId) => ({ chatRoomId: roomId, userId })),
+      });
+
+      return tx.chatRoomMember.findMany({
+        where: { chatRoomId: roomId, userId: { in: userIds } },
+        select: CHAT_ROOM_MEMBER_SELECT,
+      });
     });
   }
 
-  async removeMember(roomId: bigint, userId: bigint): Promise<void> {
-    await this.findChatRoomOrThrow(roomId);
+  async removeMember(roomId: bigint, userId: bigint, currentUserId: bigint): Promise<void> {
+    const chatRoom = await this.findChatRoomOrThrow(roomId);
+
+    if (currentUserId !== userId && chatRoom.createdBy !== currentUserId) {
+      throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+    }
+
     await this.findChatRoomMemberOrThrow(roomId, userId);
 
     await this.prisma.chatRoomMember.delete({
@@ -97,8 +126,9 @@ export class ChatService {
     });
   }
 
-  async listMessages(roomId: bigint, before?: bigint, limit = 30) {
+  async listMessages(roomId: bigint, currentUserId: bigint, before?: bigint, limit = 30) {
     await this.findChatRoomOrThrow(roomId);
+    await this.findChatRoomMemberOrThrow(roomId, currentUserId);
 
     return this.prisma.message.findMany({
       where: {

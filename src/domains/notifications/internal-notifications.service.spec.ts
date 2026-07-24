@@ -2,6 +2,7 @@ import { GroupRole, NotificationType } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { InternalNotificationsService } from './internal-notifications.service';
+import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationUsersService } from './notification-users.service';
 
 describe('InternalNotificationsService', () => {
@@ -12,10 +13,12 @@ describe('InternalNotificationsService', () => {
   const prisma = {
     group: { findUnique: findGroup },
     groupMember: { findUnique: findMembership },
-    notification: { create: createNotification },
   } as unknown as PrismaService;
   const notificationUsers = { resolveActiveUserId } as unknown as NotificationUsersService;
-  const service = new InternalNotificationsService(prisma, notificationUsers);
+  const notificationDelivery = {
+    createNotification,
+  } as unknown as NotificationDeliveryService;
+  const service = new InternalNotificationsService(prisma, notificationUsers, notificationDelivery);
   const dto = {
     userId: 8,
     groupId: 3,
@@ -63,13 +66,11 @@ describe('InternalNotificationsService', () => {
       select: { leftAt: true, user: { select: { isActive: true } } },
     });
     expect(createNotification).toHaveBeenCalledWith({
-      data: {
-        userId: 8n,
-        groupId: 3n,
-        type: NotificationType.RULE_CHANGED,
-        refId: 42n,
-        message: dto.message,
-      },
+      userId: 8n,
+      groupId: 3n,
+      type: NotificationType.RULE_CHANGED,
+      refId: 42n,
+      message: dto.message,
     });
   });
 

@@ -12,10 +12,6 @@ const CARD_MESSAGE_TYPES = [
 export type CardMessageType = (typeof CARD_MESSAGE_TYPES)[number];
 
 export class CreateCardMessageDto {
-  @ApiProperty({ description: '발신자(사용자) ID', example: '1' })
-  @IsNumberString()
-  senderId!: string;
-
   @ApiProperty({ description: '카드 메시지 타입', enum: CARD_MESSAGE_TYPES, example: MessageType.CARD_CHORE })
   @IsEnum(CARD_MESSAGE_TYPES)
   type!: CardMessageType;

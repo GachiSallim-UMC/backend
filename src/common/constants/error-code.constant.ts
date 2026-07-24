@@ -102,6 +102,21 @@ export const ErrorCode = {
     code: 'AUTH_COMPENSATION_FAILED',
     message: '인증 정보 복구에 실패했습니다.',
   },
+  AUTH_SOCIAL_ACCOUNT_LINK_REQUIRED: {
+    status: 409,
+    code: 'AUTH_SOCIAL_ACCOUNT_LINK_REQUIRED',
+    message: '기존 계정에 소셜 로그인을 연결해야 합니다.',
+  },
+  AUTH_SOCIAL_EMAIL_REQUIRED: {
+    status: 400,
+    code: 'AUTH_SOCIAL_EMAIL_REQUIRED',
+    message: '검증된 소셜 로그인 이메일이 필요합니다.',
+  },
+  AUTH_SOCIAL_PROVIDER_UNSUPPORTED: {
+    status: 400,
+    code: 'AUTH_SOCIAL_PROVIDER_UNSUPPORTED',
+    message: '지원하지 않는 소셜 로그인 제공자입니다.',
+  },
 
   // User
   USER_NOT_FOUND: {
@@ -242,19 +257,18 @@ export const ErrorCode = {
   // Chat
   CHAT_ROOM_NOT_FOUND: {
     status: 404,
-    code: 'CHAT_ROOM_404',
+    code: 'CHAT_ROOM_NOT_FOUND',
     message: '존재하지 않는 채팅방입니다.',
   },
   CHAT_ROOM_MEMBER_NOT_FOUND: {
     status: 404,
-    code: 'CHAT_ROOM_MEMBER_404',
+    code: 'CHAT_ROOM_MEMBER_NOT_FOUND',
     message: '채팅방에 속하지 않은 사용자입니다.',
   },
   CHAT_ROOM_MEMBER_ALREADY_JOINED: {
     status: 409,
-    code: 'CHAT_ROOM_MEMBER_409',
+    code: 'CHAT_ROOM_MEMBER_ALREADY_JOINED',
     message: '이미 채팅방에 참여 중인 사용자입니다.',
-
   },
 } as const;
 

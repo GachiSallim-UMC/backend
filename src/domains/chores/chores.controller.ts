@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { ChoresService } from './chores.service';
@@ -9,6 +9,7 @@ import { ShareChoreDto } from './dto/share-chore.dto';
 import { UpdateChoreDto } from './dto/update-chore.dto';
 
 @ApiTags('집안일 관리 (CHORE)')
+@ApiBearerAuth('BearerAuth')
 @Controller('chores')
 export class ChoresController {
   constructor(private readonly choresService: ChoresService) {}
