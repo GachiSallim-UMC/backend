@@ -44,6 +44,14 @@ async function bootstrap(): Promise<void> {
     .setTitle(configService.getOrThrow<string>('APP_NAME'))
     .setDescription('GachiSallim backend API')
     .setVersion(configService.getOrThrow<string>('APP_VERSION'))
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+      },
+      'BearerAuth',
+    )
     .build();
   const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api-docs', app, swaggerDocument);

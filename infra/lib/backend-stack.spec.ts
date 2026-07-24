@@ -38,6 +38,127 @@ describe('BackendStack', () => {
     expect(listenerRules).toContain('client_id');
   });
 
+  it('adds code-grant social login without replacing the existing Cognito clients', () => {
+    expect(Object.keys(template.findResources('AWS::Cognito::UserPool'))).toEqual(
+      expect.arrayContaining(['ProductionUserPoolD7CBD407', 'DevelopmentUserPool1D648632']),
+    );
+    expect(Object.keys(template.findResources('AWS::Cognito::UserPoolClient'))).toEqual(
+      expect.arrayContaining([
+        'ProductionUserPoolProductionUserPoolClient10192707',
+        'DevelopmentUserPoolDevelopmentUserPoolClient3C175F59',
+      ]),
+    );
+    template.resourceCountIs('AWS::Cognito::UserPoolDomain', 2);
+    template.resourceCountIs('AWS::Cognito::UserPoolIdentityProvider', 4);
+    template.hasResourceProperties('AWS::Cognito::UserPoolDomain', {
+      Domain: 'gachisallim-prod-auth',
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPoolDomain', {
+      Domain: 'gachisallim-dev-auth',
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      AllowedOAuthFlows: ['code'],
+      AllowedOAuthFlowsUserPoolClient: true,
+      AllowedOAuthScopes: Match.arrayWith([
+        'openid',
+        'email',
+        'profile',
+        'aws.cognito.signin.user.admin',
+      ]),
+      CallbackURLs: ['https://gachisallim.com/auth/callback'],
+      LogoutURLs: ['https://gachisallim.com/login'],
+      SupportedIdentityProviders: Match.arrayWith(['COGNITO', 'Google', 'Kakao']),
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      CallbackURLs: [
+        'https://dev.gachisallim.com/auth/callback',
+        'http://localhost:5173/auth/callback',
+      ],
+      LogoutURLs: ['https://dev.gachisallim.com/login', 'http://localhost:5173/login'],
+    });
+  });
+
+  it('maps verified social identity attributes and keeps provider credentials secret', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPoolIdentityProvider', {
+      ProviderName: 'Google',
+      ProviderType: 'Google',
+      AttributeMapping: Match.objectLike({
+        email: 'email',
+        email_verified: 'email_verified',
+      }),
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPoolIdentityProvider', {
+      ProviderName: 'Kakao',
+      ProviderType: 'OIDC',
+      AttributeMapping: Match.objectLike({
+        email: 'email',
+        email_verified: 'email_verified',
+      }),
+      ProviderDetails: Match.objectLike({
+        oidc_issuer: 'https://kauth.kakao.com',
+        authorize_scopes: 'openid profile account_email',
+      }),
+    });
+
+    const providers = JSON.stringify(
+      template.findResources('AWS::Cognito::UserPoolIdentityProvider'),
+    );
+    expect(providers).toContain('secret:gachisallim/main/social-auth:SecretString:');
+    expect(providers).toContain('secret:gachisallim/develop/social-auth:SecretString:');
+  });
+
+  it('links only supported external identities through the pre-signup trigger', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      LambdaConfig: Match.objectLike({ PreSignUp: Match.anyValue() }),
+    });
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: ['cognito-idp:AdminLinkProviderForUser', 'cognito-idp:ListUsers'],
+            Effect: 'Allow',
+            Resource: Match.anyValue(),
+          }),
+        ]),
+        Version: '2012-10-17',
+      },
+    });
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('cognito-idp:AdminLinkProviderForUser');
+    expect(policies).toContain('ProductionUserPoolD7CBD407');
+    expect(policies).toContain('DevelopmentUserPool1D648632');
+    expect(policies).not.toContain(':userpool/*');
+  });
+
+  it('exposes Swagger documents only on the development domain', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+      Conditions: Match.arrayWith([
+        {
+          Field: 'host-header',
+          HostHeaderConfig: { Values: ['dev-api.gachisallim.com'] },
+        },
+        {
+          Field: 'path-pattern',
+          PathPatternConfig: {
+            Values: ['/api-docs', '/api-docs/*', '/api-docs-json'],
+          },
+        },
+        {
+          Field: 'http-request-method',
+          HttpRequestMethodConfig: { Values: ['GET'] },
+        },
+      ]),
+    });
+
+    const listenerRules = template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule');
+    const publicSwaggerRules = Object.values(listenerRules).filter((rule) =>
+      JSON.stringify(rule).includes('/api-docs-json'),
+    );
+
+    expect(publicSwaggerRules).toHaveLength(1);
+  });
+
   it('creates DNS-validated TLS and aliases for both backend domains', () => {
     template.hasResourceProperties('AWS::CertificateManager::Certificate', {
       DomainName: 'api.gachisallim.com',
@@ -50,7 +171,7 @@ describe('BackendStack', () => {
     expect(records).toContain('dev-api.gachisallim.com');
   });
 
-  it('creates one private ARM instance sized for two release trees', () => {
+  it('creates one private ARM application instance sized for two release trees', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 't4g.small',
       ImageId: Match.stringLikeRegexp('al2023-ami-kernel-default-arm64'),
@@ -78,6 +199,37 @@ describe('BackendStack', () => {
     });
   });
 
+  it('routes backend HTTPS through one ARM NAT instance', () => {
+    template.resourceCountIs('AWS::EC2::Instance', 2);
+    template.hasResourceProperties('AWS::EC2::Instance', {
+      InstanceType: 't4g.nano',
+      SourceDestCheck: false,
+      NetworkInterfaces: Match.arrayWith([
+        Match.objectLike({
+          AssociatePublicIpAddress: true,
+          SubnetId: { Ref: Match.stringLikeRegexp('IngressSubnet') },
+        }),
+      ]),
+    });
+    template.hasResourceProperties('AWS::EC2::Route', {
+      DestinationCidrBlock: '0.0.0.0/0',
+      InstanceId: { Ref: Match.stringLikeRegexp('NatInstance') },
+      RouteTableId: { Ref: Match.stringLikeRegexp('BackendSubnet') },
+    });
+    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
+      GroupDescription: 'Security Group for NAT instances',
+      SecurityGroupIngress: [
+        {
+          CidrIp: { 'Fn::GetAtt': ['Vpc8378EB38', 'CidrBlock'] },
+          Description: 'Allows HTTPS forwarding from private VPC resources.',
+          FromPort: 443,
+          IpProtocol: 'tcp',
+          ToPort: 443,
+        },
+      ],
+    });
+  });
+
   it('keeps one RDS instance and bootstraps the develop database during deployment', () => {
     template.resourceCountIs('AWS::RDS::DBInstance', 1);
     template.hasResourceProperties('AWS::RDS::DBInstance', {
@@ -98,15 +250,139 @@ describe('BackendStack', () => {
     expect(userData).toContain('gachisallim@.service');
   });
 
-  it('provides private deployment and runtime service endpoints without NAT', () => {
+  it('keeps private AWS service endpoints while Cognito uses public egress', () => {
     const endpoints = JSON.stringify(template.findResources('AWS::EC2::VPCEndpoint'));
 
     expect(endpoints).toContain('.secretsmanager');
     expect(endpoints).toContain('.logs');
-    expect(endpoints).toContain('.cognito-idp');
+    expect(endpoints).not.toContain('.cognito-idp');
     expect(endpoints).toContain('.ssm');
     expect(endpoints).toContain('.ssmmessages');
     expect(endpoints).toContain('.s3');
+    expect(endpoints).toContain('.sqs');
+    expect(endpoints).toContain('.scheduler');
+  });
+
+  it('creates encrypted notification push queues and dead-letter queues per environment', () => {
+    template.resourceCountIs('AWS::SQS::Queue', 12);
+    template.resourceCountIs('AWS::KMS::Key', 1);
+    template.hasResourceProperties('AWS::KMS::Key', {
+      EnableKeyRotation: true,
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'gachisallim-main-notification-push',
+      ReceiveMessageWaitTimeSeconds: 20,
+      VisibilityTimeout: 180,
+      RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'gachisallim-develop-notification-push',
+      ReceiveMessageWaitTimeSeconds: 20,
+      VisibilityTimeout: 180,
+      RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
+    });
+
+    const runtimeConfiguration = JSON.stringify(
+      template.findResources('AWS::SSM::Document'),
+    );
+    expect(runtimeConfiguration).toContain('NOTIFICATION_PUSH_QUEUE_URL');
+    expect(runtimeConfiguration).toContain('NOTIFICATION_PUSH_RESULT_QUEUE_URL');
+    expect(runtimeConfiguration).toContain('NOTIFICATION_VAPID_PUBLIC_KEY');
+    expect(runtimeConfiguration).not.toContain('NOTIFICATION_VAPID_SECRET_ID');
+  });
+
+  it('runs isolated web push workers with partial batch retry and VAPID secret access', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'gachisallim-main-notification-web-push',
+      Architectures: ['arm64'],
+      MemorySize: 256,
+      ReservedConcurrentExecutions: 20,
+      Runtime: 'nodejs22.x',
+      Timeout: 30,
+      Environment: {
+        Variables: Match.objectLike({ NOTIFICATION_VAPID_SECRET_ID: Match.anyValue() }),
+      },
+    });
+    template.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
+      BatchSize: 10,
+      FunctionResponseTypes: ['ReportBatchItemFailures'],
+      ScalingConfig: { MaximumConcurrency: 10 },
+    });
+
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('secretsmanager:GetSecretValue');
+    expect(policies).toContain('sqs:ReceiveMessage');
+    expect(JSON.stringify(template.toJSON())).toContain(
+      '/gachisallim/main/notification-vapid-public-key',
+    );
+  });
+
+  it('creates environment-scoped chore due Scheduler resources and command queues', () => {
+    template.resourceCountIs('AWS::Scheduler::ScheduleGroup', 2);
+    template.hasResourceProperties('AWS::Scheduler::ScheduleGroup', {
+      Name: 'gachisallim-main-chore-due',
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'gachisallim-main-notification-command',
+      ReceiveMessageWaitTimeSeconds: 20,
+      RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
+    });
+
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('scheduler:CreateSchedule');
+    expect(policies).toContain('scheduler:UpdateSchedule');
+    expect(policies).toContain('scheduler:DeleteSchedule');
+    expect(policies).toContain('iam:PassRole');
+    expect(policies).toContain('iam:PassedToService');
+
+    const runtimeConfiguration = JSON.stringify(
+      template.findResources('AWS::SSM::Document'),
+    );
+    expect(runtimeConfiguration).toContain('NOTIFICATION_COMMAND_QUEUE_URL');
+    expect(runtimeConfiguration).toContain('CHORE_DUE_SCHEDULE_GROUP');
+    expect(runtimeConfiguration).toContain('CHORE_DUE_SCHEDULE_ROLE_ARN');
+  });
+
+  it('applies mutable instance configuration through an SSM association', () => {
+    template.resourceCountIs('AWS::SSM::Document', 1);
+    template.hasResourceProperties('AWS::SSM::Document', {
+      DocumentType: 'Command',
+      TargetType: '/AWS::EC2::Instance',
+      UpdateMethod: 'NewVersion',
+      Content: Match.objectLike({
+        schemaVersion: '2.2',
+        mainSteps: [
+          Match.objectLike({
+            action: 'aws:runShellScript',
+            name: 'configureApplicationRuntime',
+          }),
+        ],
+      }),
+    });
+    template.hasResourceProperties('AWS::SSM::Association', {
+      AssociationName: 'gachisallim-application-runtime-configuration',
+      DocumentVersion: '$LATEST',
+      Parameters: {
+        ConfigurationVersion: [Match.stringLikeRegexp('^[0-9a-f]{64}$')],
+      },
+      Targets: [
+        {
+          Key: 'InstanceIds',
+          Values: [Match.anyValue()],
+        },
+      ],
+      WaitForSuccessTimeoutSeconds: 600,
+    });
+
+    const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
+    expect(userData).not.toContain('NOTIFICATION_PUSH_QUEUE_URL');
+    expect(userData).not.toContain('NOTIFICATION_COMMAND_QUEUE_URL');
+
+    const runtimeConfiguration = JSON.stringify(
+      template.findResources('AWS::SSM::Document'),
+    );
+    expect(runtimeConfiguration).toContain('/usr/local/bin/gachisallim-deploy');
+    expect(runtimeConfiguration).toContain('systemctl enable');
   });
 
   it('allows the instance to receive SSM commands and access only required Cognito pools', () => {
@@ -129,5 +405,11 @@ describe('BackendStack', () => {
         ]),
       },
     });
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('sqs:SendMessage');
+    const instancePolicies = Object.values(template.findResources('AWS::IAM::Policy')).filter(
+      (policy) => JSON.stringify(policy).includes('InstanceRole'),
+    );
+    expect(JSON.stringify(instancePolicies)).not.toContain('notification-vapid');
   });
 });
