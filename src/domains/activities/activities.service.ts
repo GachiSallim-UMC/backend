@@ -142,18 +142,18 @@ export class ActivitiesService {
 
   private async syncDomainDataToActivityLog(groupId: number) {
     const groupBigInt = BigInt(groupId);
+    // TS 타입 좁히기(Narrowing) 방지를 위해 record로 캐스팅한 참조 생성
+    const dynamicPrisma = this.prisma as unknown as Record<string, DynamicPrismaDelegate<unknown>>;
 
     // 1️. 지출 (EXPENSE_CREATED, EXPENSE_DONE)
-    if ('expense' in this.prisma) {
-      const expenseDelegate = (this.prisma as unknown as { expense: DynamicPrismaDelegate<ExpenseEntity> }).expense;
-      const expenses = await expenseDelegate.findMany({
+    if ('expense' in this.prisma && dynamicPrisma.expense) {
+      const expenses = (await dynamicPrisma.expense.findMany({
         where: { groupId: groupBigInt },
         orderBy: { updatedAt: 'desc' },
         take: 20,
-      });
+      })) as ExpenseEntity[];
 
       for (const exp of expenses) {
-        // 1-A. 지출 생성 (EXPENSE_CREATED)
         const existsCreated = await this.prisma.activityLog.findFirst({
           where: { groupId: groupBigInt, type: 'EXPENSE_CREATED', refId: exp.id },
         });
@@ -171,8 +171,7 @@ export class ActivitiesService {
           });
         }
 
-        // 1-B. 지출 정산 완료 (EXPENSE_DONE - status가 SETTLED 또는 COMPLETED 인 경우)
-        if (exp.status === 'SETTLED' || exp.status === 'COMPLETED') {
+        if (exp.status === 'DONE') {
           const existsDone = await this.prisma.activityLog.findFirst({
             where: { groupId: groupBigInt, type: 'EXPENSE_DONE', refId: exp.id },
           });
@@ -194,16 +193,14 @@ export class ActivitiesService {
     }
 
     // 2️. 집안일 (CHORE_CREATED, CHORE_DONE)
-    if ('chore' in this.prisma) {
-      const choreDelegate = (this.prisma as unknown as { chore: DynamicPrismaDelegate<ChoreEntity> }).chore;
-      const chores = await choreDelegate.findMany({
+    if ('chore' in this.prisma && dynamicPrisma.chore) {
+      const chores = (await dynamicPrisma.chore.findMany({
         where: { groupId: groupBigInt },
         orderBy: { updatedAt: 'desc' },
         take: 20,
-      });
+      })) as ChoreEntity[];
 
       for (const chore of chores) {
-        // 2-A. 집안일 생성 (CHORE_CREATED)
         const existsCreated = await this.prisma.activityLog.findFirst({
           where: { groupId: groupBigInt, type: 'CHORE_CREATED', refId: chore.id },
         });
@@ -221,7 +218,6 @@ export class ActivitiesService {
           });
         }
 
-        // 2-B. 집안일 완료 (CHORE_DONE - isCompleted가 true이거나 status가 DONE인 경우)
         if (chore.isCompleted || chore.status === 'DONE') {
           const existsDone = await this.prisma.activityLog.findFirst({
             where: { groupId: groupBigInt, type: 'CHORE_DONE', refId: chore.id },
@@ -244,16 +240,14 @@ export class ActivitiesService {
     }
 
     // 3️. 규칙 (RULE_CREATED, RULE_EDITED)
-    if ('rule' in this.prisma) {
-      const ruleDelegate = (this.prisma as unknown as { rule: DynamicPrismaDelegate<RuleEntity> }).rule;
-      const rules = await ruleDelegate.findMany({
+    if ('rule' in this.prisma && dynamicPrisma.rule) {
+      const rules = (await dynamicPrisma.rule.findMany({
         where: { groupId: groupBigInt },
         orderBy: { updatedAt: 'desc' },
         take: 20,
-      });
+      })) as RuleEntity[];
 
       for (const rule of rules) {
-        // 3-A. 규칙 생성 (RULE_CREATED)
         const existsCreated = await this.prisma.activityLog.findFirst({
           where: { groupId: groupBigInt, type: 'RULE_CREATED', refId: rule.id },
         });
@@ -271,7 +265,6 @@ export class ActivitiesService {
           });
         }
 
-        // 3-B. 규칙 수정 (RULE_EDITED - 생성일과 수정일이 다른 경우)
         if (rule.updatedAt && new Date(rule.updatedAt).getTime() > new Date(rule.createdAt).getTime()) {
           const existsEdited = await this.prisma.activityLog.findFirst({
             where: { groupId: groupBigInt, type: 'RULE_EDITED', refId: rule.id },
@@ -294,13 +287,12 @@ export class ActivitiesService {
     }
 
     // 4️. 생필품 (SUPPLY_CHANGED)
-    if ('supply' in this.prisma) {
-      const supplyDelegate = (this.prisma as unknown as { supply: DynamicPrismaDelegate<SupplyEntity> }).supply;
-      const supplies = await supplyDelegate.findMany({
+    if ('supply' in this.prisma && dynamicPrisma.supply) {
+      const supplies = (await dynamicPrisma.supply.findMany({
         where: { groupId: groupBigInt },
         orderBy: { updatedAt: 'desc' },
         take: 20,
-      });
+      })) as SupplyEntity[];
 
       for (const supply of supplies) {
         const exists = await this.prisma.activityLog.findFirst({
