@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum, IsInt, IsNotEmpty, IsString, Length, Min } from 'class-validator';
+
 export enum RuleStatusValue {
   ACTIVE = 'ACTIVE',
   INACTIVE = 'INACTIVE',
