@@ -113,6 +113,16 @@ npx cdk deploy GachiSallimBackendStack \
   --region ap-northeast-2
 ```
 
+### 비밀번호 재설정 이메일
+
+런타임 스택은 `gachisallim.com` SES 도메인 ID와 DKIM 레코드를 생성하고, Cognito가
+`noreply@gachisallim.com`에서 비밀번호 재설정 링크를 발송하도록 설정합니다. 운영 수신자에게
+발송하려면 `ap-northeast-2`의 SES 계정을 sandbox에서 production access로 전환해야 합니다.
+
+프론트엔드는 `/reset-password#email=...&code=...`에서 이메일과 인증 코드를 읽고
+`POST /api/v1/auth/password/reset`을 호출해야 합니다. 인증 코드는 URL fragment에 두어 서버,
+CDN 및 referrer에 노출되지 않도록 합니다.
+
 GitHub repository variable `CD_ENABLED`는 런타임 검증이 끝날 때까지 `false`로 유지하고, 실제 자동 배포를
 시작할 때만 `true`로 바꿉니다.
 

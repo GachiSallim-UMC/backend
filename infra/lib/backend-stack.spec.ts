@@ -109,7 +109,10 @@ describe('BackendStack', () => {
 
   it('links only supported external identities through the pre-signup trigger', () => {
     template.hasResourceProperties('AWS::Cognito::UserPool', {
-      LambdaConfig: Match.objectLike({ PreSignUp: Match.anyValue() }),
+      LambdaConfig: Match.objectLike({
+        CustomMessage: Match.anyValue(),
+        PreSignUp: Match.anyValue(),
+      }),
     });
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: {
@@ -128,6 +131,53 @@ describe('BackendStack', () => {
     expect(policies).toContain('ProductionUserPoolD7CBD407');
     expect(policies).toContain('DevelopmentUserPool1D648632');
     expect(policies).not.toContain(':userpool/*');
+  });
+
+  it('creates environment-specific password reset message links', () => {
+    template.hasResourceProperties('AWS::SES::EmailIdentity', {
+      EmailIdentity: 'gachisallim.com',
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      EmailConfiguration: Match.objectLike({
+        EmailSendingAccount: 'DEVELOPER',
+        From: 'GachiSallim <noreply@gachisallim.com>',
+        SourceArn: Match.anyValue(),
+      }),
+    });
+    expect(JSON.stringify(template.findResources('AWS::Cognito::UserPool'))).toContain(
+      'identity/gachisallim.com',
+    );
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: {
+        Variables: {
+          PASSWORD_RESET_URL: 'https://gachisallim.com/reset-password',
+        },
+      },
+    });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: {
+        Variables: {
+          PASSWORD_RESET_URL: 'https://dev.gachisallim.com/reset-password',
+        },
+      },
+    });
+  });
+
+  it('exposes password reset endpoints without JWT authentication', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+      Conditions: Match.arrayWith([
+        Match.objectLike({
+          Field: 'path-pattern',
+          PathPatternConfig: {
+            Values: Match.arrayWith([
+              '/api/v1/auth/password/forgot',
+              '/api/v1/auth/password/reset',
+            ]),
+          },
+        }),
+      ]),
+    });
   });
 
   it('exposes Swagger documents only on the development domain', () => {
@@ -165,7 +215,7 @@ describe('BackendStack', () => {
       SubjectAlternativeNames: ['dev-api.gachisallim.com'],
       ValidationMethod: 'DNS',
     });
-    template.resourceCountIs('AWS::Route53::RecordSet', 2);
+    template.resourceCountIs('AWS::Route53::RecordSet', 5);
     const records = JSON.stringify(template.findResources('AWS::Route53::RecordSet'));
     expect(records).toContain('api.gachisallim.com');
     expect(records).toContain('dev-api.gachisallim.com');

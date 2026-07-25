@@ -18,6 +18,7 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as ses from 'aws-cdk-lib/aws-ses';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -85,6 +86,14 @@ const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
 export class BackendStack extends Stack {
   constructor(scope: Construct, id: string, props: BackendStackProps) {
     super(scope, id, props);
+
+    const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
+      hostedZoneId: HOSTED_ZONE_ID,
+      zoneName: ROOT_DOMAIN,
+    });
+    const emailIdentity = new ses.EmailIdentity(this, 'EmailIdentity', {
+      identity: ses.Identity.publicHostedZone(hostedZone),
+    });
 
     const natProvider = ec2.NatProvider.instanceV2({
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
@@ -422,6 +431,12 @@ export class BackendStack extends Stack {
         signInAliases: { email: true },
         autoVerify: { email: true },
         accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+        email: cognito.UserPoolEmail.withSES({
+          fromEmail: `noreply@${ROOT_DOMAIN}`,
+          fromName: 'GachiSallim',
+          sesRegion: Aws.REGION,
+          sesVerifiedDomain: ROOT_DOMAIN,
+        }),
         passwordPolicy: {
           minLength: 8,
           requireLowercase: true,
@@ -432,7 +447,36 @@ export class BackendStack extends Stack {
         deletionProtection: true,
         removalPolicy: RemovalPolicy.RETAIN,
       });
+      pool.node.addDependency(emailIdentity);
       pool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, preSignupLinkFunction);
+      const passwordResetMessageLogGroup = new logs.LogGroup(
+        this,
+        `${environment.id}PasswordResetMessageLogGroup`,
+        {
+          retention: logs.RetentionDays.ONE_MONTH,
+          removalPolicy: RemovalPolicy.RETAIN,
+        },
+      );
+      const passwordResetMessageFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}PasswordResetMessageFunction`,
+        {
+          entry: join(__dirname, '../lambda/password-reset-message.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          memorySize: 128,
+          timeout: Duration.seconds(10),
+          logGroup: passwordResetMessageLogGroup,
+          environment: {
+            PASSWORD_RESET_URL: `${environment.webAppUrl}/reset-password`,
+          },
+          bundling: {
+            minify: true,
+            sourceMap: true,
+          },
+        },
+      );
+      pool.addTrigger(cognito.UserPoolOperation.CUSTOM_MESSAGE, passwordResetMessageFunction);
       const domain = pool.addDomain(`${environment.id}UserPoolDomain`, {
         cognitoDomain: { domainPrefix: environment.authDomainPrefix },
       });
@@ -788,10 +832,6 @@ done`,
       targetPort: 443,
     });
 
-    const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
-      hostedZoneId: HOSTED_ZONE_ID,
-      zoneName: ROOT_DOMAIN,
-    });
     const certificate = new acm.Certificate(this, 'Certificate', {
       domainName: PRODUCTION_DOMAIN,
       subjectAlternativeNames: [DEVELOPMENT_DOMAIN],
@@ -819,6 +859,8 @@ done`,
         conditions: [
           hostCondition,
           elbv2.ListenerCondition.pathPatterns([
+            '/api/v1/auth/password/forgot',
+            '/api/v1/auth/password/reset',
             '/api/v1/auth/signup',
             '/api/v1/auth/signup/confirm',
           ]),

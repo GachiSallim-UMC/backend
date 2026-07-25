@@ -1,13 +1,24 @@
 import {
   ChangePasswordCommand,
+  ConfirmForgotPasswordCommand,
   CognitoIdentityProviderClient,
+  ForgotPasswordCommand,
   GetUserCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
+import { ConfigService } from '@nestjs/config';
 
 import { PasswordService } from './password.service';
 
 type MockedCognitoClient = {
-  send: jest.MockedFunction<(command: ChangePasswordCommand | GetUserCommand) => Promise<unknown>>;
+  send: jest.MockedFunction<
+    (
+      command:
+        | ChangePasswordCommand
+        | ConfirmForgotPasswordCommand
+        | ForgotPasswordCommand
+        | GetUserCommand,
+    ) => Promise<unknown>
+  >;
 };
 
 function cognitoError(name: string): Error {
@@ -22,9 +33,110 @@ describe('PasswordService', () => {
 
   beforeEach(() => {
     cognitoClient = {
-      send: jest.fn<Promise<unknown>, [ChangePasswordCommand | GetUserCommand]>(),
+      send: jest.fn(),
     };
-    service = new PasswordService(cognitoClient as unknown as CognitoIdentityProviderClient);
+    const configService = {
+      getOrThrow: jest.fn().mockReturnValue('cognito-client-id'),
+    } as unknown as ConfigService;
+    service = new PasswordService(
+      cognitoClient as unknown as CognitoIdentityProviderClient,
+      configService,
+    );
+  });
+
+  it('requests a password reset email through Cognito', async () => {
+    cognitoClient.send.mockResolvedValue({});
+
+    await expect(service.requestPasswordReset({ email: 'member@example.com' })).resolves.toEqual({
+      accepted: true,
+    });
+
+    expect(cognitoClient.send).toHaveBeenCalledTimes(1);
+    expect(cognitoClient.send.mock.calls[0][0]).toBeInstanceOf(ForgotPasswordCommand);
+    expect(cognitoClient.send.mock.calls[0][0].input).toEqual({
+      ClientId: 'cognito-client-id',
+      Username: 'member@example.com',
+    });
+  });
+
+  it.each(['InvalidParameterException', 'NotAuthorizedException', 'UserNotFoundException'])(
+    'does not reveal an unavailable account for %s',
+    async (errorName) => {
+      cognitoClient.send.mockRejectedValue(cognitoError(errorName));
+
+      await expect(service.requestPasswordReset({ email: 'member@example.com' })).resolves.toEqual({
+        accepted: true,
+      });
+    },
+  );
+
+  it.each([
+    ['LimitExceededException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['TooManyFailedAttemptsException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['TooManyRequestsException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['InternalErrorException', 'AUTH_PROVIDER_ERROR'],
+  ])('maps password reset request %s to %s', async (errorName, expectedCode) => {
+    cognitoClient.send.mockRejectedValue(cognitoError(errorName));
+
+    await expect(
+      service.requestPasswordReset({ email: 'member@example.com' }),
+    ).rejects.toMatchObject({ code: expectedCode });
+  });
+
+  it('resets the password through Cognito', async () => {
+    cognitoClient.send.mockResolvedValue({});
+
+    await expect(
+      service.resetPassword({
+        email: 'member@example.com',
+        confirmationCode: '123456',
+        newPassword: 'NewPassword1',
+      }),
+    ).resolves.toEqual({ reset: true });
+
+    expect(cognitoClient.send).toHaveBeenCalledTimes(1);
+    expect(cognitoClient.send.mock.calls[0][0]).toBeInstanceOf(ConfirmForgotPasswordCommand);
+    expect(cognitoClient.send.mock.calls[0][0].input).toEqual({
+      ClientId: 'cognito-client-id',
+      Username: 'member@example.com',
+      ConfirmationCode: '123456',
+      Password: 'NewPassword1',
+    });
+  });
+
+  it('rejects a reset password that violates the local policy', async () => {
+    await expect(
+      service.resetPassword({
+        email: 'member@example.com',
+        confirmationCode: '123456',
+        newPassword: 'password',
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_PASSWORD_POLICY_VIOLATION' });
+    expect(cognitoClient.send).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['CodeMismatchException', 'AUTH_INVALID_CONFIRMATION_CODE'],
+    ['InvalidParameterException', 'AUTH_INVALID_CONFIRMATION_CODE'],
+    ['NotAuthorizedException', 'AUTH_INVALID_CONFIRMATION_CODE'],
+    ['UserNotFoundException', 'AUTH_INVALID_CONFIRMATION_CODE'],
+    ['ExpiredCodeException', 'AUTH_EXPIRED_CONFIRMATION_CODE'],
+    ['InvalidPasswordException', 'AUTH_PASSWORD_POLICY_VIOLATION'],
+    ['PasswordHistoryPolicyViolationException', 'AUTH_PASSWORD_POLICY_VIOLATION'],
+    ['LimitExceededException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['TooManyFailedAttemptsException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['TooManyRequestsException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['InternalErrorException', 'AUTH_PROVIDER_ERROR'],
+  ])('maps password reset confirmation %s to %s', async (errorName, expectedCode) => {
+    cognitoClient.send.mockRejectedValue(cognitoError(errorName));
+
+    await expect(
+      service.resetPassword({
+        email: 'member@example.com',
+        confirmationCode: '123456',
+        newPassword: 'NewPassword1',
+      }),
+    ).rejects.toMatchObject({ code: expectedCode });
   });
 
   it('changes the password through Cognito', async () => {
