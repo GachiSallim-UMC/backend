@@ -513,8 +513,14 @@ enum Weekday {
 }
 
 enum ExpenseCategory {
+  FINANCE
   FOOD
   SHOPPING
+  EDUCATION
+  GROCERY
+  TRANSPORT
+  LEISURE
+  CAFE
   UTILITIES
   ETC
 }
