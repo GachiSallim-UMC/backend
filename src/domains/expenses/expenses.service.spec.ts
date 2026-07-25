@@ -155,7 +155,7 @@ describe('ExpensesService', () => {
       jest.spyOn(prisma.groupMember, 'findMany').mockResolvedValue([{ userId: 12n }, { userId: 2n }] as any);
 
       jest.spyOn(prisma, '$transaction').mockImplementation(async (callback: any) => {
-        return callback({
+        return await callback({
           expense: {
             create: jest.fn().mockResolvedValue({ id: 1n }),
           },
@@ -190,7 +190,7 @@ describe('ExpensesService', () => {
       jest.spyOn(prisma.groupMember, 'findMany').mockResolvedValue([{ userId: 12n }, { userId: 2n }] as any);
 
       jest.spyOn(prisma, '$transaction').mockImplementation(async (callback: any) => {
-        return callback({
+        return await callback({
           expense: {
             create: jest.fn().mockResolvedValue({ id: 1n }),
           },
