@@ -8,7 +8,6 @@ import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExpenseNotFoundException } from './expenses.exception';
 import { CreateExpenseDto } from './dto/create-expense.dto';
-import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code.constant';
@@ -252,28 +251,132 @@ describe('ExpensesService', () => {
   // =========================================================================
   describe('updateExpense', () => {
     it('수정하려는 지출 내역이 없으면 ExpenseNotFoundException을 던져야 한다', async () => {
-      prisma.expense.findUnique.mockResolvedValue(null);
-      const dto: UpdateExpenseDto = { title: '수정 제목' };
+      jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue(null);
 
-      await expect(service.updateExpense(mockAuthContext, 999, dto)).rejects.toThrow(ExpenseNotFoundException);
+      await expect(
+        service.updateExpense(mockAuthContext, 999, { title: '수정 테스트' }),
+      ).rejects.toThrow(ExpenseNotFoundException);
     });
 
     it('생성자나 결제자가 아닌 유저가 수정 시 ForbiddenException을 던져야 한다', async () => {
-      prisma.expense.findUnique.mockResolvedValue({ id: BigInt(1), createdBy: BigInt(99), payerId: BigInt(99) });
-      const dto: UpdateExpenseDto = { title: '수정 완료' };
+      jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue({
+        id: 1n,
+        createdBy: 99n,
+        payerId: 99n,
+        splits: [],
+      } as any);
 
-      await expect(service.updateExpense(mockAuthContext, 1, dto)).rejects.toThrow(ForbiddenException);
+      await expect(
+        service.updateExpense(mockAuthContext, 1, { title: '수정 테스트' }),
+      ).rejects.toThrow(ForbiddenException);
     });
 
-    it('지출 내역을 성공적으로 수정해야 한다', async () => {
-      prisma.expense.findUnique.mockResolvedValue({ id: BigInt(1), createdBy: BigInt(12), payerId: BigInt(12) });
-      prisma.expense.update.mockResolvedValue({ id: BigInt(1), title: '수정 완료' });
-      const dto: UpdateExpenseDto = { title: '수정 완료' };
+    it('지출 내역 수정 시 EQUAL 방식이면 변경된 총액에 맞게 ExpenseSplit이 N분의 1로 재계산되어야 한다', async () => {
+      // 1. 기존 Expense 및 Splits Mock 설정 (총액 30,000원 -> 2명 각 15,000원)
+      const mockExistingExpense = {
+        id: 1n,
+        createdBy: 12n,
+        payerId: 12n,
+        totalAmount: 30000,
+        splitType: SplitType.EQUAL,
+        splits: [
+          { id: 101n, userId: 12n, amount: 15000 },
+          { id: 102n, userId: 2n, amount: 15000 },
+        ],
+      };
 
-      const result = await service.updateExpense(mockAuthContext, 1, dto);
-      expect(result.title).toBe('수정 완료');
+      jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue(mockExistingExpense as any);
+
+      const mockUpdate = jest.fn().mockResolvedValue({ ...mockExistingExpense, totalAmount: 50000 });
+      const mockSplitUpdate = jest.fn().mockResolvedValue({});
+
+      jest.spyOn(prisma, '$transaction').mockImplementation((callback: any) => {
+        return callback({
+          expense: { update: mockUpdate },
+          expenseSplit: { update: mockSplitUpdate },
+        });
+      });
+
+      // 2. 총액을 50,000원으로 수정 요청 (2명이므로 25,000원씩 재계산)
+      const updateDto = {
+        totalAmount: 50000,
+      };
+
+      // ⭕ any 변수 할당 대신 실행 처리 및 타입 단축
+      await service.updateExpense(mockAuthContext, 1, updateDto);
+
+      // ⭕ mockUpdate.mock.calls 직접 검증 (expect.objectContaining 제거로 no-unsafe-assignment 해결)
+      const updateCall = mockUpdate.mock.calls[0][0] as {
+        where: { id: bigint };
+        data: { totalAmount?: number };
+      };
+
+      expect(updateCall.where).toEqual({ id: 1n });
+      expect(updateCall.data.totalAmount).toBe(50000);
+
+      // 3. 각 ExpenseSplit의 amount가 25,000원으로 갱신되었는지 확인
+      expect(mockSplitUpdate).toHaveBeenCalledWith({
+        where: { id: 101n },
+        data: { amount: 25000 },
+      });
+      expect(mockSplitUpdate).toHaveBeenCalledWith({
+        where: { id: 102n },
+        data: { amount: 25000 },
+      });
     });
-  });
+
+    it('지출 내역 수정 시 RATIO 방식이면 기존 비율에 맞춰 ExpenseSplit이 비례 재계산되어야 한다', async () => {
+      // 1. 기존 Expense 및 Splits Mock 설정 (총액 100,000원 -> 60%:40% 비율인 60,000원/40,000원)
+      const mockExistingExpense = {
+        id: 1n,
+        createdBy: 12n,
+        payerId: 12n,
+        totalAmount: 100000,
+        splitType: SplitType.RATIO,
+        splits: [
+          { id: 101n, userId: 12n, amount: 60000 },
+          { id: 102n, userId: 2n, amount: 40000 },
+        ],
+      };
+
+      jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue(mockExistingExpense as any);
+
+      const mockUpdate = jest.fn().mockResolvedValue({ ...mockExistingExpense, totalAmount: 200000 });
+      const mockSplitUpdate = jest.fn().mockResolvedValue({});
+
+      jest.spyOn(prisma, '$transaction').mockImplementation((callback: any) => {
+        return callback({
+          expense: { update: mockUpdate },
+          expenseSplit: { update: mockSplitUpdate },
+        });
+      });
+
+      // 2. 총액을 200,000원으로 수정 요청 (60%:40% 비율 유지 -> 120,000원/80,000원 재계산)
+      const updateDto = {
+        totalAmount: 200000,
+      };
+
+      await service.updateExpense(mockAuthContext, 1, updateDto);
+
+      // ⭕ mockUpdate.mock.calls 직접 검증 (expect.objectContaining 제거로 no-unsafe-assignment 해결)
+      const updateCall = mockUpdate.mock.calls[0][0] as {
+        where: { id: bigint };
+        data: { totalAmount?: number };
+      };
+
+      expect(updateCall.where).toEqual({ id: 1n });
+      expect(updateCall.data.totalAmount).toBe(200000);
+
+      // 3. 비율대로 갱신되었는지 확인 (120,000원 / 80,000원)
+      expect(mockSplitUpdate).toHaveBeenCalledWith({
+        where: { id: 101n },
+        data: { amount: 120000 },
+      });
+      expect(mockSplitUpdate).toHaveBeenCalledWith({
+        where: { id: 102n },
+        data: { amount: 80000 },
+      });
+    });
 
   // =========================================================================
   // 4. deleteExpense 검증
@@ -505,3 +608,4 @@ describe('ExpensesService', () => {
     });
   });
 });
+})

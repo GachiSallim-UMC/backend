@@ -210,29 +210,91 @@ export class ExpensesService {
     return expense;
   }
 
-  // 4. 지출 내역 수정
+ // 4. 지출 내역 수정
   async updateExpense(auth: AuthContext, expenseId: number, updateExpenseDto: UpdateExpenseDto) {
     const currentUserId = await this.getUserIdByAuth(auth);
+    const numericExpenseId = BigInt(expenseId);
 
+    // 1. 기존 지출 정보 및 분담 내역(splits) 함께 조회
     const expense = await this.prisma.expense.findUnique({
-      where: { id: BigInt(expenseId) },
+      where: { id: numericExpenseId },
+      include: {
+        splits: true,
+      },
     });
     if (!expense) throw new ExpenseNotFoundException();
 
+    // 2. 권한 검증 (생성자 또는 선결제자만 가능)
     if (expense.createdBy !== currentUserId && expense.payerId !== currentUserId) {
       throw new ForbiddenException('정산 수정 권한이 없습니다. (생성자 또는 선결제자만 가능)');
     }
 
-    const { title, totalAmount, category, splitType } = updateExpenseDto as UpdateExpenseDto & { category?: ExpenseCategory };
+    const { title, totalAmount, category, splitType } = updateExpenseDto as UpdateExpenseDto & {
+      category?: ExpenseCategory;
+    };
 
-    return this.prisma.expense.update({
-      where: { id: BigInt(expenseId) },
-      data: {
-        ...(title && { title }),
-        ...(totalAmount !== undefined && { totalAmount }),
-        ...(category && { category }),
-        ...(splitType && { splitType: splitType }),
-      },
+    // 변경될 핵심 값들 (전달되지 않았으면 기존 값 유지)
+    const newTotalAmount = totalAmount ?? expense.totalAmount;
+    const newSplitType = splitType ?? expense.splitType;
+
+    // 총액이나 분담 방식이 실제로 변경되었는지 여부
+    const isCalculationChanged =
+      (totalAmount !== undefined && totalAmount !== expense.totalAmount) ||
+      (splitType !== undefined && splitType !== expense.splitType);
+
+    // 3. 트랜잭션으로 지출 내역과 분담 내역 함께 업데이트
+    return this.prisma.$transaction(async (tx) => {
+      // 3-1. Expense 테이블 기본 정보 업데이트
+      const updatedExpense = await tx.expense.update({
+        where: { id: numericExpenseId },
+        data: {
+          ...(title && { title }),
+          ...(totalAmount !== undefined && { totalAmount }),
+          ...(category && { category }),
+          ...(splitType && { splitType }),
+        },
+      });
+
+      // 3-2. 금액이나 분담 방식이 변경되었고, 기존 분담 내역이 존재하는 경우 재계산
+      if (isCalculationChanged && expense.splits.length > 0) {
+        const splits = expense.splits;
+        const count = splits.length;
+
+        if (newSplitType === SplitType.EQUAL) {
+          // [EQUAL] N분의 1 재계산 (소액/나머지 1원 단위 분배)
+          const baseAmount = Math.floor(newTotalAmount / count);
+          let remainder = newTotalAmount % count;
+
+          for (const split of splits) {
+            let participantAmount = baseAmount;
+            if (remainder > 0) {
+              participantAmount += 1;
+              remainder -= 1;
+            }
+
+            await tx.expenseSplit.update({
+              where: { id: split.id },
+              data: { amount: participantAmount },
+            });
+          }
+        } else if (newSplitType === SplitType.RATIO) {
+          // [RATIO] 기존 분담 비율 유지하며 총액에 맞춰 비례 재계산
+          const oldTotalAmount = expense.totalAmount;
+
+          for (const split of splits) {
+            const ratio = oldTotalAmount > 0 ? split.amount / oldTotalAmount : 1 / count;
+            const recalculatedAmount = Math.floor(newTotalAmount * ratio);
+
+            await tx.expenseSplit.update({
+              where: { id: split.id },
+              data: { amount: recalculatedAmount },
+            });
+          }
+        }
+        // CUSTOM 방식은 사용자가 명시한 금액을 보존해야 하므로 분담금(splits)을 자동 변경하지 않음
+      }
+
+      return updatedExpense;
     });
   }
 
