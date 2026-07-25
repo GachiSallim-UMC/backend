@@ -2,7 +2,7 @@ import {
   Controller, Post, Get, Patch, Delete, 
   Body, Query, Param, ParseIntPipe, HttpCode, HttpStatus, UseGuards, Headers, UnauthorizedException 
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiParam, ApiBearerAuth, ApiHeader } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiParam, ApiBearerAuth, ApiHeader,ApiBody } from '@nestjs/swagger';
 import { ExpensesService } from './expenses.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { GetExpenseQueryDto } from './dto/get-expense-query.dto';
@@ -157,14 +157,67 @@ export class ExpensesController {
     return this.expensesService.getExpenseDetail(auth, expenseId);
   }
 
-  @Patch(':expenseId')
+@Patch(':expenseId')
   @UseGuards(CognitoAccessTokenGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
     summary: '지출 내역 수정 (EXP-EDIT-01)', 
-    description: '등록된 지출 내역의 제목, 금액, 카테고리 등을 수정합니다.' 
+    description: '등록된 지출 내역의 제목, 금액, 카테고리, 분담 방식 등을 수정합니다.' 
   })
   @ApiParam({ name: 'expenseId', description: '수정할 정산 내역 ID', example: 123 })
+  @ApiBody({
+    type: UpdateExpenseDto,
+    examples: {
+      equalExample: {
+        summary: '1. EQUAL (총액만 변경 - 자동 N분의 1 재계산)',
+        description: '총액만 변경할 때 사용합니다. targetMemberIds를 전달하지 않아도 백엔드에서 N분의 1로 자동 재계산됩니다.',
+        value: {
+          title: '5월 관리비 수정',
+          totalAmount: 95000,
+          category: 'FOOD',
+          splitType: 'EQUAL',
+        },
+      },
+      ratioAutoExample: {
+        summary: '2. RATIO (총액만 변경 - 기존 비율 유지)',
+        description: '비율 수정 없이 총액만 변경할 때 사용합니다. targetMemberIds를 생략해도 기존 멤버들의 분담 비율에 맞춰 백엔드에서 자동 비례 재계산됩니다.',
+        value: {
+          title: '여행 경비 수정',
+          totalAmount: 150000,
+          category: 'SHOPPING',
+          splitType: 'RATIO',
+        },
+      },
+      ratioCustomExample: {
+        summary: '3. RATIO (참여자별 비율 변경)',
+        description: '분담 비율 자체를 수정할 때 사용합니다. targetMemberIds 배열에 각 유저의 새 비율(percentage)을 담아 전달합니다.',
+        value: {
+          title: '여행 경비 비율 수정',
+          totalAmount: 200000,
+          category: 'SHOPPING',
+          splitType: 'RATIO',
+          targetMemberIds: [
+            { userId: '12', percentage: 70 },
+            { userId: '2', percentage: 30 },
+          ],
+        },
+      },
+      customExample: {
+        summary: '4. CUSTOM (멤버별 금액 직접 지정)',
+        description: '참여자별 금액을 직접 변경할 때 사용합니다. targetMemberIds 배열에 각 유저의 지정 금액(amount)을 담아 전달합니다.',
+        value: {
+          title: '5월 회식비 수정',
+          totalAmount: 100000,
+          category: 'FOOD',
+          splitType: 'CUSTOM',
+          targetMemberIds: [
+            { userId: '12', amount: 60000 },
+            { userId: '2', amount: 40000 },
+          ],
+        },
+      },
+    },
+  })
   async updateExpense(
     @CurrentAuth() auth: AuthContext,
     @Param('expenseId', ParseIntPipe) expenseId: number,
