@@ -5,6 +5,7 @@ import {
   ForgotPasswordCommand,
   GetUserCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PasswordService } from './password.service';
@@ -30,8 +31,10 @@ function cognitoError(name: string): Error {
 describe('PasswordService', () => {
   let cognitoClient: MockedCognitoClient;
   let service: PasswordService;
+  let warn: jest.SpyInstance;
 
   beforeEach(() => {
+    warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
     cognitoClient = {
       send: jest.fn(),
     };
@@ -42,6 +45,10 @@ describe('PasswordService', () => {
       cognitoClient as unknown as CognitoIdentityProviderClient,
       configService,
     );
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
   });
 
   it('requests a password reset email through Cognito', async () => {
@@ -59,29 +66,28 @@ describe('PasswordService', () => {
     });
   });
 
-  it.each(['InvalidParameterException', 'NotAuthorizedException', 'UserNotFoundException'])(
-    'does not reveal an unavailable account for %s',
+  it.each([
+    'CodeDeliveryFailureException',
+    'InternalErrorException',
+    'InvalidParameterException',
+    'LimitExceededException',
+    'NotAuthorizedException',
+    'TooManyFailedAttemptsException',
+    'TooManyRequestsException',
+    'UnexpectedLambdaException',
+    'UserNotFoundException',
+  ])(
+    'does not reveal the password reset delivery result for %s',
     async (errorName) => {
       cognitoClient.send.mockRejectedValue(cognitoError(errorName));
 
       await expect(service.requestPasswordReset({ email: 'member@example.com' })).resolves.toEqual({
         accepted: true,
       });
+
+      expect(warn).toHaveBeenCalledWith(`Password reset email request failed: ${errorName}`);
     },
   );
-
-  it.each([
-    ['LimitExceededException', 'AUTH_TOO_MANY_REQUESTS'],
-    ['TooManyFailedAttemptsException', 'AUTH_TOO_MANY_REQUESTS'],
-    ['TooManyRequestsException', 'AUTH_TOO_MANY_REQUESTS'],
-    ['InternalErrorException', 'AUTH_PROVIDER_ERROR'],
-  ])('maps password reset request %s to %s', async (errorName, expectedCode) => {
-    cognitoClient.send.mockRejectedValue(cognitoError(errorName));
-
-    await expect(
-      service.requestPasswordReset({ email: 'member@example.com' }),
-    ).rejects.toMatchObject({ code: expectedCode });
-  });
 
   it('resets the password through Cognito', async () => {
     cognitoClient.send.mockResolvedValue({});

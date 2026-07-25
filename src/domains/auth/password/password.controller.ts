@@ -38,8 +38,6 @@ export class PasswordController {
     description: '비밀번호 재설정 이메일 요청 접수',
     type: RequestPasswordResetResponseDto,
   })
-  @ApiResponse({ status: 429, description: '인증 서비스 요청 제한 초과' })
-  @ApiResponse({ status: 502, description: '인증 서비스 처리 오류' })
   requestPasswordReset(
     @Body() dto: RequestPasswordResetDto,
   ): Promise<RequestPasswordResetResponseDto> {

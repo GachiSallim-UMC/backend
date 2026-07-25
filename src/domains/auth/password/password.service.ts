@@ -5,7 +5,7 @@ import {
   ForgotPasswordCommand,
   GetUserCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { ErrorCode } from '../../../common/constants/error-code.constant';
@@ -22,11 +22,16 @@ import { ResetPasswordDto, ResetPasswordResponseDto } from './dto/reset-password
 
 @Injectable()
 export class PasswordService {
+  private readonly cognitoClientId: string;
+  private readonly logger = new Logger(PasswordService.name);
+
   constructor(
     @Inject(COGNITO_IDP_CLIENT)
     private readonly cognitoClient: CognitoIdentityProviderClient,
-    private readonly configService: ConfigService,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.cognitoClientId = configService.getOrThrow<string>('COGNITO_CLIENT_ID');
+  }
 
   async requestPasswordReset(
     dto: RequestPasswordResetDto,
@@ -34,23 +39,14 @@ export class PasswordService {
     try {
       await this.cognitoClient.send(
         new ForgotPasswordCommand({
-          ClientId: this.configService.getOrThrow<string>('COGNITO_CLIENT_ID'),
+          ClientId: this.cognitoClientId,
           Username: dto.email,
         }),
       );
     } catch (error) {
-      switch (this.getErrorName(error)) {
-        case 'InvalidParameterException':
-        case 'NotAuthorizedException':
-        case 'UserNotFoundException':
-          return { accepted: true };
-        case 'LimitExceededException':
-        case 'TooManyFailedAttemptsException':
-        case 'TooManyRequestsException':
-          throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
-        default:
-          throw new BusinessException(ErrorCode.AUTH_PROVIDER_ERROR);
-      }
+      this.logger.warn(
+        `Password reset email request failed: ${this.getErrorName(error) ?? 'UnknownError'}`,
+      );
     }
 
     return { accepted: true };
@@ -62,7 +58,7 @@ export class PasswordService {
     try {
       await this.cognitoClient.send(
         new ConfirmForgotPasswordCommand({
-          ClientId: this.configService.getOrThrow<string>('COGNITO_CLIENT_ID'),
+          ClientId: this.cognitoClientId,
           Username: dto.email,
           ConfirmationCode: dto.confirmationCode,
           Password: dto.newPassword,

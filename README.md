@@ -99,7 +99,7 @@ expand/contract 순서를 따라야 합니다.
 구성할 수 있습니다.
 
 ```bash
-npx cdk deploy GachiSallimDeploymentStack \
+npm run cdk:deploy:foundation -- \
   --profile gachisallim \
   --region ap-northeast-2
 ```
@@ -108,7 +108,8 @@ EC2, RDS, ALB, NAT instance, VPC Endpoint, Cognito, ACM, Route 53 레코드는 �
 스택으로 생성합니다.
 
 ```bash
-npx cdk deploy GachiSallimBackendStack \
+AWS_PROFILE=gachisallim AWS_REGION=ap-northeast-2 \
+  npm run cdk:deploy:backend -- \
   --profile gachisallim \
   --region ap-northeast-2
 ```
@@ -118,6 +119,8 @@ npx cdk deploy GachiSallimBackendStack \
 런타임 스택은 `gachisallim.com` SES 도메인 ID와 DKIM 레코드를 생성하고, Cognito가
 `noreply@gachisallim.com`에서 비밀번호 재설정 링크를 발송하도록 설정합니다. 운영 수신자에게
 발송하려면 `ap-northeast-2`의 SES 계정을 sandbox에서 production access로 전환해야 합니다.
+`cdk:deploy`와 `cdk:deploy:backend`는 이 상태를 AWS SES API로 확인하고, 승인 전에는 런타임
+스택 배포를 중단합니다.
 
 프론트엔드는 `/reset-password#email=...&code=...`에서 이메일과 인증 코드를 읽고
 `POST /api/v1/auth/password/reset`을 호출해야 합니다. 인증 코드는 URL fragment에 두어 서버,
