@@ -210,7 +210,7 @@ export class ExpensesService {
     return expense;
   }
 
- // 4. 지출 내역 수정
+// 4. 지출 내역 수정
   async updateExpense(auth: AuthContext, expenseId: number, updateExpenseDto: UpdateExpenseDto) {
     const currentUserId = await this.getUserIdByAuth(auth);
     const numericExpenseId = BigInt(expenseId);
@@ -229,7 +229,7 @@ export class ExpensesService {
       throw new ForbiddenException('정산 수정 권한이 없습니다. (생성자 또는 선결제자만 가능)');
     }
 
-    const { title, totalAmount, category, splitType } = updateExpenseDto as UpdateExpenseDto & {
+    const { title, totalAmount, category, splitType, targetMemberIds } = updateExpenseDto as UpdateExpenseDto & {
       category?: ExpenseCategory;
     };
 
@@ -255,8 +255,36 @@ export class ExpensesService {
         },
       });
 
-      // 3-2. 금액이나 분담 방식이 변경되었고, 기존 분담 내역이 존재하는 경우 재계산
-      if (isCalculationChanged && expense.splits.length > 0) {
+      // 3-2. 분담 내역(splits) 갱신 로직
+      if (targetMemberIds && targetMemberIds.length > 0) {
+        // ⭕ Case A: 프론트에서 targetMemberIds를 보낸 경우 (CUSTOM 지정, 비율 변경, 멤버 변경 등)
+        await tx.expenseSplit.deleteMany({
+          where: { expenseId: numericExpenseId },
+        });
+
+        const newSplits = targetMemberIds.map((member) => {
+          let calculatedAmount = member.amount ?? 0;
+
+          // RATIO 방식이면서 percentage가 넘어온 경우 비례 계산
+          if (newSplitType === SplitType.RATIO && member.percentage !== undefined) {
+            calculatedAmount = Math.floor((newTotalAmount * member.percentage) / 100);
+          }
+
+          const memberUserId = BigInt(member.userId);
+          return {
+            expenseId: numericExpenseId,
+            userId: memberUserId,
+            amount: calculatedAmount,
+            status: memberUserId === expense.payerId ? ExpenseSplitStatus.PRE_PAID : ExpenseSplitStatus.REQUESTED,
+          };
+        });
+
+        await tx.expenseSplit.createMany({
+          data: newSplits,
+        });
+
+      } else if (isCalculationChanged && expense.splits.length > 0) {
+        // ⭕ Case B: targetMemberIds 없이 총액/분담방식만 수정된 경우 (기존 멤버 및 비율 유지)
         const splits = expense.splits;
         const count = splits.length;
 
@@ -278,7 +306,7 @@ export class ExpensesService {
             });
           }
         } else if (newSplitType === SplitType.RATIO) {
-          // [RATIO] 기존 분담 비율 유지하며 총액에 맞춰 비례 재계산
+          // [RATIO] 기존 분담 비율(기존 분담금 / 기존 총액)을 유지하며 비례 재계산
           const oldTotalAmount = expense.totalAmount;
 
           for (const split of splits) {
@@ -291,7 +319,6 @@ export class ExpensesService {
             });
           }
         }
-        // CUSTOM 방식은 사용자가 명시한 금액을 보존해야 하므로 분담금(splits)을 자동 변경하지 않음
       }
 
       return updatedExpense;

@@ -1,6 +1,25 @@
-import { IsInt, IsString, IsOptional, IsEnum, Min } from 'class-validator';
+import { IsInt, IsString, IsOptional, IsEnum, Min, IsArray, ValidateNested } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { ExpenseCategory, SplitType } from '@prisma/client';
+
+export class ExpenseParticipantDto {
+  @ApiPropertyOptional({ description: '참여 유저 ID', example: '12' })
+  @IsString()
+  userId! : string;
+
+  @ApiPropertyOptional({ description: 'CUSTOM 방식 시 해당 유저의 직접 입력 금액', example: 30000 })
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  amount?: number;
+
+  @ApiPropertyOptional({ description: 'RATIO 방식 시 해당 유저의 비율(%)', example: 60 })
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  percentage?: number;
+}
 
 export class UpdateExpenseDto {
   @ApiPropertyOptional({ description: '수정할 지출 항목명', example: '5월 관리비 수정' })
@@ -31,4 +50,18 @@ export class UpdateExpenseDto {
   @IsEnum(SplitType)
   @IsOptional()
   splitType?: SplitType;
+
+  @ApiPropertyOptional({
+    description: '수정할 정산 참여자 목록 (CUSTOM, RATIO 및 멤버 변경 시 사용)',
+    type: [ExpenseParticipantDto],
+    example: [
+      { userId: '12', amount: 50000 },
+      { userId: '2', amount: 45000 },
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ExpenseParticipantDto)
+  targetMemberIds?: ExpenseParticipantDto[];
 }

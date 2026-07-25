@@ -11,7 +11,7 @@ import { CreateExpenseDto } from './dto/create-expense.dto';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code.constant';
-import { ExpenseCategory, SplitType } from '@prisma/client';
+import { ExpenseCategory, SplitType, ExpenseSplitStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 
 const mockPrismaService = (): any => {
@@ -249,7 +249,7 @@ describe('ExpensesService', () => {
   // =========================================================================
   // 3. updateExpense 검증
   // =========================================================================
-  describe('updateExpense', () => {
+describe('updateExpense', () => {
     it('수정하려는 지출 내역이 없으면 ExpenseNotFoundException을 던져야 한다', async () => {
       jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue(null);
 
@@ -302,10 +302,8 @@ describe('ExpensesService', () => {
         totalAmount: 50000,
       };
 
-      // ⭕ any 변수 할당 대신 실행 처리 및 타입 단축
       await service.updateExpense(mockAuthContext, 1, updateDto);
 
-      // ⭕ mockUpdate.mock.calls 직접 검증 (expect.objectContaining 제거로 no-unsafe-assignment 해결)
       const updateCall = mockUpdate.mock.calls[0][0] as {
         where: { id: bigint };
         data: { totalAmount?: number };
@@ -358,7 +356,6 @@ describe('ExpensesService', () => {
 
       await service.updateExpense(mockAuthContext, 1, updateDto);
 
-      // ⭕ mockUpdate.mock.calls 직접 검증 (expect.objectContaining 제거로 no-unsafe-assignment 해결)
       const updateCall = mockUpdate.mock.calls[0][0] as {
         where: { id: bigint };
         data: { totalAmount?: number };
@@ -377,6 +374,128 @@ describe('ExpensesService', () => {
         data: { amount: 80000 },
       });
     });
+
+    it('targetMemberIds가 전달되면 기존 splits를 삭제하고 새로 지정된 금액으로 생성해야 한다 (CUSTOM)', async () => {
+      const mockExistingExpense = {
+        id: 1n,
+        createdBy: 12n,
+        payerId: 12n,
+        totalAmount: 50000,
+        splitType: SplitType.CUSTOM,
+        splits: [
+          { id: 101n, userId: 12n, amount: 30000, status: ExpenseSplitStatus.PRE_PAID },
+          { id: 102n, userId: 2n, amount: 20000, status: ExpenseSplitStatus.REQUESTED },
+        ],
+      };
+
+      jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue(mockExistingExpense as any);
+
+      const mockUpdate = jest.fn().mockResolvedValue({ ...mockExistingExpense, totalAmount: 70000 });
+      const mockDeleteMany = jest.fn().mockResolvedValue({ count: 2 });
+      const mockCreateMany = jest.fn().mockResolvedValue({ count: 2 });
+
+      jest.spyOn(prisma, '$transaction').mockImplementation((callback: any) => {
+        return callback({
+          expense: { update: mockUpdate },
+          expenseSplit: {
+            deleteMany: mockDeleteMany,
+            createMany: mockCreateMany,
+          },
+        });
+      });
+
+      const updateDto = {
+        totalAmount: 70000,
+        splitType: SplitType.CUSTOM,
+        targetMemberIds: [
+          { userId: '12', amount: 40000 },
+          { userId: '2', amount: 30000 },
+        ],
+      };
+
+      await service.updateExpense(mockAuthContext, 1, updateDto);
+
+      expect(mockDeleteMany).toHaveBeenCalledWith({
+        where: { expenseId: 1n },
+      });
+
+      const createManyCall = mockCreateMany.mock.calls[0][0] as {
+        data: Array<{
+          expenseId: bigint;
+          userId: bigint;
+          amount: number;
+          status: ExpenseSplitStatus;
+        }>;
+      };
+
+      expect(createManyCall.data).toHaveLength(2);
+      expect(createManyCall.data[0]).toEqual({
+        expenseId: 1n,
+        userId: 12n,
+        amount: 40000,
+        status: ExpenseSplitStatus.PRE_PAID,
+      });
+      expect(createManyCall.data[1]).toEqual({
+        expenseId: 1n,
+        userId: 2n,
+        amount: 30000,
+        status: ExpenseSplitStatus.REQUESTED,
+      });
+    });
+
+    it('targetMemberIds와 함께 RATIO 방식이 전달되면 percentage 기반으로 금액을 계산하여 새로 생성해야 한다', async () => {
+      const mockExistingExpense = {
+        id: 1n,
+        createdBy: 12n,
+        payerId: 12n,
+        totalAmount: 100000,
+        splitType: SplitType.RATIO,
+        splits: [
+          { id: 101n, userId: 12n, amount: 50000, status: ExpenseSplitStatus.PRE_PAID },
+          { id: 102n, userId: 2n, amount: 50000, status: ExpenseSplitStatus.REQUESTED },
+        ],
+      };
+
+      jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue(mockExistingExpense as any);
+
+      const mockUpdate = jest.fn().mockResolvedValue({ ...mockExistingExpense, totalAmount: 200000 });
+      const mockDeleteMany = jest.fn().mockResolvedValue({ count: 2 });
+      const mockCreateMany = jest.fn().mockResolvedValue({ count: 2 });
+
+      jest.spyOn(prisma, '$transaction').mockImplementation((callback: any) => {
+        return callback({
+          expense: { update: mockUpdate },
+          expenseSplit: {
+            deleteMany: mockDeleteMany,
+            createMany: mockCreateMany,
+          },
+        });
+      });
+
+      const updateDto = {
+        totalAmount: 200000,
+        splitType: SplitType.RATIO,
+        targetMemberIds: [
+          { userId: '12', percentage: 70 },
+          { userId: '2', percentage: 30 },
+        ],
+      };
+
+      await service.updateExpense(mockAuthContext, 1, updateDto);
+
+      const createManyCall = mockCreateMany.mock.calls[0][0] as {
+        data: Array<{
+          expenseId: bigint;
+          userId: bigint;
+          amount: number;
+          status: ExpenseSplitStatus;
+        }>;
+      };
+
+      expect(createManyCall.data[0].amount).toBe(140000);
+      expect(createManyCall.data[1].amount).toBe(60000);
+    });
+  });
 
   // =========================================================================
   // 4. deleteExpense 검증
@@ -608,4 +727,3 @@ describe('ExpensesService', () => {
     });
   });
 });
-})
