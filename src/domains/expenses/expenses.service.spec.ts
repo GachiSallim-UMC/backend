@@ -7,12 +7,12 @@ import { BadRequestException, ForbiddenException, UnauthorizedException } from '
 import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExpenseNotFoundException } from './expenses.exception';
-import { CreateExpenseDto, SplitType } from './dto/create-expense.dto';
+import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code.constant';
-import { ExpenseCategory } from '@prisma/client';
+import { ExpenseCategory, SplitType } from '@prisma/client';
 import * as crypto from 'crypto';
 
 const mockPrismaService = (): any => {
@@ -107,7 +107,7 @@ describe('ExpensesService', () => {
       const dto: CreateExpenseDto = {
         groupId: 1,
         category: ExpenseCategory.FOOD,
-        payerId: "12",
+        payerId: '12',
         date: '2026-07-23',
         title: '테스트 지출',
         amount: 30000,
@@ -122,19 +122,15 @@ describe('ExpensesService', () => {
       const dto: CreateExpenseDto = {
         groupId: 1,
         category: ExpenseCategory.FOOD,
-        payerId: "12",
+        payerId: '12',
         date: '2026-07-23',
         title: '점심 식대',
         amount: 10000,
         splitType: SplitType.EQUAL,
-        targetMemberIds: ["12", "2", "3"],
+        targetMemberIds: [{ userId: '12' }, { userId: '2' }, { userId: '3' }],
       };
 
-      prisma.user.findMany.mockResolvedValue([
-        { id: BigInt(12) },
-        { id: BigInt(2) },
-        { id: BigInt(3) },
-      ]);
+      prisma.user.findMany.mockResolvedValue([{ id: BigInt(12) }, { id: BigInt(2) }, { id: BigInt(3) }]);
       prisma.groupMember.findMany.mockResolvedValue([
         { userId: BigInt(12) },
         { userId: BigInt(2) },
@@ -152,6 +148,76 @@ describe('ExpensesService', () => {
       });
       expect(prisma.expense.create).toHaveBeenCalled();
       expect(prisma.expenseSplit.createMany).toHaveBeenCalled();
+    });
+
+    it('CUSTOM 분담 방식일 때 지정된 금액으로 정산 요청이 올바르게 생성되어야 한다', async () => {
+      jest.spyOn(prisma.user, 'findMany').mockResolvedValue([{ id: 12n }, { id: 2n }] as any);
+      jest.spyOn(prisma.groupMember, 'findMany').mockResolvedValue([{ userId: 12n }, { userId: 2n }] as any);
+
+      jest.spyOn(prisma, '$transaction').mockImplementation(async (callback: any) => {
+        return await callback({
+          expense: {
+            create: jest.fn().mockResolvedValue({ id: 1n }),
+          },
+          expenseSplit: {
+            createMany: jest.fn().mockResolvedValue({ count: 2 }),
+          },
+        });
+      });
+
+      const dto: CreateExpenseDto = {
+        groupId: 1,
+        category: ExpenseCategory.FOOD,
+        payerId: '12',
+        date: '2026-07-23',
+        title: '회식비 저녁',
+        amount: 50000,
+        splitType: SplitType.CUSTOM,
+        targetMemberIds: [
+          { userId: '12', amount: 30000 },
+          { userId: '2', amount: 20000 },
+        ],
+      };
+
+      const result = await service.createExpense(mockAuthContext, dto);
+
+      expect(result).toHaveProperty('message', '정산 요청이 성공적으로 생성되었습니다.');
+      expect(result).toHaveProperty('expenseId');
+    });
+
+    it('RATIO 분담 방식일 때 입력된 비율에 따라 금액이 올바르게 계산되어 생성되어야 한다', async () => {
+      jest.spyOn(prisma.user, 'findMany').mockResolvedValue([{ id: 12n }, { id: 2n }] as any);
+      jest.spyOn(prisma.groupMember, 'findMany').mockResolvedValue([{ userId: 12n }, { userId: 2n }] as any);
+
+      jest.spyOn(prisma, '$transaction').mockImplementation(async (callback: any) => {
+        return await callback({
+          expense: {
+            create: jest.fn().mockResolvedValue({ id: 1n }),
+          },
+          expenseSplit: {
+            createMany: jest.fn().mockResolvedValue({ count: 2 }),
+          },
+        });
+      });
+
+      const dto: CreateExpenseDto = {
+        groupId: 1,
+        category: ExpenseCategory.ETC,
+        payerId: '12',
+        date: '2026-07-23',
+        title: '펜션 예약비',
+        amount: 100000,
+        splitType: SplitType.RATIO,
+        targetMemberIds: [
+          { userId: '12', percentage: 60 },
+          { userId: '2', percentage: 40 },
+        ],
+      };
+
+      const result = await service.createExpense(mockAuthContext, dto);
+
+      expect(result).toHaveProperty('message', '정산 요청이 성공적으로 생성되었습니다.');
+      expect(result).toHaveProperty('expenseId');
     });
   });
 

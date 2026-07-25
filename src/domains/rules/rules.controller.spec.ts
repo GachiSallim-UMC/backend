@@ -77,4 +77,19 @@ describe('RulesController', () => {
     });
     expect(getRule).not.toHaveBeenCalled();
   });
+
+  it('resolves the Cognito identity and shares a rule as the active local user', async () => {
+    const shareRule = jest
+      .fn<RulesService['shareRule']>()
+      .mockResolvedValue({ ruleId: 123, messageId: 456 });
+    const rulesService = { shareRule } as unknown as RulesService;
+    const controller = new RulesController(rulesService, authenticatedUsers);
+
+    await expect(controller.shareRule(auth, '123')).resolves.toEqual({
+      ruleId: 123,
+      messageId: 456,
+    });
+    expect(resolveActiveUserId).toHaveBeenCalledWith('cognito-sub');
+    expect(shareRule).toHaveBeenCalledWith(123n, 1n);
+  });
 });
