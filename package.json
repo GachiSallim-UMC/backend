@@ -21,7 +21,6 @@
     "prisma:format": "prisma format",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:studio": "prisma studio",
     "vapid:provision": "ts-node scripts/provision-vapid.ts",
     "cdk:synth": "cdk synth",
