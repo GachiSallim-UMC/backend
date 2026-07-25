@@ -12,6 +12,7 @@ import { RuleAgreementResponseDto } from './dto/rule-agreement-response.dto';
 import { RuleListResponseDto } from './dto/rule-list-response.dto';
 import { RuleDetailResponseDto } from './dto/rule-detail-response.dto';
 import { RuleResponseDto } from './dto/rule-response.dto';
+import { ShareRuleResponseDto } from './dto/share-rule-response.dto';
 import { UpdateRuleAgreementDto } from './dto/update-rule-agreement.dto';
 import { UpdateRuleDto } from './dto/update-rule.dto';
 import { RulesAuthenticatedUserService } from './rules-authenticated-user.service';
@@ -172,6 +173,30 @@ export class RulesController {
       updateRuleAgreementDto,
       requesterId,
     );
+  }
+
+  @Post(':ruleId/share')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '생활 규칙 메신저 공유 (RULE-SHARE-01)',
+    description:
+      '생활 규칙을 그룹 메신저에 공유합니다. 규칙 정보를 공유 카드 형태로 변환하여 채팅방에 전송하고, 사용자가 카드에서 규칙 상세로 이동할 수 있도록 합니다.',
+  })
+  @ApiParam({ name: 'ruleId', type: Number, description: '공유할 생활 규칙 ID' })
+  @ApiResponse({
+    status: 200,
+    description: '생활 규칙 메신저 공유 성공',
+    type: ShareRuleResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'COMMON_400 - 요청 파라미터가 잘못되었습니다.' })
+  @ApiResponse({ status: 401, description: 'COMMON_401 - 인증이 필요합니다.' })
+  @ApiResponse({ status: 404, description: 'COMMON_404 - 요청한 리소스를 찾을 수 없습니다.' })
+  async shareRule(
+    @CurrentAuth() auth: AuthContext,
+    @Param('ruleId') ruleId: string,
+  ): Promise<ShareRuleResponseDto> {
+    const senderId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.rulesService.shareRule(this.parseId(ruleId), senderId);
   }
 
   @Delete(':ruleId')
