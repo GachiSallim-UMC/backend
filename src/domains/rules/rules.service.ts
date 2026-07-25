@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { MessageType } from '@prisma/client';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -9,6 +10,7 @@ import { RuleAgreementResponseDto } from './dto/rule-agreement-response.dto';
 import { RuleListResponseDto } from './dto/rule-list-response.dto';
 import { RuleDetailResponseDto } from './dto/rule-detail-response.dto';
 import { RuleResponseDto } from './dto/rule-response.dto';
+import { ShareRuleResponseDto } from './dto/share-rule-response.dto';
 import { RuleAgreementStatusValue, UpdateRuleAgreementDto } from './dto/update-rule-agreement.dto';
 import { UpdateRuleDto } from './dto/update-rule.dto';
 
@@ -313,5 +315,51 @@ export class RulesService {
     const deletedRule = await this.prisma.rule.delete({ where: { id: ruleId } });
 
     return { ruleId: Number(deletedRule.id), title: deletedRule.title };
+  }
+
+  async shareRule(ruleId: bigint, senderId: bigint): Promise<ShareRuleResponseDto> {
+    const rule = await this.prisma.rule.findUnique({ where: { id: ruleId } });
+    if (!rule) {
+      throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
+    }
+
+    await this.requireActiveGroupMemberOrThrow(rule.groupId, senderId);
+
+    const chatRoom = await this.prisma.chatRoom.findFirst({
+      where: {
+        groupId: rule.groupId,
+        isDefault: true,
+      },
+    });
+    if (!chatRoom) {
+      throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
+    }
+
+    const chatRoomMember = await this.prisma.chatRoomMember.findUnique({
+      where: {
+        chatRoomId_userId: {
+          chatRoomId: chatRoom.id,
+          userId: senderId,
+        },
+      },
+    });
+    if (!chatRoomMember) {
+      throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
+    }
+
+    const message = await this.prisma.message.create({
+      data: {
+        chatRoomId: chatRoom.id,
+        senderId,
+        type: MessageType.CARD_RULE,
+        content: rule.title,
+        refId: rule.id,
+      },
+    });
+
+    return {
+      ruleId: Number(rule.id),
+      messageId: Number(message.id),
+    };
   }
 }
