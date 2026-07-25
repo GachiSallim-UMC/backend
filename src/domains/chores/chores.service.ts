@@ -1,5 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { ChoreStatus, GroupRole, MessageType, Prisma, RepeatType, Weekday } from '@prisma/client';
+import {
+  ChoreStatus,
+  CustomOption,
+  GroupRole,
+  MessageType,
+  Prisma,
+  RepeatType,
+  Weekday,
+} from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -39,11 +47,23 @@ const WEEKDAY_BY_UTC_INDEX: readonly Weekday[] = [
   Weekday.SAT,
 ];
 
+/** 반복 주기 계산에 필요한 설정. Chore 레코드와 DTO 양쪽에서 만들 수 있다. */
+export interface RepeatConfig {
+  repeatType: RepeatType;
+  customOption: CustomOption | null;
+  repeatInterval: number | null;
+  repeatDays: readonly Weekday[];
+}
+
 /**
- * repeatType이 WEEKLY이고 반복 요일이 지정된 경우, 기준일 다음으로 오는 지정 요일까지의 일수.
- * 그 외에는 기존 주기(일/주/월)를 그대로 사용한다.
+ * 기준일 다음으로 오는 지정 요일까지의 일수.
+ * 요일 지정이 없으면 7일(다음 주 같은 요일)을 반환한다.
  */
 function daysUntilNextRepeatDay(date: Date, repeatDays: readonly Weekday[]): number {
+  if (repeatDays.length === 0) {
+    return 7;
+  }
+
   const baseIndex = date.getUTCDay();
 
   for (let offset = 1; offset <= 7; offset += 1) {
@@ -55,28 +75,62 @@ function daysUntilNextRepeatDay(date: Date, repeatDays: readonly Weekday[]): num
   return 7;
 }
 
-function addInterval(
-  date: Date,
-  repeatType: RepeatType,
-  repeatDays: readonly Weekday[] = [],
-): Date {
+/**
+ * 월 단위 덧셈. 말일 오버플로를 방지하기 위해 해당 월의 마지막 날로 보정한다.
+ * 예) 1월 31일 + 1개월 = 3월 3일(X) -> 2월 28일(O), 윤년이면 2월 29일
+ */
+function addMonths(date: Date, months: number): Date {
+  const day = date.getUTCDate();
   const next = new Date(date);
+
+  // 먼저 1일로 옮겨야 setUTCMonth 시 다음 달로 넘치지 않는다.
+  next.setUTCDate(1);
+  next.setUTCMonth(next.getUTCMonth() + months);
+
+  const lastDayOfMonth = new Date(
+    Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+
+  next.setUTCDate(Math.min(day, lastDayOfMonth));
+
+  return next;
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+
+  return next;
+}
+
+/** 다음 반복 회차의 날짜. 반복이 없으면(NONE) 기준일을 그대로 돌려준다. */
+function addInterval(date: Date, config: RepeatConfig): Date {
+  const { repeatType, customOption, repeatInterval, repeatDays } = config;
+  const n = repeatInterval ?? 1;
 
   switch (repeatType) {
     case RepeatType.DAILY:
-      next.setUTCDate(next.getUTCDate() + 1);
-      break;
+      return addDays(date, 1);
     case RepeatType.WEEKLY:
-      next.setUTCDate(next.getUTCDate() + (repeatDays.length > 0 ? daysUntilNextRepeatDay(date, repeatDays) : 7));
-      break;
+      return addDays(date, daysUntilNextRepeatDay(date, repeatDays));
     case RepeatType.MONTHLY:
-      next.setUTCMonth(next.getUTCMonth() + 1);
-      break;
+      return addMonths(date, 1);
+    case RepeatType.CUSTOM:
+      switch (customOption) {
+        case CustomOption.EVERY_N_DAYS:
+          return addDays(date, n);
+        case CustomOption.EVERY_N_WEEKS:
+          return addDays(date, n * 7);
+        case CustomOption.EVERY_N_MONTHS:
+          return addMonths(date, n);
+        case CustomOption.SPECIFIC_DAYS:
+          return addDays(date, daysUntilNextRepeatDay(date, repeatDays));
+        default:
+          return new Date(date);
+      }
     default:
-      break;
+      return new Date(date);
   }
-
-  return next;
 }
 
 @Injectable()
@@ -98,12 +152,11 @@ export class ChoresService {
   }
 
   async createChore(dto: CreateChoreDto, createdBy: bigint) {
-    const repeatType = dto.repeatType ?? RepeatType.NONE;
-    const repeatDays = dto.repeatDays ?? [];
+    const repeat = this.toRepeatConfig(dto);
     const startDate = new Date(dto.startDate);
     const dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
 
-    this.assertRepeatDaysMatchRepeatType(repeatType, repeatDays);
+    this.assertRepeatConfig(repeat);
 
     if (dueDate) {
       this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate as string);
@@ -123,8 +176,10 @@ export class ChoresService {
         assigneeId: BigInt(dto.assigneeId),
         startDate,
         dueDate,
-        repeatType,
-        repeatDays,
+        repeatType: repeat.repeatType,
+        customOption: repeat.customOption,
+        repeatInterval: repeat.repeatInterval,
+        repeatDays: [...repeat.repeatDays],
         memo: dto.memo ?? null,
         createdBy,
       },
@@ -137,12 +192,11 @@ export class ChoresService {
   async updateChore(choreId: bigint, dto: UpdateChoreDto) {
     const existing = await this.findChoreOrThrow(choreId);
 
-    const repeatType = dto.repeatType ?? RepeatType.NONE;
-    const repeatDays = dto.repeatDays ?? [];
+    const repeat = this.toRepeatConfig(dto);
     const startDate = new Date(dto.startDate);
     const dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
 
-    this.assertRepeatDaysMatchRepeatType(repeatType, repeatDays);
+    this.assertRepeatConfig(repeat);
 
     if (dueDate) {
       this.assertDueDateAfterStart(startDate, dueDate, dto.dueDate as string);
@@ -162,8 +216,10 @@ export class ChoresService {
         assigneeId: BigInt(dto.assigneeId),
         startDate,
         dueDate,
-        repeatType,
-        repeatDays,
+        repeatType: repeat.repeatType,
+        customOption: repeat.customOption,
+        repeatInterval: repeat.repeatInterval,
+        repeatDays: [...repeat.repeatDays],
         memo: dto.memo ?? null,
       },
       include: CHORE_WITH_USERS,
@@ -196,34 +252,44 @@ export class ChoresService {
     } | null = null;
 
     if (updated.repeatType !== RepeatType.NONE) {
-      const nextStartDate = addInterval(updated.startDate, updated.repeatType, updated.repeatDays);
-      const nextDueDate = updated.dueDate
-        ? addInterval(updated.dueDate, updated.repeatType, updated.repeatDays)
-        : null;
-
-      const created = await this.prisma.chore.create({
-        data: {
-          parentId: updated.id,
-          groupId: updated.groupId,
-          title: updated.title,
-          category: updated.category,
-          assigneeId: updated.assigneeId,
-          startDate: nextStartDate,
-          dueDate: nextDueDate,
-          repeatType: updated.repeatType,
-          repeatDays: updated.repeatDays,
-          memo: updated.memo,
-          createdBy: updated.createdBy,
-        },
+      const nextStartDate = addInterval(updated.startDate, {
+        repeatType: updated.repeatType,
+        customOption: updated.customOption,
+        repeatInterval: updated.repeatInterval,
+        repeatDays: updated.repeatDays,
       });
 
-      nextOccurrence = {
-        choreId: Number(created.id),
-        parentId: Number(created.parentId),
-        startDate: toDateOnly(created.startDate),
-        dueDate: created.dueDate ? toDateOnly(created.dueDate) : null,
-        status: created.status,
-      };
+      // dueDate는 '반복 종료일'이다. 회차마다 밀지 않고 고정하며,
+      // 다음 회차 시작일이 종료일을 넘어서면 반복을 종료한다. (같은 날은 생성)
+      const reachedRepeatEnd = updated.dueDate !== null && nextStartDate > updated.dueDate;
+
+      if (!reachedRepeatEnd) {
+        const created = await this.prisma.chore.create({
+          data: {
+            parentId: updated.id,
+            groupId: updated.groupId,
+            title: updated.title,
+            category: updated.category,
+            assigneeId: updated.assigneeId,
+            startDate: nextStartDate,
+            dueDate: updated.dueDate,
+            repeatType: updated.repeatType,
+            customOption: updated.customOption,
+            repeatInterval: updated.repeatInterval,
+            repeatDays: updated.repeatDays,
+            memo: updated.memo,
+            createdBy: updated.createdBy,
+          },
+        });
+
+        nextOccurrence = {
+          choreId: Number(created.id),
+          parentId: Number(created.parentId),
+          startDate: toDateOnly(created.startDate),
+          dueDate: created.dueDate ? toDateOnly(created.dueDate) : null,
+          status: created.status,
+        };
+      }
     }
 
     return {
@@ -336,25 +402,86 @@ export class ChoresService {
     return chore;
   }
 
-  private assertRepeatDaysMatchRepeatType(
-    repeatType: RepeatType,
-    repeatDays: readonly Weekday[],
-  ): void {
-    if (repeatType === RepeatType.WEEKLY && repeatDays.length === 0) {
-      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
-        { field: 'repeatDays', value: '[]', reason: '매주 반복은 반복 요일을 1개 이상 선택해야 합니다.' },
-      ]);
+  /** DTO에서 반복 설정을 추출한다. 값이 없는 필드는 null로 정규화한다. */
+  private toRepeatConfig(dto: CreateChoreDto | UpdateChoreDto): RepeatConfig {
+    return {
+      repeatType: dto.repeatType,
+      customOption: dto.customOption ?? null,
+      repeatInterval: dto.repeatInterval ?? null,
+      repeatDays: dto.repeatDays ?? [],
+    };
+  }
+
+  /**
+   * 반복 설정 조합 검증.
+   * - WEEKLY / SPECIFIC_DAYS: repeatDays 1개 이상 필수
+   * - CUSTOM: customOption 필수, 그 외 유형은 customOption 금지
+   * - EVERY_N_*: repeatInterval 필수, 그 외에는 금지
+   */
+  private assertRepeatConfig(config: RepeatConfig): void {
+    const { repeatType, customOption, repeatInterval, repeatDays } = config;
+
+    if (repeatType === RepeatType.CUSTOM && customOption === null) {
+      this.throwInvalidRepeat(
+        'customOption',
+        null,
+        '사용자 정의 반복은 customOption이 필요합니다.',
+      );
     }
 
-    if (repeatType !== RepeatType.WEEKLY && repeatDays.length > 0) {
-      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
-        {
-          field: 'repeatDays',
-          value: repeatDays.join(','),
-          reason: '반복 요일은 repeatType이 WEEKLY일 때만 사용할 수 있습니다.',
-        },
-      ]);
+    if (repeatType !== RepeatType.CUSTOM && customOption !== null) {
+      this.throwInvalidRepeat(
+        'customOption',
+        customOption,
+        'customOption은 repeatType이 CUSTOM일 때만 사용할 수 있습니다.',
+      );
     }
+
+    const needsInterval =
+      customOption === CustomOption.EVERY_N_DAYS ||
+      customOption === CustomOption.EVERY_N_WEEKS ||
+      customOption === CustomOption.EVERY_N_MONTHS;
+
+    if (needsInterval && repeatInterval === null) {
+      this.throwInvalidRepeat(
+        'repeatInterval',
+        null,
+        `${customOption}는 반복 주기(repeatInterval)가 필요합니다.`,
+      );
+    }
+
+    if (!needsInterval && repeatInterval !== null) {
+      this.throwInvalidRepeat(
+        'repeatInterval',
+        repeatInterval,
+        '반복 주기는 customOption이 EVERY_N_DAYS/EVERY_N_WEEKS/EVERY_N_MONTHS일 때만 사용할 수 있습니다.',
+      );
+    }
+
+    const needsDays =
+      repeatType === RepeatType.WEEKLY || customOption === CustomOption.SPECIFIC_DAYS;
+
+    if (needsDays && repeatDays.length === 0) {
+      this.throwInvalidRepeat(
+        'repeatDays',
+        '[]',
+        '해당 반복 설정은 반복 요일을 1개 이상 선택해야 합니다.',
+      );
+    }
+
+    if (!needsDays && repeatDays.length > 0) {
+      this.throwInvalidRepeat(
+        'repeatDays',
+        repeatDays.join(','),
+        '반복 요일은 repeatType이 WEEKLY이거나 customOption이 SPECIFIC_DAYS일 때만 사용할 수 있습니다.',
+      );
+    }
+  }
+
+  private throwInvalidRepeat(field: string, value: string | number | null, reason: string): never {
+    throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+      { field, value: value === null ? null : String(value), reason },
+    ]);
   }
 
   private assertDueDateAfterStart(startDate: Date, dueDate: Date, rawDueDate: string): void {
@@ -376,6 +503,8 @@ export class ChoresService {
       startDate: toDateOnly(chore.startDate),
       dueDate: chore.dueDate ? toDateOnly(chore.dueDate) : null,
       repeatType: chore.repeatType,
+      customOption: chore.customOption,
+      repeatInterval: chore.repeatInterval,
       repeatDays: chore.repeatDays,
       memo: chore.memo,
       status: chore.status,
@@ -398,6 +527,8 @@ export class ChoresService {
       startDate: toDateOnly(chore.startDate),
       dueDate: chore.dueDate ? toDateOnly(chore.dueDate) : null,
       repeatType: chore.repeatType,
+      customOption: chore.customOption,
+      repeatInterval: chore.repeatInterval,
       repeatDays: chore.repeatDays,
       memo: chore.memo,
       status: chore.status,
@@ -418,6 +549,8 @@ export class ChoresService {
       startDate: toDateOnly(chore.startDate),
       dueDate: chore.dueDate ? toDateOnly(chore.dueDate) : null,
       repeatType: chore.repeatType,
+      customOption: chore.customOption,
+      repeatInterval: chore.repeatInterval,
       repeatDays: chore.repeatDays,
       memo: chore.memo,
       status: chore.status,

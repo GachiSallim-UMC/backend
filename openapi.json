@@ -838,7 +838,7 @@
           "집안일 관리 (CHORE)"
         ],
         "summary": "집안일 수정 (CHORE-EDIT-01)",
-        "description": "등록과 동일한 유효성 검사(과거 날짜 제한, 종료일 ≥ 시작일, 담당자 그룹 구성원 검증)를 거쳐 집안일 정보를 수정합니다. 전체 교체(PUT) 방식이므로 title·category·assigneeId·startDate는 항상 전달해야 하며, 생략한 선택 필드(dueDate·repeatDays·memo)는 비워집니다. (우선순위: P1)",
+        "description": "등록과 동일한 유효성 검사를 거쳐 집안일 정보를 수정합니다. 전체 교체(PUT) 방식이므로 title·category·assigneeId·startDate·repeatType은 항상 전달해야 하며, 생략한 선택 필드(dueDate·customOption·repeatInterval·repeatDays·memo)는 비워집니다. (우선순위: P1)",
         "parameters": [
           {
             "name": "choreId",
@@ -893,8 +893,8 @@
                   "dueDate": {
                     "type": "string",
                     "format": "date",
-                    "example": "2026-07-06",
-                    "description": "종료일 (선택, 생략 시 null로 초기화)"
+                    "example": "2026-08-31",
+                    "description": "반복 종료일 (YYYY-MM-DD, 선택). 지정하면 다음 회차 시작일이 이 날짜를 넘어설 때 반복이 종료됩니다. (같은 날은 생성) 생략하면 무기한 반복합니다. repeatType이 NONE이면 해당 집안일의 마감일로만 동작합니다."
                   },
                   "repeatType": {
                     "type": "string",
@@ -902,9 +902,29 @@
                       "NONE",
                       "DAILY",
                       "WEEKLY",
-                      "MONTHLY"
+                      "MONTHLY",
+                      "CUSTOM"
                     ],
+                    "description": "반복 유형 (필수). NONE(일회성), DAILY(매일), WEEKLY(매주), MONTHLY(매월), CUSTOM(사용자 정의)",
                     "example": "WEEKLY"
+                  },
+                  "customOption": {
+                    "type": "string",
+                    "enum": [
+                      "EVERY_N_DAYS",
+                      "EVERY_N_WEEKS",
+                      "EVERY_N_MONTHS",
+                      "SPECIFIC_DAYS"
+                    ],
+                    "description": "사용자 정의 반복 방식. repeatType이 CUSTOM일 때만 사용하며 이때 필수입니다. EVERY_N_DAYS(N일마다), EVERY_N_WEEKS(N주마다), EVERY_N_MONTHS(N개월마다), SPECIFIC_DAYS(특정 요일)",
+                    "example": "EVERY_N_WEEKS"
+                  },
+                  "repeatInterval": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 99,
+                    "description": "반복 주기 N. customOption이 EVERY_N_DAYS/EVERY_N_WEEKS/EVERY_N_MONTHS일 때만 사용하며 이때 필수입니다.",
+                    "example": 2
                   },
                   "repeatDays": {
                     "type": "array",
@@ -922,7 +942,7 @@
                     },
                     "uniqueItems": true,
                     "maxItems": 7,
-                    "description": "반복 요일 (선택). repeatType이 WEEKLY일 때만 사용하며 최소 1개 이상 필요합니다. WEEKLY가 아닌데 값을 보내면 400을 반환합니다.",
+                    "description": "반복 요일. repeatType이 WEEKLY이거나 customOption이 SPECIFIC_DAYS일 때만 사용하며 이때 최소 1개 이상 필요합니다.",
                     "example": [
                       "MON",
                       "THU"
@@ -939,7 +959,8 @@
                   "title",
                   "category",
                   "assigneeId",
-                  "startDate"
+                  "startDate",
+                  "repeatType"
                 ]
               }
             }
@@ -965,6 +986,8 @@
                     "startDate": "2026-07-04",
                     "dueDate": "2026-07-06",
                     "repeatType": "WEEKLY",
+                    "customOption": null,
+                    "repeatInterval": null,
                     "repeatDays": [
                       "MON",
                       "THU"
@@ -1124,7 +1147,7 @@
           "집안일 관리 (CHORE)"
         ],
         "summary": "집안일 완료 처리 (CHORE-DONE-01)",
-        "description": "완료 상태(DONE)로 변경하고 완료자(completedBy)·완료시간(completedAt)을 저장합니다. 완료자는 Access Token에서 식별합니다. 반복 항목(repeatType ≠ NONE)이면 parentId로 원본을 참조하는 다음 일정을 자동 생성해 nextOccurrence로 반환합니다. 반복이 아니면 nextOccurrence는 null입니다. (우선순위: P0)",
+        "description": "완료 상태(DONE)로 변경하고 완료자(completedBy)·완료시간(completedAt)을 저장합니다. 완료자는 Access Token에서 식별합니다. 반복 항목(repeatType ≠ NONE)이면 parentId로 원본을 참조하는 다음 일정을 자동 생성해 nextOccurrence로 반환합니다. 반복이 아니면 nextOccurrence는 null입니다. (우선순위: P0) 반복 집안일은 다음 회차를 생성하며, 종료일(dueDate)을 넘어서는 회차는 생성하지 않습니다. 종료일은 회차마다 이동하지 않고 고정됩니다.",
         "parameters": [
           {
             "name": "choreId",
@@ -1278,6 +1301,8 @@
                       "startDate": "2026-07-03",
                       "dueDate": "2026-07-05",
                       "repeatType": "DAILY",
+                      "customOption": null,
+                      "repeatInterval": null,
                       "repeatDays": [],
                       "memo": "분리수거는 화요일 밤에",
                       "status": "PENDING",
@@ -1341,7 +1366,7 @@
           "집안일 관리 (CHORE)"
         ],
         "summary": "집안일 등록 (CHORE-REG-01)",
-        "description": "집안일명·카테고리·담당자·시작일·종료일·반복 주기·반복 요일·메모를 입력받아 필수값 및 날짜 유효성(과거 날짜 제한, 종료일 ≥ 시작일)을 검증한 뒤 등록합니다. 담당자(assigneeId)는 해당 그룹의 구성원이어야 합니다. 등록자(createdBy)는 Access Token에서 식별합니다. (우선순위: P0)",
+        "description": "집안일명·카테고리·담당자·시작일·반복 설정·메모를 입력받아 필수값 및 날짜 유효성을 검증한 뒤 등록합니다. repeatType은 필수이며, CUSTOM인 경우 customOption이 함께 필요합니다. dueDate는 반복 종료일로 동작합니다. 담당자(assigneeId)는 해당 그룹의 구성원이어야 합니다. 등록자(createdBy)는 Access Token에서 식별합니다. (우선순위: P0)",
         "requestBody": {
           "required": true,
           "content": {
@@ -1353,7 +1378,8 @@
                   "title",
                   "category",
                   "assigneeId",
-                  "startDate"
+                  "startDate",
+                  "repeatType"
                 ],
                 "properties": {
                   "groupId": {
@@ -1397,8 +1423,8 @@
                   "dueDate": {
                     "type": "string",
                     "format": "date",
-                    "description": "종료일 (선택, 미입력 시 null). 입력 시 시작일보다 빠를 수 없음",
-                    "example": "2026-07-05"
+                    "description": "반복 종료일 (YYYY-MM-DD, 선택). 지정하면 다음 회차 시작일이 이 날짜를 넘어설 때 반복이 종료됩니다. (같은 날은 생성) 생략하면 무기한 반복합니다. repeatType이 NONE이면 해당 집안일의 마감일로만 동작합니다.",
+                    "example": "2026-08-31"
                   },
                   "repeatType": {
                     "type": "string",
@@ -1406,11 +1432,29 @@
                       "NONE",
                       "DAILY",
                       "WEEKLY",
-                      "MONTHLY"
+                      "MONTHLY",
+                      "CUSTOM"
                     ],
-                    "default": "NONE",
-                    "description": "반복 주기 (기본 NONE)",
-                    "example": "DAILY"
+                    "description": "반복 유형 (필수). NONE(일회성), DAILY(매일), WEEKLY(매주), MONTHLY(매월), CUSTOM(사용자 정의)",
+                    "example": "NONE"
+                  },
+                  "customOption": {
+                    "type": "string",
+                    "enum": [
+                      "EVERY_N_DAYS",
+                      "EVERY_N_WEEKS",
+                      "EVERY_N_MONTHS",
+                      "SPECIFIC_DAYS"
+                    ],
+                    "description": "사용자 정의 반복 방식. repeatType이 CUSTOM일 때만 사용하며 이때 필수입니다. EVERY_N_DAYS(N일마다), EVERY_N_WEEKS(N주마다), EVERY_N_MONTHS(N개월마다), SPECIFIC_DAYS(특정 요일)",
+                    "example": "EVERY_N_WEEKS"
+                  },
+                  "repeatInterval": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 99,
+                    "description": "반복 주기 N. customOption이 EVERY_N_DAYS/EVERY_N_WEEKS/EVERY_N_MONTHS일 때만 사용하며 이때 필수입니다.",
+                    "example": 2
                   },
                   "repeatDays": {
                     "type": "array",
@@ -1428,7 +1472,7 @@
                     },
                     "uniqueItems": true,
                     "maxItems": 7,
-                    "description": "반복 요일 (선택). repeatType이 WEEKLY일 때만 사용하며 최소 1개 이상 필요합니다. WEEKLY가 아닌데 값을 보내면 400을 반환합니다.",
+                    "description": "반복 요일. repeatType이 WEEKLY이거나 customOption이 SPECIFIC_DAYS일 때만 사용하며 이때 최소 1개 이상 필요합니다.",
                     "example": [
                       "MON",
                       "THU"
@@ -1465,6 +1509,8 @@
                     "startDate": "2026-07-03",
                     "dueDate": "2026-07-05",
                     "repeatType": "DAILY",
+                    "customOption": null,
+                    "repeatInterval": null,
                     "repeatDays": [],
                     "memo": "분리수거는 화요일 밤에",
                     "status": "PENDING",
