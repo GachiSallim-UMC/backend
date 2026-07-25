@@ -6,6 +6,31 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DashboardResponseDto } from './dto/dashboard-response.dto';
 
+const USER_SELECT = {
+  id: true,
+  nickname: true,
+} as const;
+
+const KOREA_TIME_ZONE = 'Asia/Seoul';
+
+type TodayChoreRecord = {
+  id: bigint;
+  title: string;
+  repeatType: RepeatType;
+  status: ChoreStatus;
+  assignee: {
+    nickname: string;
+  };
+};
+
+interface ActivityLogRecord {
+  id: bigint;
+  type: string;
+  user: { nickname: string; profileImage: string | null };
+  description: string | null;
+  createdAt: Date;
+}
+
 @Injectable()
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
@@ -14,21 +39,19 @@ export class DashboardService {
     const userId = await this.resolveActiveUserId(authSub);
     const group = await this.verifyGroupMembership(userId, BigInt(groupId));
 
-    const today = new Date();
-    const todayStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-    const tomorrowStart = new Date(todayStart);
-    tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
+    const [todayStart, tomorrowStart] = getTodayKoreaRange();
 
     const [
       unsettledAmountResult,
       unsettledExpenseCount,
+      todayChoreCount,
+      unfinishedChoreCount,
       todayChores,
       lowSupplyCount,
       unreadMessageCount,
       recentActivities,
       unsettledExpenses,
       lowSupplies,
-      unfinishedChoreCount,
     ] = await Promise.all([
       this.prisma.expense.aggregate({
         where: { groupId: group.id, status: { not: ExpenseStatus.DONE } },
@@ -37,10 +60,22 @@ export class DashboardService {
       this.prisma.expense.count({
         where: { groupId: group.id, status: { not: ExpenseStatus.DONE } },
       }),
+      this.prisma.chore.count({
+        where: {
+          groupId: group.id,
+          dueDate: { gte: todayStart, lt: tomorrowStart },
+        },
+      }),
+      this.prisma.chore.count({
+        where: {
+          groupId: group.id,
+          dueDate: { gte: todayStart, lt: tomorrowStart },
+          status: ChoreStatus.PENDING,
+        },
+      }),
       this.prisma.chore.findMany({
         where: {
           groupId: group.id,
-          status: ChoreStatus.PENDING,
           dueDate: { gte: todayStart, lt: tomorrowStart },
         },
         include: { assignee: { select: USER_SELECT } },
@@ -53,7 +88,7 @@ export class DashboardService {
       this.getUnreadMessageCount(userId, group.id),
       this.prisma.activityLog.findMany({
         where: { groupId: group.id },
-        include: { user: { select: { nickname: true } } },
+        include: { user: { select: { nickname: true, profileImage: true } } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: 5,
       }),
@@ -64,7 +99,7 @@ export class DashboardService {
           splits: { select: { amount: true } },
         },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-        take: 5,
+        take: 2,
       }),
       this.prisma.supply.findMany({
         where: { groupId: group.id, status: { in: [SupplyStatus.LOW, SupplyStatus.EMPTY] } },
@@ -72,14 +107,11 @@ export class DashboardService {
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         take: 5,
       }),
-      this.prisma.chore.count({
-        where: { groupId: group.id, status: ChoreStatus.PENDING },
-      }),
     ]);
 
     return {
       summary: {
-        todayChoreCount: todayChores.length,
+        todayChoreCount,
         unfinishedChoreCount,
         unsettledAmount: unsettledAmountResult._sum.totalAmount ?? 0,
         unsettledExpenseCount,
@@ -91,21 +123,27 @@ export class DashboardService {
         expenseId: Number(expense.id),
         title: expense.title,
         payerName: expense.payer.nickname,
-        amountPerPerson: this.calculateAmountPerPerson(expense.totalAmount, expense.splits.length),
+        amountPerPerson: this.calculateAmountPerPerson(
+          expense.totalAmount,
+          expense.splits.length,
+          expense.splits,
+        ),
         status: expense.status === ExpenseStatus.DONE ? 'SETTLED' : 'UNSETTLED',
       })),
       lowSupplies: lowSupplies.map((supply) => ({
         supplyId: Number(supply.id),
         name: supply.name,
-        status: supply.status,
+        status: supply.status === SupplyStatus.EMPTY ? 'EMPTY' : 'LOW',
         assigneeName: supply.assignee?.nickname ?? null,
       })),
       recentActivities: recentActivities.map((activity) => {
-        const message = activity.description ?? this.getActivityMessage(activity);
+        const message = this.getActivityMessage(activity);
         return {
           activityId: Number(activity.id),
+          actorName: activity.user.nickname,
+          actorProfileImage: activity.user.profileImage,
           message,
-          detail: activity.description ? activity.description : `${message}`,
+          detail: activity.description ?? message,
           createdAt: activity.createdAt.toISOString(),
         };
       }),
@@ -177,53 +215,47 @@ export class DashboardService {
     return unreadPerRoom.reduce((sum, unreadCount) => sum + unreadCount, 0);
   }
 
-  private calculateAmountPerPerson(totalAmount: number, participantCount: number): number {
+  private calculateAmountPerPerson(
+    totalAmount: number,
+    participantCount: number,
+    splits: Array<{ amount: number }>,
+  ): number {
     if (participantCount <= 0) {
       return 0;
     }
 
-    return Math.ceil(totalAmount / participantCount);
+    const splitAmountSum = splits.reduce((sum, split) => sum + split.amount, 0);
+    if (splitAmountSum <= 0) {
+      return Math.ceil(totalAmount / participantCount);
+    }
+
+    return Math.ceil(splitAmountSum / participantCount);
   }
 
   private getActivityMessage(activity: ActivityLogRecord): string {
     const userName = activity.user.nickname;
     switch (activity.type) {
       case 'CHORE_CREATED':
-        return `${userName} added a new chore.`;
+        return `${userName} 님이 집안일을 등록했습니다.`;
       case 'CHORE_DONE':
-        return `${userName} completed a chore.`;
+        return `${userName} 님이 집안일을 완료 처리했습니다.`;
       case 'EXPENSE_CREATED':
-        return `${userName} created an expense.`;
+        return `${userName} 님이 생활비를 등록했습니다.`;
       case 'EXPENSE_DONE':
-        return `${userName} settled an expense.`;
+        return `${userName} 님이 정산을 완료했습니다.`;
       case 'SUPPLY_CHANGED':
-        return `${userName} updated a supply status.`;
+        return `${userName} 님이 비품 상태를 변경했습니다.`;
       case 'RULE_CREATED':
-        return `${userName} created a household rule.`;
+        return `${userName} 님이 규칙을 등록했습니다.`;
       case 'RULE_EDITED':
-        return `${userName} edited a household rule.`;
+        return `${userName} 님이 규칙을 수정했습니다.`;
       case 'MEMBER_JOINED':
-        return `${userName} joined the group.`;
+        return `${userName} 님이 그룹에 참여했습니다.`;
       default:
-        return `${userName}'s group activity is recorded.`;
+        return `${userName} 님이 활동을 남겼습니다.`;
     }
   }
 }
-
-const USER_SELECT = {
-  id: true,
-  nickname: true,
-} as const;
-
-type TodayChoreRecord = {
-  id: bigint;
-  title: string;
-  repeatType: RepeatType;
-  status: string;
-  assignee: {
-    nickname: string;
-  };
-};
 
 function toTodayChoreResponse(chore: TodayChoreRecord) {
   return {
@@ -248,11 +280,19 @@ function toRepeatText(repeatType: RepeatType): string {
   }
 }
 
-interface ActivityLogRecord {
-  id: bigint;
-  type: string;
-  user: { nickname: string };
-  description: string | null;
-  createdAt: Date;
+function getTodayKoreaRange(): [Date, Date] {
+  const formattedDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: KOREA_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const [year, month, day] = formattedDate.split('-').map(Number);
+
+  const todayStart = new Date(Date.UTC(year, month - 1, day, -9));
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
+
+  return [todayStart, tomorrowStart];
 }
 

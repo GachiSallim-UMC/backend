@@ -1,4 +1,3 @@
-import { Controller, Get, HttpCode, HttpStatus, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiExtraModels,
@@ -9,6 +8,7 @@ import {
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
+import { Controller, Get, HttpCode, HttpStatus, Query, UseGuards } from '@nestjs/common';
 
 import { CognitoAccessTokenGuard } from '../auth/common/cognito-access-token.guard';
 import { AuthContext } from '../auth/common/auth-context.interface';
@@ -30,20 +30,12 @@ export class DashboardController {
   @ApiOperation({
     summary: 'Dashboard summary 조회 (DASH-VIEW-01)',
     description:
-      '공동생활 그룹의 메인 대시보드 정보를 조회합니다. 오늘의 집안일, 미정산 금액, 부족한 공용 물품, 안 읽은 메시지, 최근 활동, 미정산 항목 목록을 함께 반환합니다.',
+      '그룹의 대시보드 정보를 조회합니다. 오늘의 집안일, 미정산 금액, 부족한 공용 물품, 안 읽은 메시지, 최근 활동, 미정산 항목 목록을 함께 반환합니다.',
   })
   @ApiQuery({ name: 'groupId', required: true, type: Number, description: '조회할 그룹 ID' })
   @ApiOkResponse({
     description: 'Dashboard summary 조회 성공',
-    schema: {
-      type: 'object',
-      required: ['statusCode', 'data', 'error'],
-      properties: {
-        statusCode: { type: 'integer', example: 200 },
-        data: { $ref: getSchemaPath(DashboardResponseDto) },
-        error: { type: 'object', nullable: true, example: null },
-      },
-    },
+    schema: successSchema(DashboardResponseDto),
   })
   @ApiResponse({ status: 400, description: 'COMMON_400 - 잘못된 파라미터입니다.' })
   @ApiResponse({ status: 401, description: 'COMMON_401 - 인증되지 않았습니다.' })
@@ -55,3 +47,14 @@ export class DashboardController {
   }
 }
 
+function successSchema(model: typeof DashboardResponseDto) {
+  return {
+    type: 'object',
+    required: ['statusCode', 'data', 'error'],
+    properties: {
+      statusCode: { type: 'integer', example: 200 },
+      data: { $ref: getSchemaPath(model) },
+      error: { type: 'object', nullable: true, example: null },
+    },
+  };
+}
