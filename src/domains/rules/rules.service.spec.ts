@@ -530,6 +530,7 @@ describe('RulesService', () => {
   it('creates a CARD_RULE message in the default group chat room', async () => {
     const ruleTitle = '규칙 제목';
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n, title: ruleTitle });
+    prisma.groupMember.findUnique.mockResolvedValue({ id: 10n, leftAt: null });
     prisma.chatRoom.findFirst.mockResolvedValue({ id: 3n, groupId: 1n, isDefault: true });
     prisma.chatRoomMember.findUnique.mockResolvedValue({ id: 20n });
     prisma.message.create.mockResolvedValue({ id: 456n });
@@ -540,6 +541,9 @@ describe('RulesService', () => {
     });
     expect(prisma.chatRoom.findFirst).toHaveBeenCalledWith({
       where: { groupId: 1n, isDefault: true },
+    });
+    expect(prisma.groupMember.findUnique).toHaveBeenCalledWith({
+      where: { userId_groupId: { userId: 5n, groupId: 1n } },
     });
     expect(prisma.chatRoomMember.findUnique).toHaveBeenCalledWith({
       where: { chatRoomId_userId: { chatRoomId: 3n, userId: 5n } },
@@ -564,6 +568,7 @@ describe('RulesService', () => {
 
   it('throws when the rule group has no default chat room', async () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
+    prisma.groupMember.findUnique.mockResolvedValue({ id: 10n, leftAt: null });
     prisma.chatRoom.findFirst.mockResolvedValue(null);
 
     await expect(service.shareRule(123n, 5n)).rejects.toMatchObject({
@@ -574,11 +579,22 @@ describe('RulesService', () => {
 
   it('throws when the sender is not a member of the default chat room', async () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
+    prisma.groupMember.findUnique.mockResolvedValue({ id: 10n, leftAt: null });
     prisma.chatRoom.findFirst.mockResolvedValue({ id: 3n, groupId: 1n, isDefault: true });
     prisma.chatRoomMember.findUnique.mockResolvedValue(null);
 
     await expect(service.shareRule(123n, 5n)).rejects.toMatchObject({
       code: 'COMMON_404',
+    });
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+
+  it('throws when sender is no longer an active group member', async () => {
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
+    prisma.groupMember.findUnique.mockResolvedValue({ id: 10n, leftAt: new Date() });
+
+    await expect(service.shareRule(123n, 5n)).rejects.toMatchObject({
+      code: 'GROUP_MEMBER_NOT_FOUND',
     });
     expect(prisma.message.create).not.toHaveBeenCalled();
   });

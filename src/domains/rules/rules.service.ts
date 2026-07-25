@@ -323,6 +323,8 @@ export class RulesService {
       throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
     }
 
+    await this.requireActiveGroupMemberOrThrow(rule.groupId, senderId);
+
     const chatRoom = await this.prisma.chatRoom.findFirst({
       where: {
         groupId: rule.groupId,

@@ -190,6 +190,7 @@ export class RulesController {
   })
   @ApiResponse({ status: 400, description: 'COMMON_400 - 요청 파라미터가 잘못되었습니다.' })
   @ApiResponse({ status: 401, description: 'COMMON_401 - 인증이 필요합니다.' })
+  @ApiResponse({ status: 403, description: '그룹 구성원이 아님 (GROUP_MEMBER_NOT_FOUND)' })
   @ApiResponse({ status: 404, description: 'COMMON_404 - 요청한 리소스를 찾을 수 없습니다.' })
   async shareRule(
     @CurrentAuth() auth: AuthContext,
