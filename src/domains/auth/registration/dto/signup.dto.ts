@@ -28,6 +28,8 @@ export class SignupDto {
   email!: string;
 
   @ApiProperty({
+    description:
+      '8~16자. 영문 소문자·대문자·숫자를 각각 1개 이상 포함해야 하며 공백은 사용할 수 없습니다. 특수문자는 필수가 아니며 사용할 수 있습니다.',
     example: 'Password123',
     minLength: AUTH_PASSWORD_MIN_LENGTH,
     maxLength: AUTH_PASSWORD_MAX_LENGTH,
