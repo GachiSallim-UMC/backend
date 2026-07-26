@@ -13,6 +13,7 @@ type MockedPrisma = {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     findMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     createMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    update: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     delete: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   groupMember: {
@@ -35,6 +36,7 @@ describe('ChatService', () => {
         findUnique: jest.fn<() => Promise<unknown>>(),
         findMany: jest.fn<() => Promise<unknown>>(),
         createMany: jest.fn<() => Promise<unknown>>(),
+        update: jest.fn<() => Promise<unknown>>(),
         delete: jest.fn<() => Promise<unknown>>(),
       },
       groupMember: {
@@ -185,6 +187,32 @@ describe('ChatService', () => {
 
       await expect(service.listChatRooms(10n, 99n)).rejects.toMatchObject({
         code: 'GROUP_MEMBER_NOT_FOUND',
+      });
+    });
+  });
+
+  describe('updateMemberSettings', () => {
+    it('updates the requesting member own notification and pin settings', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+      prisma.chatRoomMember.findUnique.mockResolvedValue({ userId: 1n });
+      prisma.chatRoomMember.update.mockResolvedValue({ userId: 1n, notificationEnabled: false, isPinned: true });
+
+      await service.updateMemberSettings(1n, 1n, { notificationEnabled: false, isPinned: true });
+
+      expect(prisma.chatRoomMember.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { chatRoomId_userId: { chatRoomId: 1n, userId: 1n } },
+          data: { notificationEnabled: false, isPinned: true },
+        }),
+      );
+    });
+
+    it('throws when the requester is not a member of the chat room', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+      prisma.chatRoomMember.findUnique.mockResolvedValue(null);
+
+      await expect(service.updateMemberSettings(1n, 99n, { isPinned: true })).rejects.toMatchObject({
+        code: 'CHAT_ROOM_MEMBER_NOT_FOUND',
       });
     });
   });
