@@ -38,21 +38,23 @@ export class ChatService {
         },
         members: {
           where: { userId: currentUserId },
-          select: { lastReadAt: true },
+          select: { lastReadAt: true, joinedAt: true },
         },
       },
     });
 
     return Promise.all(
       chatRooms.map(async ({ _count, messages, members, ...room }) => {
-        const lastReadAt = members[0]?.lastReadAt ?? null;
-        const unreadCount = await this.prisma.message.count({
-          where: {
-            chatRoomId: room.id,
-            senderId: { not: currentUserId },
-            ...(lastReadAt ? { createdAt: { gt: lastReadAt } } : {}),
-          },
-        });
+        const membership = members[0];
+        const unreadCount = membership
+          ? await this.prisma.message.count({
+              where: {
+                chatRoomId: room.id,
+                senderId: { not: currentUserId },
+                createdAt: { gt: membership.lastReadAt ?? membership.joinedAt },
+              },
+            })
+          : 0;
 
         return {
           ...room,
