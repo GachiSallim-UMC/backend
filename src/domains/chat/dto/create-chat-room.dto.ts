@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumberString, IsString, MaxLength, MinLength } from 'class-validator';
+import { ChatRoomType } from '@prisma/client';
+import { IsEnum, IsNumberString, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateChatRoomDto {
   @ApiProperty({ description: '그룹 ID', example: '1' })
@@ -11,4 +12,14 @@ export class CreateChatRoomDto {
   @MinLength(1)
   @MaxLength(100)
   name!: string;
+
+  @ApiProperty({
+    description: '채팅방 카테고리',
+    enum: ChatRoomType,
+    example: ChatRoomType.GROUP,
+    required: false,
+  })
+  @IsOptional()
+  @IsEnum(ChatRoomType)
+  type?: ChatRoomType;
 }

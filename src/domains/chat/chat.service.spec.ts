@@ -8,13 +8,18 @@ type MockedPrisma = {
   chatRoom: {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     update: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    create: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     delete: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   chatRoomMember: {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     findMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     createMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    update: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     delete: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+  };
+  group: {
+    findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   groupMember: {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
@@ -31,13 +36,18 @@ describe('ChatService', () => {
       chatRoom: {
         findUnique: jest.fn<() => Promise<unknown>>(),
         update: jest.fn<() => Promise<unknown>>(),
+        create: jest.fn<() => Promise<unknown>>(),
         delete: jest.fn<() => Promise<unknown>>(),
       },
       chatRoomMember: {
         findUnique: jest.fn<() => Promise<unknown>>(),
         findMany: jest.fn<() => Promise<unknown>>(),
         createMany: jest.fn<() => Promise<unknown>>(),
+        update: jest.fn<() => Promise<unknown>>(),
         delete: jest.fn<() => Promise<unknown>>(),
+      },
+      group: {
+        findUnique: jest.fn<() => Promise<unknown>>(),
       },
       groupMember: {
         findUnique: jest.fn<() => Promise<unknown>>(),
@@ -47,6 +57,46 @@ describe('ChatService', () => {
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(prisma));
 
     service = new ChatService(prisma as unknown as PrismaService);
+  });
+
+  describe('createChatRoom', () => {
+    it('creates a chat room with the requested type', async () => {
+      prisma.group.findUnique.mockResolvedValue({ id: 10n });
+      prisma.groupMember.findUnique.mockResolvedValue({ userId: 1n, groupId: 10n, leftAt: null });
+      prisma.chatRoom.create.mockResolvedValue({ id: 1n, type: 'NOTICE' });
+
+      await service.createChatRoom(10n, '공지방', 1n, 'NOTICE' as never);
+
+      expect(prisma.chatRoom.create).toHaveBeenCalledWith({
+        data: {
+          groupId: 10n,
+          name: '공지방',
+          type: 'NOTICE',
+          createdBy: 1n,
+          ownerId: 1n,
+          members: { create: { userId: 1n } },
+        },
+      });
+    });
+
+    it('defaults the type to undefined so Prisma applies the schema default', async () => {
+      prisma.group.findUnique.mockResolvedValue({ id: 10n });
+      prisma.groupMember.findUnique.mockResolvedValue({ userId: 1n, groupId: 10n, leftAt: null });
+      prisma.chatRoom.create.mockResolvedValue({ id: 1n, type: 'GROUP' });
+
+      await service.createChatRoom(10n, '같이살림방', 1n);
+
+      expect(prisma.chatRoom.create).toHaveBeenCalledWith({
+        data: {
+          groupId: 10n,
+          name: '같이살림방',
+          type: undefined,
+          createdBy: 1n,
+          ownerId: 1n,
+          members: { create: { userId: 1n } },
+        },
+      });
+    });
   });
 
   describe('inviteMember', () => {
@@ -228,6 +278,32 @@ describe('ChatService', () => {
 
       await expect(service.listChatRooms(10n, 99n)).rejects.toMatchObject({
         code: 'GROUP_MEMBER_NOT_FOUND',
+      });
+    });
+  });
+
+  describe('updateMemberSettings', () => {
+    it('updates the requesting member own notification and pin settings', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+      prisma.chatRoomMember.findUnique.mockResolvedValue({ userId: 1n });
+      prisma.chatRoomMember.update.mockResolvedValue({ userId: 1n, notificationEnabled: false, isPinned: true });
+
+      await service.updateMemberSettings(1n, 1n, { notificationEnabled: false, isPinned: true });
+
+      expect(prisma.chatRoomMember.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { chatRoomId_userId: { chatRoomId: 1n, userId: 1n } },
+          data: { notificationEnabled: false, isPinned: true },
+        }),
+      );
+    });
+
+    it('throws when the requester is not a member of the chat room', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+      prisma.chatRoomMember.findUnique.mockResolvedValue(null);
+
+      await expect(service.updateMemberSettings(1n, 99n, { isPinned: true })).rejects.toMatchObject({
+        code: 'CHAT_ROOM_MEMBER_NOT_FOUND',
       });
     });
   });

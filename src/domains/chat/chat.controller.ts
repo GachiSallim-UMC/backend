@@ -14,6 +14,7 @@ import { InviteMemberDto } from './dto/invite-member.dto';
 import { ListChatRoomsQueryDto } from './dto/list-chat-rooms.query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages.query.dto';
 import { TransferChatRoomOwnerDto } from './dto/transfer-chat-room-owner.dto';
+import { UpdateChatRoomMemberSettingsDto } from './dto/update-chat-room-member-settings.dto';
 
 @ApiTags('chat-rooms')
 @ApiBearerAuth('BearerAuth')
@@ -38,7 +39,7 @@ export class ChatController {
     const createdBy = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     const groupId = parseBigIntId(dto.groupId, 'groupId');
 
-    return this.chatService.createChatRoom(groupId, dto.name, createdBy);
+    return this.chatService.createChatRoom(groupId, dto.name, createdBy, dto.type);
   }
 
   @Get(':roomId')
@@ -78,6 +79,16 @@ export class ChatController {
     const userIds = dto.userIds.map((userId) => parseBigIntId(userId, 'userIds'));
 
     return this.chatService.inviteMember(parseBigIntId(roomId, 'roomId'), userIds, currentUserId);
+  }
+
+  @Patch(':roomId/members/me')
+  async updateMemberSettings(
+    @CurrentAuth() auth: AuthContext,
+    @Param('roomId') roomId: string,
+    @Body() dto: UpdateChatRoomMemberSettingsDto,
+  ) {
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.chatService.updateMemberSettings(parseBigIntId(roomId, 'roomId'), currentUserId, dto);
   }
 
   @Delete(':roomId/members/:userId')

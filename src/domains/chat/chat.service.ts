@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { MessageType, Prisma } from '@prisma/client';
+import { ChatRoomType, MessageType, Prisma } from '@prisma/client';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -10,6 +10,8 @@ const CHAT_ROOM_MEMBER_SELECT = {
   userId: true,
   joinedAt: true,
   lastReadAt: true,
+  notificationEnabled: true,
+  isPinned: true,
   user: {
     select: {
       id: true,
@@ -32,7 +34,7 @@ export class ChatService {
     });
   }
 
-  async createChatRoom(groupId: bigint, name: string, createdBy: bigint) {
+  async createChatRoom(groupId: bigint, name: string, createdBy: bigint, type?: ChatRoomType) {
     const group = await this.prisma.group.findUnique({ where: { id: groupId } });
 
     if (!group) {
@@ -45,6 +47,7 @@ export class ChatService {
       data: {
         groupId,
         name,
+        type,
         createdBy,
         ownerId: createdBy,
         members: {
@@ -202,6 +205,21 @@ export class ChatService {
     return this.prisma.chatRoomMember.update({
       where: { chatRoomId_userId: { chatRoomId: roomId, userId } },
       data: { lastReadAt: new Date() },
+      select: CHAT_ROOM_MEMBER_SELECT,
+    });
+  }
+
+  async updateMemberSettings(
+    roomId: bigint,
+    currentUserId: bigint,
+    settings: { notificationEnabled?: boolean; isPinned?: boolean },
+  ) {
+    await this.findChatRoomOrThrow(roomId);
+    await this.findChatRoomMemberOrThrow(roomId, currentUserId);
+
+    return this.prisma.chatRoomMember.update({
+      where: { chatRoomId_userId: { chatRoomId: roomId, userId: currentUserId } },
+      data: settings,
       select: CHAT_ROOM_MEMBER_SELECT,
     });
   }
