@@ -353,12 +353,13 @@ model RuleLog {
 // =====================================================
 
 model ChatRoom {
-  id        BigInt   @id @default(autoincrement())
-  groupId   BigInt   @map("group_id")
-  name      String   @db.VarChar(100)
-  isDefault Boolean  @default(false) @map("is_default")
-  createdBy BigInt   @map("created_by")
-  createdAt DateTime @default(now()) @map("created_at")
+  id        BigInt       @id @default(autoincrement())
+  groupId   BigInt       @map("group_id")
+  name      String       @db.VarChar(100)
+  type      ChatRoomType @default(GROUP)
+  isDefault Boolean      @default(false) @map("is_default")
+  createdBy BigInt       @map("created_by")
+  createdAt DateTime     @default(now()) @map("created_at")
 
   group   Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
   creator User             @relation(fields: [createdBy], references: [id])
@@ -591,6 +592,12 @@ enum RuleAction {
   UPDATED
   AGREED
   DISAGREED
+}
+
+enum ChatRoomType {
+  GROUP
+  NOTICE
+  DM
 }
 
 enum MessageType {
