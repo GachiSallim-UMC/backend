@@ -120,6 +120,10 @@ export class ChatService {
       throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
     }
 
+    if (userId === chatRoom.ownerId) {
+      throw new BusinessException(ErrorCode.CHAT_ROOM_OWNER_MUST_TRANSFER_BEFORE_LEAVING);
+    }
+
     await this.findChatRoomMemberOrThrow(roomId, userId);
 
     await this.prisma.chatRoomMember.delete({
