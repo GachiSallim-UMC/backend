@@ -15,6 +15,22 @@ const WRITE_CONFLICT_ERROR_CODE = 'P2034';
 const MAX_SERIALIZABLE_RETRIES = 3;
 const INVITE_CODE_GENERATION_ATTEMPTS = 5;
 
+const GROUP_MEMBER_SELECT = {
+  userId: true,
+  groupId: true,
+  role: true,
+  joinedAt: true,
+  leftAt: true,
+  user: {
+    select: {
+      id: true,
+      name: true,
+      nickname: true,
+      profileImage: true,
+    },
+  },
+} satisfies Prisma.GroupMemberSelect;
+
 type PrismaTransactionClient = Prisma.TransactionClient;
 
 @Injectable()
@@ -84,6 +100,7 @@ export class GroupsService {
     return this.prisma.groupMember.findMany({
       where: { groupId, leftAt: null },
       orderBy: { joinedAt: 'asc' },
+      select: GROUP_MEMBER_SELECT,
     });
   }
 
