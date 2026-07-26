@@ -46,6 +46,19 @@ describe('ChatController', () => {
     expect(createTextMessage).toHaveBeenCalledWith(10n, 1n, '안녕하세요');
   });
 
+  it('resolves the authenticated user as the target of updateMemberSettings', async () => {
+    const updateMemberSettings = jest
+      .fn<ChatService['updateMemberSettings']>()
+      .mockResolvedValue({} as never);
+    const chatService = { updateMemberSettings } as unknown as ChatService;
+    const controller = new ChatController(chatService, authenticatedUsers);
+
+    await controller.updateMemberSettings(auth, '10', { isPinned: true });
+
+    expect(resolveActiveUserId).toHaveBeenCalledWith('cognito-sub');
+    expect(updateMemberSettings).toHaveBeenCalledWith(10n, 1n, { isPinned: true });
+  });
+
   it('resolves the authenticated user for markAsRead without a request body', async () => {
     const markAsRead = jest.fn<ChatService['markAsRead']>().mockResolvedValue({} as never);
     const chatService = { markAsRead } as unknown as ChatService;
