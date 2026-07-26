@@ -353,12 +353,13 @@ model RuleLog {
 // =====================================================
 
 model ChatRoom {
-  id        BigInt   @id @default(autoincrement())
-  groupId   BigInt   @map("group_id")
-  name      String   @db.VarChar(100)
-  isDefault Boolean  @default(false) @map("is_default")
-  createdBy BigInt   @map("created_by")
-  createdAt DateTime @default(now()) @map("created_at")
+  id        BigInt       @id @default(autoincrement())
+  groupId   BigInt       @map("group_id")
+  name      String       @db.VarChar(100)
+  type      ChatRoomType @default(GROUP)
+  isDefault Boolean      @default(false) @map("is_default")
+  createdBy BigInt       @map("created_by")
+  createdAt DateTime     @default(now()) @map("created_at")
 
   group   Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
   creator User             @relation(fields: [createdBy], references: [id])
@@ -369,11 +370,13 @@ model ChatRoom {
 }
 
 model ChatRoomMember {
-  id         BigInt    @id @default(autoincrement())
-  chatRoomId BigInt    @map("chat_room_id")
-  userId     BigInt    @map("user_id")
-  joinedAt   DateTime  @default(now()) @map("joined_at")
-  lastReadAt DateTime? @map("last_read_at")
+  id                  BigInt    @id @default(autoincrement())
+  chatRoomId          BigInt    @map("chat_room_id")
+  userId              BigInt    @map("user_id")
+  joinedAt            DateTime  @default(now()) @map("joined_at")
+  lastReadAt          DateTime? @map("last_read_at")
+  notificationEnabled Boolean   @default(true) @map("notification_enabled")
+  isPinned            Boolean   @default(false) @map("is_pinned")
 
   chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id])
@@ -591,6 +594,12 @@ enum RuleAction {
   UPDATED
   AGREED
   DISAGREED
+}
+
+enum ChatRoomType {
+  GROUP
+  NOTICE
+  DM
 }
 
 enum MessageType {
