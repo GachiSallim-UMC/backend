@@ -28,10 +28,44 @@ export class ChatService {
   async listChatRooms(groupId: bigint, currentUserId: bigint) {
     await this.findActiveGroupMemberOrThrow(groupId, currentUserId);
 
-    return this.prisma.chatRoom.findMany({
+    const chatRooms = await this.prisma.chatRoom.findMany({
       where: { groupId },
       orderBy: { createdAt: 'asc' },
+      include: {
+        _count: { select: { members: true } },
+        messages: {
+          orderBy: { id: 'desc' },
+          take: 1,
+          include: { sender: { select: { id: true, nickname: true, profileImage: true } } },
+        },
+        members: {
+          where: { userId: currentUserId },
+          select: { lastReadAt: true, joinedAt: true },
+        },
+      },
     });
+
+    return Promise.all(
+      chatRooms.map(async ({ _count, messages, members, ...room }) => {
+        const membership = members[0];
+        const unreadCount = membership
+          ? await this.prisma.message.count({
+              where: {
+                chatRoomId: room.id,
+                senderId: { not: currentUserId },
+                createdAt: { gt: membership.lastReadAt ?? membership.joinedAt },
+              },
+            })
+          : 0;
+
+        return {
+          ...room,
+          memberCount: _count.members,
+          lastMessage: messages[0] ?? null,
+          unreadCount,
+        };
+      }),
+    );
   }
 
   async createChatRoom(groupId: bigint, name: string, createdBy: bigint, type?: ChatRoomType) {
@@ -160,6 +194,11 @@ export class ChatService {
       },
       orderBy: { id: 'desc' },
       take: limit,
+      include: {
+        sender: {
+          select: { id: true, nickname: true, profileImage: true },
+        },
+      },
     });
   }
 
