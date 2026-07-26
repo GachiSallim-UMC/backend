@@ -30,7 +30,7 @@ describe('ChatController', () => {
     await controller.createChatRoom(auth, { groupId: '1', name: '같이살림방' });
 
     expect(resolveActiveUserId).toHaveBeenCalledWith('cognito-sub');
-    expect(createChatRoom).toHaveBeenCalledWith(1n, '같이살림방', 1n);
+    expect(createChatRoom).toHaveBeenCalledWith(1n, '같이살림방', 1n, undefined);
   });
 
   it('resolves the authenticated user as the sender when sending a text message', async () => {

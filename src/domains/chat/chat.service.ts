@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { MessageType, Prisma } from '@prisma/client';
+import { ChatRoomType, MessageType, Prisma } from '@prisma/client';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -32,7 +32,7 @@ export class ChatService {
     });
   }
 
-  async createChatRoom(groupId: bigint, name: string, createdBy: bigint) {
+  async createChatRoom(groupId: bigint, name: string, createdBy: bigint, type?: ChatRoomType) {
     const group = await this.prisma.group.findUnique({ where: { id: groupId } });
 
     if (!group) {
@@ -45,6 +45,7 @@ export class ChatService {
       data: {
         groupId,
         name,
+        type,
         createdBy,
         members: {
           create: { userId: createdBy },

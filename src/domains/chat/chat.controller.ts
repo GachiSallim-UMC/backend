@@ -37,7 +37,7 @@ export class ChatController {
     const createdBy = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     const groupId = parseBigIntId(dto.groupId, 'groupId');
 
-    return this.chatService.createChatRoom(groupId, dto.name, createdBy);
+    return this.chatService.createChatRoom(groupId, dto.name, createdBy, dto.type);
   }
 
   @Get(':roomId')
