@@ -13,6 +13,7 @@ import { CreateMessageDto } from './dto/create-message.dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { ListChatRoomsQueryDto } from './dto/list-chat-rooms.query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages.query.dto';
+import { TransferChatRoomOwnerDto } from './dto/transfer-chat-room-owner.dto';
 
 @ApiTags('chat-rooms')
 @ApiBearerAuth('BearerAuth')
@@ -51,6 +52,20 @@ export class ChatController {
   async deleteChatRoom(@CurrentAuth() auth: AuthContext, @Param('roomId') roomId: string) {
     const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     return this.chatService.deleteChatRoom(parseBigIntId(roomId, 'roomId'), currentUserId);
+  }
+
+  @Patch(':roomId/owner')
+  async transferOwnership(
+    @CurrentAuth() auth: AuthContext,
+    @Param('roomId') roomId: string,
+    @Body() dto: TransferChatRoomOwnerDto,
+  ) {
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.chatService.transferOwnership(
+      parseBigIntId(roomId, 'roomId'),
+      parseBigIntId(dto.userId, 'userId'),
+      currentUserId,
+    );
   }
 
   @Post(':roomId/members')
