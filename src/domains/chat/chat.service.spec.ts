@@ -7,6 +7,7 @@ import { ChatService } from './chat.service';
 type MockedPrisma = {
   chatRoom: {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    update: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     create: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     delete: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
@@ -34,6 +35,7 @@ describe('ChatService', () => {
     prisma = {
       chatRoom: {
         findUnique: jest.fn<() => Promise<unknown>>(),
+        update: jest.fn<() => Promise<unknown>>(),
         create: jest.fn<() => Promise<unknown>>(),
         delete: jest.fn<() => Promise<unknown>>(),
       },
@@ -71,6 +73,7 @@ describe('ChatService', () => {
           name: '공지방',
           type: 'NOTICE',
           createdBy: 1n,
+          ownerId: 1n,
           members: { create: { userId: 1n } },
         },
       });
@@ -89,6 +92,7 @@ describe('ChatService', () => {
           name: '같이살림방',
           type: undefined,
           createdBy: 1n,
+          ownerId: 1n,
           members: { create: { userId: 1n } },
         },
       });
@@ -171,16 +175,16 @@ describe('ChatService', () => {
   });
 
   describe('deleteChatRoom', () => {
-    it('allows the chat room creator to delete it', async () => {
-      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+    it('allows the chat room owner to delete it', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n, ownerId: 1n });
 
       await service.deleteChatRoom(1n, 1n);
 
       expect(prisma.chatRoom.findUnique).toHaveBeenCalledWith({ where: { id: 1n } });
     });
 
-    it('throws when a non-creator tries to delete the chat room', async () => {
-      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+    it('throws when a non-owner tries to delete the chat room', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n, ownerId: 1n });
 
       await expect(service.deleteChatRoom(1n, 2n)).rejects.toMatchObject({ code: 'COMMON_403' });
     });
@@ -188,7 +192,7 @@ describe('ChatService', () => {
 
   describe('removeMember', () => {
     it('allows a member to remove themselves', async () => {
-      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n, ownerId: 1n });
       prisma.chatRoomMember.findUnique.mockResolvedValue({ userId: 2n });
 
       await service.removeMember(1n, 2n, 2n);
@@ -198,8 +202,8 @@ describe('ChatService', () => {
       });
     });
 
-    it('allows the chat room creator to remove another member', async () => {
-      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+    it('allows the chat room owner to remove another member', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n, ownerId: 1n });
       prisma.chatRoomMember.findUnique.mockResolvedValue({ userId: 2n });
 
       await service.removeMember(1n, 2n, 1n);
@@ -209,10 +213,51 @@ describe('ChatService', () => {
       });
     });
 
-    it('throws when a non-creator tries to remove someone else', async () => {
-      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+    it('throws when a non-owner tries to remove someone else', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n, ownerId: 1n });
 
       await expect(service.removeMember(1n, 2n, 3n)).rejects.toMatchObject({ code: 'COMMON_403' });
+    });
+
+    it('throws when the owner tries to leave without transferring ownership first', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n, ownerId: 1n });
+
+      await expect(service.removeMember(1n, 1n, 1n)).rejects.toMatchObject({
+        code: 'CHAT_ROOM_OWNER_MUST_TRANSFER_BEFORE_LEAVING',
+      });
+      expect(prisma.chatRoomMember.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('transferOwnership', () => {
+    it('allows the current owner to transfer ownership to another member', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n, ownerId: 1n });
+      prisma.chatRoomMember.findUnique.mockResolvedValue({ userId: 2n });
+      prisma.chatRoom.update.mockResolvedValue({ id: 1n, ownerId: 2n });
+
+      await service.transferOwnership(1n, 2n, 1n);
+
+      expect(prisma.chatRoom.update).toHaveBeenCalledWith({
+        where: { id: 1n },
+        data: { ownerId: 2n },
+      });
+    });
+
+    it('throws when a non-owner tries to transfer ownership', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n, ownerId: 1n });
+
+      await expect(service.transferOwnership(1n, 2n, 3n)).rejects.toMatchObject({ code: 'COMMON_403' });
+      expect(prisma.chatRoom.update).not.toHaveBeenCalled();
+    });
+
+    it('throws when the target user is not a member of the chat room', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n, ownerId: 1n });
+      prisma.chatRoomMember.findUnique.mockResolvedValue(null);
+
+      await expect(service.transferOwnership(1n, 99n, 1n)).rejects.toMatchObject({
+        code: 'CHAT_ROOM_MEMBER_NOT_FOUND',
+      });
+      expect(prisma.chatRoom.update).not.toHaveBeenCalled();
     });
   });
 

@@ -49,6 +49,7 @@ export class ChatService {
         name,
         type,
         createdBy,
+        ownerId: createdBy,
         members: {
           create: { userId: createdBy },
         },
@@ -74,7 +75,7 @@ export class ChatService {
   async deleteChatRoom(roomId: bigint, currentUserId: bigint): Promise<void> {
     const chatRoom = await this.findChatRoomOrThrow(roomId);
 
-    if (chatRoom.createdBy !== currentUserId) {
+    if (chatRoom.ownerId !== currentUserId) {
       throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
     }
 
@@ -118,14 +119,33 @@ export class ChatService {
   async removeMember(roomId: bigint, userId: bigint, currentUserId: bigint): Promise<void> {
     const chatRoom = await this.findChatRoomOrThrow(roomId);
 
-    if (currentUserId !== userId && chatRoom.createdBy !== currentUserId) {
+    if (currentUserId !== userId && chatRoom.ownerId !== currentUserId) {
       throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+    }
+
+    if (userId === chatRoom.ownerId) {
+      throw new BusinessException(ErrorCode.CHAT_ROOM_OWNER_MUST_TRANSFER_BEFORE_LEAVING);
     }
 
     await this.findChatRoomMemberOrThrow(roomId, userId);
 
     await this.prisma.chatRoomMember.delete({
       where: { chatRoomId_userId: { chatRoomId: roomId, userId } },
+    });
+  }
+
+  async transferOwnership(roomId: bigint, newOwnerId: bigint, currentUserId: bigint) {
+    const chatRoom = await this.findChatRoomOrThrow(roomId);
+
+    if (chatRoom.ownerId !== currentUserId) {
+      throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+    }
+
+    await this.findChatRoomMemberOrThrow(roomId, newOwnerId);
+
+    return this.prisma.chatRoom.update({
+      where: { id: roomId },
+      data: { ownerId: newOwnerId },
     });
   }
 
