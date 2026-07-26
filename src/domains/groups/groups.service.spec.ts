@@ -143,17 +143,48 @@ describe('GroupsService', () => {
     await expect(service.deleteGroup(999n, 10n)).rejects.toBeInstanceOf(BusinessException);
   });
 
-  it('lists active members when the requester is an active member', async () => {
+  it('lists active members with the user name and profile image when the requester is an active member', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
     prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
-    prisma.groupMember.findMany.mockResolvedValue([{ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null }]);
+    prisma.groupMember.findMany.mockResolvedValue([
+      {
+        userId: 10n,
+        groupId: 1n,
+        role: 'ADMIN',
+        leftAt: null,
+        user: { id: 10n, name: '김하루', nickname: '하루', profileImage: null },
+      },
+    ]);
 
     const result = await service.listMembers(1n, 10n);
 
-    expect(result).toEqual([{ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null }]);
+    expect(result).toEqual([
+      {
+        userId: 10n,
+        groupId: 1n,
+        role: 'ADMIN',
+        leftAt: null,
+        user: { id: 10n, name: '김하루', nickname: '하루', profileImage: null },
+      },
+    ]);
     expect(prisma.groupMember.findMany).toHaveBeenCalledWith({
       where: { groupId: 1n, leftAt: null },
       orderBy: { joinedAt: 'asc' },
+      select: {
+        userId: true,
+        groupId: true,
+        role: true,
+        joinedAt: true,
+        leftAt: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            nickname: true,
+            profileImage: true,
+          },
+        },
+      },
     });
   });
 
