@@ -210,7 +210,7 @@ describe('ChatService', () => {
           createdAt: new Date('2026-01-01'),
           _count: { members: 3 },
           messages: [{ id: 5n, content: '안녕', senderId: 2n, createdAt: new Date('2026-01-02') }],
-          members: [{ lastReadAt: new Date('2026-01-01') }],
+          members: [{ lastReadAt: new Date('2026-01-01'), joinedAt: new Date('2025-12-01') }],
         },
       ]);
       prisma.message.count.mockResolvedValue(4);
@@ -232,6 +232,56 @@ describe('ChatService', () => {
           lastMessage: { id: 5n, content: '안녕', senderId: 2n, createdAt: new Date('2026-01-02') },
         }),
       ]);
+    });
+
+    it('falls back to joinedAt when a member has never marked messages as read', async () => {
+      prisma.groupMember.findUnique.mockResolvedValue({ userId: 1n, groupId: 10n, leftAt: null });
+      prisma.chatRoom.findMany.mockResolvedValue([
+        {
+          id: 1n,
+          groupId: 10n,
+          name: '같이살림방',
+          isDefault: true,
+          createdBy: 1n,
+          createdAt: new Date('2026-01-01'),
+          _count: { members: 3 },
+          messages: [],
+          members: [{ lastReadAt: null, joinedAt: new Date('2026-01-05') }],
+        },
+      ]);
+      prisma.message.count.mockResolvedValue(2);
+
+      await service.listChatRooms(10n, 1n);
+
+      expect(prisma.message.count).toHaveBeenCalledWith({
+        where: {
+          chatRoomId: 1n,
+          senderId: { not: 1n },
+          createdAt: { gt: new Date('2026-01-05') },
+        },
+      });
+    });
+
+    it('returns zero unreadCount without querying messages when the requester is not a room member', async () => {
+      prisma.groupMember.findUnique.mockResolvedValue({ userId: 1n, groupId: 10n, leftAt: null });
+      prisma.chatRoom.findMany.mockResolvedValue([
+        {
+          id: 1n,
+          groupId: 10n,
+          name: '같이살림방',
+          isDefault: true,
+          createdBy: 1n,
+          createdAt: new Date('2026-01-01'),
+          _count: { members: 3 },
+          messages: [],
+          members: [],
+        },
+      ]);
+
+      const result = await service.listChatRooms(10n, 1n);
+
+      expect(prisma.message.count).not.toHaveBeenCalled();
+      expect(result).toEqual([expect.objectContaining({ unreadCount: 0 })]);
     });
   });
 
