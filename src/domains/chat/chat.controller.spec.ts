@@ -91,6 +91,19 @@ describe('ChatController', () => {
     expect(deleteChatRoom).toHaveBeenCalledWith(1n, 1n);
   });
 
+  it('resolves the authenticated user as the current owner when transferring ownership', async () => {
+    const transferOwnership = jest
+      .fn<ChatService['transferOwnership']>()
+      .mockResolvedValue({} as never);
+    const chatService = { transferOwnership } as unknown as ChatService;
+    const controller = new ChatController(chatService, authenticatedUsers);
+
+    await controller.transferOwnership(auth, '1', { userId: '2' });
+
+    expect(resolveActiveUserId).toHaveBeenCalledWith('cognito-sub');
+    expect(transferOwnership).toHaveBeenCalledWith(1n, 2n, 1n);
+  });
+
   it('passes the authenticated user id to removeMember for the permission check', async () => {
     const removeMember = jest
       .fn<ChatService['removeMember']>()
