@@ -168,6 +168,15 @@ describe('ChatService', () => {
 
       await expect(service.removeMember(1n, 2n, 3n)).rejects.toMatchObject({ code: 'COMMON_403' });
     });
+
+    it('throws when the owner tries to leave without transferring ownership first', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n, ownerId: 1n });
+
+      await expect(service.removeMember(1n, 1n, 1n)).rejects.toMatchObject({
+        code: 'CHAT_ROOM_OWNER_MUST_TRANSFER_BEFORE_LEAVING',
+      });
+      expect(prisma.chatRoomMember.delete).not.toHaveBeenCalled();
+    });
   });
 
   describe('transferOwnership', () => {
