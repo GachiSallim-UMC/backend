@@ -40,7 +40,8 @@ model User {
   createdRules      Rule[]
   ruleAgreements    RuleAgreement[]
   ruleLogs          RuleLog[]
-  createdChatRooms  ChatRoom[]
+  createdChatRooms  ChatRoom[]                     @relation("ChatRoomCreator")
+  ownedChatRooms    ChatRoom[]                     @relation("ChatRoomOwner")
   chatRoomMembers   ChatRoomMember[]
   sentMessages      Message[]
   notifications     Notification[]
@@ -358,11 +359,13 @@ model ChatRoom {
   name      String   @db.VarChar(100)
   isDefault Boolean  @default(false) @map("is_default")
   createdBy BigInt   @map("created_by")
+  ownerId   BigInt   @map("owner_id")
   createdAt DateTime @default(now()) @map("created_at")
 
-  group   Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  creator User             @relation(fields: [createdBy], references: [id])
-  members ChatRoomMember[]
+  group    Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  creator  User             @relation("ChatRoomCreator", fields: [createdBy], references: [id])
+  owner    User             @relation("ChatRoomOwner", fields: [ownerId], references: [id])
+  members  ChatRoomMember[]
   messages Message[]
 
   @@map("chat_rooms")
