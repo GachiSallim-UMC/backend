@@ -7,6 +7,7 @@ import { ChatService } from './chat.service';
 type MockedPrisma = {
   chatRoom: {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    findMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     delete: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   chatRoomMember: {
@@ -14,6 +15,10 @@ type MockedPrisma = {
     findMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     createMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     delete: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+  };
+  message: {
+    count: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    findMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   groupMember: {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
@@ -29,6 +34,7 @@ describe('ChatService', () => {
     prisma = {
       chatRoom: {
         findUnique: jest.fn<() => Promise<unknown>>(),
+        findMany: jest.fn<() => Promise<unknown>>(),
         delete: jest.fn<() => Promise<unknown>>(),
       },
       chatRoomMember: {
@@ -36,6 +42,10 @@ describe('ChatService', () => {
         findMany: jest.fn<() => Promise<unknown>>(),
         createMany: jest.fn<() => Promise<unknown>>(),
         delete: jest.fn<() => Promise<unknown>>(),
+      },
+      message: {
+        count: jest.fn<() => Promise<unknown>>(),
+        findMany: jest.fn<() => Promise<unknown>>(),
       },
       groupMember: {
         findUnique: jest.fn<() => Promise<unknown>>(),
@@ -187,6 +197,42 @@ describe('ChatService', () => {
         code: 'GROUP_MEMBER_NOT_FOUND',
       });
     });
+
+    it('enriches each chat room with lastMessage, unreadCount, and memberCount', async () => {
+      prisma.groupMember.findUnique.mockResolvedValue({ userId: 1n, groupId: 10n, leftAt: null });
+      prisma.chatRoom.findMany.mockResolvedValue([
+        {
+          id: 1n,
+          groupId: 10n,
+          name: '같이살림방',
+          isDefault: true,
+          createdBy: 1n,
+          createdAt: new Date('2026-01-01'),
+          _count: { members: 3 },
+          messages: [{ id: 5n, content: '안녕', senderId: 2n, createdAt: new Date('2026-01-02') }],
+          members: [{ lastReadAt: new Date('2026-01-01') }],
+        },
+      ]);
+      prisma.message.count.mockResolvedValue(4);
+
+      const result = await service.listChatRooms(10n, 1n);
+
+      expect(prisma.message.count).toHaveBeenCalledWith({
+        where: {
+          chatRoomId: 1n,
+          senderId: { not: 1n },
+          createdAt: { gt: new Date('2026-01-01') },
+        },
+      });
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: 1n,
+          memberCount: 3,
+          unreadCount: 4,
+          lastMessage: { id: 5n, content: '안녕', senderId: 2n, createdAt: new Date('2026-01-02') },
+        }),
+      ]);
+    });
   });
 
   describe('listMessages', () => {
@@ -197,6 +243,22 @@ describe('ChatService', () => {
       await expect(service.listMessages(1n, 99n)).rejects.toMatchObject({
         code: 'CHAT_ROOM_MEMBER_NOT_FOUND',
       });
+    });
+
+    it('includes the sender nickname and profile image for each message', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+      prisma.chatRoomMember.findUnique.mockResolvedValue({ userId: 1n });
+      prisma.message.findMany.mockResolvedValue([]);
+
+      await service.listMessages(1n, 1n);
+
+      expect(prisma.message.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: {
+            sender: { select: { id: true, nickname: true, profileImage: true } },
+          },
+        }),
+      );
     });
   });
 });
