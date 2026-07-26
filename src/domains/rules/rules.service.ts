@@ -203,6 +203,14 @@ export class RulesService {
       throw new BusinessException(ErrorCode.RULE_CATEGORY_NOT_FOUND);
     }
 
+    const groupMembers = await this.prisma.groupMember.findMany({
+      where: {
+        groupId: BigInt(dto.groupId),
+        leftAt: null,
+      },
+      select: { userId: true },
+    });
+
     const rule = await this.prisma.rule.create({
       data: {
         groupId: BigInt(dto.groupId),
@@ -211,6 +219,15 @@ export class RulesService {
         title: dto.title,
         description: dto.description,
         status: 'ACTIVE',
+        agreements: {
+          createMany: {
+            data: groupMembers.map(({ userId }) => ({
+              userId,
+              status: 'PENDING',
+              confirmedAt: null,
+            })),
+          },
+        },
       },
     });
 
@@ -238,6 +255,14 @@ export class RulesService {
       throw new BusinessException(ErrorCode.RULE_CATEGORY_NOT_FOUND);
     }
 
+    const groupMembers = await this.prisma.groupMember.findMany({
+      where: {
+        groupId: rule.groupId,
+        leftAt: null,
+      },
+      select: { userId: true },
+    });
+
     const updatedRule = await this.prisma.rule.update({
       where: { id: ruleId },
       data: {
@@ -245,6 +270,25 @@ export class RulesService {
         title: dto.title,
         description: dto.description,
         status: dto.status,
+        agreements: {
+          upsert: groupMembers.map(({ userId }) => ({
+            where: {
+              ruleId_userId: {
+                ruleId,
+                userId,
+              },
+            },
+            create: {
+              userId,
+              status: 'PENDING',
+              confirmedAt: null,
+            },
+            update: {
+              status: 'PENDING',
+              confirmedAt: null,
+            },
+          })),
+        },
       },
     });
 

@@ -26,6 +26,7 @@ type MockedPrisma = {
   };
   groupMember: {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    findMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   chatRoom: {
     findFirst: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
@@ -58,6 +59,7 @@ describe('RulesService', () => {
       },
       groupMember: {
         findUnique: jest.fn<() => Promise<unknown>>(),
+        findMany: jest.fn<() => Promise<unknown>>(),
       },
       chatRoom: {
         findFirst: jest.fn<() => Promise<unknown>>(),
@@ -76,6 +78,7 @@ describe('RulesService', () => {
   it('creates a rule and returns its id', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n });
     prisma.ruleCategory.findUnique.mockResolvedValue({ id: 1n });
+    prisma.groupMember.findMany.mockResolvedValue([{ userId: 10n }, { userId: 20n }]);
     prisma.rule.create.mockResolvedValue({
       id: 123n,
       groupId: 1n,
@@ -105,7 +108,19 @@ describe('RulesService', () => {
         title: '밤 11시 이후 조용히 하기',
         description: '늦은 시간에는 소음을 줄여주세요.',
         status: 'ACTIVE',
+        agreements: {
+          createMany: {
+            data: [
+              { userId: 10n, status: 'PENDING', confirmedAt: null },
+              { userId: 20n, status: 'PENDING', confirmedAt: null },
+            ],
+          },
+        },
       },
+    });
+    expect(prisma.groupMember.findMany).toHaveBeenCalledWith({
+      where: { groupId: 1n, leftAt: null },
+      select: { userId: true },
     });
   });
 
@@ -146,6 +161,7 @@ describe('RulesService', () => {
   it('updates a rule and returns the updated id and title', async () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 1n, groupId: 1n });
     prisma.ruleCategory.findUnique.mockResolvedValue({ id: 2n });
+    prisma.groupMember.findMany.mockResolvedValue([{ userId: 1n }, { userId: 2n }]);
     prisma.rule.update.mockResolvedValue({
       id: 123n,
       title: '수정된 규칙 제목',
@@ -170,7 +186,25 @@ describe('RulesService', () => {
         title: '수정된 규칙 제목',
         description: '수정된 설명',
         status: RuleStatusValue.INACTIVE,
+        agreements: {
+          upsert: [
+            {
+              where: { ruleId_userId: { ruleId: 123n, userId: 1n } },
+              create: { userId: 1n, status: 'PENDING', confirmedAt: null },
+              update: { status: 'PENDING', confirmedAt: null },
+            },
+            {
+              where: { ruleId_userId: { ruleId: 123n, userId: 2n } },
+              create: { userId: 2n, status: 'PENDING', confirmedAt: null },
+              update: { status: 'PENDING', confirmedAt: null },
+            },
+          ],
+        },
       },
+    });
+    expect(prisma.groupMember.findMany).toHaveBeenCalledWith({
+      where: { groupId: 1n, leftAt: null },
+      select: { userId: true },
     });
   });
 
