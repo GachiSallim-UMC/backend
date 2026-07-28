@@ -20,6 +20,10 @@ type MockedPrisma = {
     count: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     create: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
+  groupPermission: {
+    findUniqueOrThrow: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    update: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+  };
   $transaction: jest.MockedFunction<(fn: (tx: unknown) => Promise<unknown>, options?: unknown) => Promise<unknown>>;
 };
 
@@ -45,6 +49,10 @@ describe('GroupsService', () => {
         updateMany: jest.fn<() => Promise<{ count: number }>>().mockResolvedValue({ count: 1 }),
         count: jest.fn<() => Promise<unknown>>(),
         create: jest.fn<() => Promise<unknown>>(),
+      },
+      groupPermission: {
+        findUniqueOrThrow: jest.fn<() => Promise<unknown>>(),
+        update: jest.fn<() => Promise<unknown>>(),
       },
       $transaction: jest.fn(),
     };
@@ -82,6 +90,7 @@ describe('GroupsService', () => {
         maxMembers: 4,
         createdBy: 10n,
         members: { create: { userId: 10n, role: 'ADMIN' } },
+        permission: { create: {} },
       }),
     );
   });
@@ -125,6 +134,56 @@ describe('GroupsService', () => {
 
     await expect(service.updateGroup(1n, { name: '우리집 시즌2' }, 20n)).rejects.toBeInstanceOf(BusinessException);
     expect(prisma.group.update).not.toHaveBeenCalled();
+  });
+
+  it('returns the group permission for an active member', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'MEMBER', leftAt: null });
+    prisma.groupPermission.findUniqueOrThrow.mockResolvedValue({
+      groupId: 1n,
+      allowChoreRegistration: true,
+      allowSettlementRegistration: true,
+      allowItemStatusChange: true,
+      autoApproveNewMembers: false,
+    });
+
+    const result = await service.getGroupPermission(1n, 10n);
+
+    expect(prisma.groupPermission.findUniqueOrThrow).toHaveBeenCalledWith({ where: { groupId: 1n } });
+    expect(result).toEqual(
+      expect.objectContaining({ allowChoreRegistration: true, autoApproveNewMembers: false }),
+    );
+  });
+
+  it('throws when a non-member tries to read the group permission', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue(null);
+
+    await expect(service.getGroupPermission(1n, 99n)).rejects.toBeInstanceOf(BusinessException);
+    expect(prisma.groupPermission.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it('updates the group permission when the requester is an ADMIN', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
+    prisma.groupPermission.update.mockResolvedValue({ groupId: 1n, autoApproveNewMembers: true });
+
+    await service.updateGroupPermission(1n, { autoApproveNewMembers: true }, 10n);
+
+    expect(prisma.groupPermission.update).toHaveBeenCalledWith({
+      where: { groupId: 1n },
+      data: { autoApproveNewMembers: true },
+    });
+  });
+
+  it('throws when a non-ADMIN member tries to update the group permission', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 20n, groupId: 1n, role: 'MEMBER', leftAt: null });
+
+    await expect(
+      service.updateGroupPermission(1n, { autoApproveNewMembers: true }, 20n),
+    ).rejects.toBeInstanceOf(BusinessException);
+    expect(prisma.groupPermission.update).not.toHaveBeenCalled();
   });
 
   it('soft-deletes a group when the requester is an ADMIN', async () => {
