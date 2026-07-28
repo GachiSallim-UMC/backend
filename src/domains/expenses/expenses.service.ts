@@ -495,7 +495,7 @@ export class ExpensesService {
     return { status: 'SUCCESS' };
   }
 
-  // 10. 분담 상태 완료 처리
+// 10. 분담 상태 완료 처리
   async settleSplit(auth: AuthContext, splitId: number, settleDto?: SettleSplitDto) {
     if (auth.cognitoSub !== 'SYSTEM') {
       const currentUserId = await this.getUserIdByAuth(auth);
@@ -506,12 +506,17 @@ export class ExpensesService {
 
       if (!split) throw new BadRequestException('존재하지 않는 분담 내역입니다.');
 
-      if (split.userId !== currentUserId && split.expense.payerId !== currentUserId && split.expense.createdBy !== currentUserId) {
+      if (
+        split.userId !== currentUserId &&
+        split.expense.payerId !== currentUserId &&
+        split.expense.createdBy !== currentUserId
+      ) {
         throw new ForbiddenException('해당 정산을 완료 처리할 권한이 없습니다.');
       }
     }
 
-    const isBulkComplete = settleDto?.isBulkComplete ?? true;
+    // 기본값을 false로 변경 (isBulkComplete가 explicit하게 true일 때만 DONE으로 전이)
+    const isBulkComplete = settleDto?.isBulkComplete ?? false;
     const targetStatus = isBulkComplete ? 'DONE' : 'REQUESTED';
 
     return this.prisma.$transaction(async (tx) => {
@@ -535,7 +540,7 @@ export class ExpensesService {
       }
 
       return {
-        message: '정산 완료 처리가 성공적으로 동기화되었습니다.',
+        message: '정산 상태가 성공적으로 변경되었습니다.',
         isAllSettled,
         status: targetStatus,
       };
