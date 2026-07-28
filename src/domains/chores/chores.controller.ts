@@ -54,6 +54,21 @@ export class ChoresController {
     return this.choresService.completeChore(this.parseId(choreId, 'choreId'), completedBy);
   }
 
+  @Patch(':choreId/incomplete')
+  @ApiOperation({
+    summary: '집안일 완료 취소 (CHORE-DONE-02)',
+    description:
+      '완료된 집안일을 미완료(PENDING)로 되돌립니다. 완료 처리 시 자동 생성된 다음 회차가 있으면 함께 삭제되며, ' +
+      '삭제된 회차 ID는 removedNextOccurrenceIds로 반환됩니다.',
+  })
+  @ApiParam({ name: 'choreId', type: Number, example: 11 })
+  @ApiHeader({ name: 'x-user-id', required: true, description: '임시 인증 헤더: 요청자 ID (AUTH 도입 전까지)' })
+  incompleteChore(@Param('choreId') choreId: string, @Headers('x-user-id') userIdHeader?: string) {
+    this.requireUserId(userIdHeader);
+
+    return this.choresService.incompleteChore(this.parseId(choreId, 'choreId'));
+  }
+
   @Delete(':choreId')
   @ApiOperation({ summary: '집안일 삭제 (CHORE-DEL-01)' })
   @ApiParam({ name: 'choreId', type: Number, example: 11 })

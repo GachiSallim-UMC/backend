@@ -29,6 +29,28 @@ function toDateOnly(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** 서비스 기준 시간대. DASH 도메인(dashboard.service.ts)과 동일한 값을 사용한다. */
+const KOREA_TIME_ZONE = 'Asia/Seoul';
+
+const KOREA_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: KOREA_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/**
+ * 실제 시각(instant)을 한국 달력 날짜의 UTC 자정으로 변환한다.
+ * startDate/dueDate는 날짜만 의미하는 값이라 UTC 자정으로 저장되므로,
+ * 완료 시각에서 다음 회차를 계산할 때 같은 표현으로 맞춰 준다.
+ * 예) 2026-07-28T15:30:00Z(= KST 07-29 00:30) -> 2026-07-29T00:00:00Z
+ */
+function toKoreaDateOnly(instant: Date): Date {
+  const [year, month, day] = KOREA_DATE_FORMATTER.format(instant).split('-').map(Number);
+
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
 function toIsoNoMillis(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
@@ -252,7 +274,13 @@ export class ChoresService {
     } | null = null;
 
     if (updated.repeatType !== RepeatType.NONE) {
-      const nextStartDate = addInterval(updated.startDate, {
+      // 다음 회차는 '완료일' 기준으로 계산한다. startDate를 기준으로 삼으면
+      // 완료가 밀렸을 때 다음 회차가 오늘이나 과거 날짜로 생성된다. (#159)
+      // 단, 시작일보다 먼저 완료한 경우에는 시작일을 기준으로 삼아 회차가 겹치지 않게 한다.
+      const completedDate = toKoreaDateOnly(completedAt);
+      const baseDate = completedDate > updated.startDate ? completedDate : updated.startDate;
+
+      const nextStartDate = addInterval(baseDate, {
         repeatType: updated.repeatType,
         customOption: updated.customOption,
         repeatInterval: updated.repeatInterval,
@@ -298,6 +326,51 @@ export class ChoresService {
       completedBy: updated.completer ? mapUser(updated.completer) : null,
       completedAt: updated.completedAt ? toIsoNoMillis(updated.completedAt) : null,
       ...(nextOccurrence ? { nextOccurrence } : {}),
+    };
+  }
+
+  /**
+   * 완료 취소(미완료 전환). (#159)
+   * 완료 처리 때 자동 생성된 다음 회차를 함께 제거해야
+   * 완료 -> 취소 -> 재완료 시 회차가 중복 생성되지 않는다.
+   */
+  async incompleteChore(choreId: bigint) {
+    const chore = await this.findChoreOrThrow(choreId);
+
+    if (chore.status !== ChoreStatus.DONE) {
+      throw new BusinessException(ErrorCode.CHORE_NOT_DONE);
+    }
+
+    const children = await this.prisma.chore.findMany({
+      where: { parentId: choreId },
+      select: { id: true, status: true },
+    });
+
+    // 다음 회차가 이미 완료됐다면 그 아래로 회차가 더 이어졌을 수 있어 되돌리지 않는다.
+    if (children.some((child) => child.status === ChoreStatus.DONE)) {
+      throw new BusinessException(ErrorCode.CHORE_NEXT_OCCURRENCE_DONE);
+    }
+
+    const removedChildIds = children.map((child) => child.id);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (removedChildIds.length > 0) {
+        await tx.chore.deleteMany({ where: { id: { in: removedChildIds } } });
+      }
+
+      return tx.chore.update({
+        where: { id: choreId },
+        data: { status: ChoreStatus.PENDING, completedBy: null, completedAt: null },
+        include: CHORE_WITH_USERS,
+      });
+    });
+
+    return {
+      choreId: Number(updated.id),
+      status: updated.status,
+      completedBy: null,
+      completedAt: null,
+      removedNextOccurrenceIds: removedChildIds.map(Number),
     };
   }
 

@@ -12,11 +12,14 @@ describe('ChoresService', () => {
       findUnique: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
+      delete: jest.Mock;
+      deleteMany: jest.Mock;
     };
     groupMember: { findUnique: jest.Mock };
     chatRoom: { findUnique: jest.Mock };
     chatRoomMember: { findUnique: jest.Mock };
     message: { create: jest.Mock };
+    $transaction: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -26,11 +29,15 @@ describe('ChoresService', () => {
         findUnique: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn(),
+        deleteMany: jest.fn(),
       },
       groupMember: { findUnique: jest.fn() },
       chatRoom: { findUnique: jest.fn() },
       chatRoomMember: { findUnique: jest.fn() },
       message: { create: jest.fn() },
+      // 트랜잭션 콜백에 동일한 mock client를 그대로 넘겨 준다.
+      $transaction: jest.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -222,6 +229,23 @@ describe('ChoresService', () => {
   });
 
   describe('completeChore', () => {
+    // 다음 회차는 완료 시각을 기준으로 계산하므로 시계를 고정한다. (#159)
+    // 기본값은 KST 2026-07-27(월) 19:00.
+    const DEFAULT_NOW = '2026-07-27T10:00:00Z';
+
+    beforeEach(() => {
+      jest.useFakeTimers().setSystemTime(new Date(DEFAULT_NOW));
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    /** 완료 시각을 옮긴다. 다음 회차 계산의 기준일이 바뀐다. */
+    function freezeNow(iso: string) {
+      jest.setSystemTime(new Date(iso));
+    }
+
     /** completeChore가 참조하는 레코드를 구성한다. 기본값은 반복 없음(NONE). */
     function arrangeComplete(overrides: Record<string, unknown> = {}) {
       const record = {
@@ -301,6 +325,82 @@ describe('ChoresService', () => {
       expect(prisma.chore.create).not.toHaveBeenCalled();
     });
 
+    describe('다음 회차 기준일 (#159)', () => {
+      it('DAILY는 완료일 다음 날로 생성한다', async () => {
+        arrangeComplete({ repeatType: RepeatType.DAILY });
+
+        await service.completeChore(BigInt(1), BigInt(1));
+
+        expect(createdDateOnly('startDate')).toBe('2026-07-28');
+      });
+
+      it('완료가 밀려도 시작일이 아니라 완료일 다음 날로 생성한다', async () => {
+        // 07-25에 시작한 매일 집안일을 07-28에 완료 -> 07-26(X), 07-29(O)
+        freezeNow('2026-07-28T10:00:00Z');
+        arrangeComplete({
+          startDate: new Date('2026-07-25T00:00:00Z'),
+          repeatType: RepeatType.DAILY,
+        });
+
+        await service.completeChore(BigInt(1), BigInt(1));
+
+        expect(createdDateOnly('startDate')).toBe('2026-07-29');
+      });
+
+      it('완료가 하루 밀려도 다음 회차가 오늘로 생성되지 않는다', async () => {
+        // 프론트 제보 케이스: 07-27 등록 -> 07-28 완료 시 07-28(오늘)로 생성되던 문제
+        freezeNow('2026-07-28T10:00:00Z');
+        arrangeComplete({
+          startDate: new Date('2026-07-27T00:00:00Z'),
+          repeatType: RepeatType.DAILY,
+        });
+
+        await service.completeChore(BigInt(1), BigInt(1));
+
+        expect(createdDateOnly('startDate')).toBe('2026-07-29');
+      });
+
+      it('시작일보다 먼저 완료하면 시작일을 기준으로 계산한다', async () => {
+        // 07-30 시작 예정인 집안일을 07-28에 미리 완료 -> 07-29(X), 07-31(O)
+        freezeNow('2026-07-28T10:00:00Z');
+        arrangeComplete({
+          startDate: new Date('2026-07-30T00:00:00Z'),
+          repeatType: RepeatType.DAILY,
+        });
+
+        await service.completeChore(BigInt(1), BigInt(1));
+
+        expect(createdDateOnly('startDate')).toBe('2026-07-31');
+      });
+
+      it('완료 시각은 UTC가 아니라 한국 달력 날짜로 해석한다', async () => {
+        // 2026-07-28T15:30:00Z = KST 07-29 00:30 -> 다음 회차는 07-30
+        freezeNow('2026-07-28T15:30:00Z');
+        arrangeComplete({
+          startDate: new Date('2026-07-25T00:00:00Z'),
+          repeatType: RepeatType.DAILY,
+        });
+
+        await service.completeChore(BigInt(1), BigInt(1));
+
+        expect(createdDateOnly('startDate')).toBe('2026-07-30');
+      });
+
+      it('WEEKLY도 완료일 기준으로 다음 지정 요일을 찾는다', async () => {
+        // 07-29(수)에 완료, 지정 요일 월/목 -> 07-30(목)
+        freezeNow('2026-07-29T10:00:00Z');
+        arrangeComplete({
+          startDate: new Date('2026-07-27T00:00:00Z'),
+          repeatType: RepeatType.WEEKLY,
+          repeatDays: [Weekday.MON, Weekday.THU],
+        });
+
+        await service.completeChore(BigInt(1), BigInt(1));
+
+        expect(createdDateOnly('startDate')).toBe('2026-07-30');
+      });
+    });
+
     describe('CUSTOM 반복 주기', () => {
       it('EVERY_N_DAYS(3)이면 3일 뒤로 생성한다', async () => {
         arrangeComplete({
@@ -340,6 +440,7 @@ describe('ChoresService', () => {
       });
 
       it('EVERY_N_MONTHS(1)도 월말 오버플로를 보정한다', async () => {
+        freezeNow('2026-01-31T10:00:00Z');
         arrangeComplete({
           startDate: new Date('2026-01-31T00:00:00Z'),
           repeatType: RepeatType.CUSTOM,
@@ -355,6 +456,7 @@ describe('ChoresService', () => {
 
     describe('MONTHLY 월말 보정', () => {
       it('1월 31일의 다음 회차는 3월 3일이 아니라 2월 28일이다', async () => {
+        freezeNow('2026-01-31T10:00:00Z');
         arrangeComplete({
           startDate: new Date('2026-01-31T00:00:00Z'),
           repeatType: RepeatType.MONTHLY,
@@ -413,6 +515,95 @@ describe('ChoresService', () => {
         expect(prisma.chore.create).toHaveBeenCalledTimes(1);
         expect(createdDateOnly('dueDate')).toBeNull();
       });
+    });
+  });
+
+  describe('incompleteChore (#159)', () => {
+    /** 완료 상태의 chore와, 되돌린 뒤의 update 결과를 준비한다. */
+    function arrangeIncomplete(children: { id: bigint; status: ChoreStatus }[] = []) {
+      prisma.chore.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        groupId: BigInt(1),
+        status: ChoreStatus.DONE,
+      });
+      prisma.chore.findMany.mockResolvedValue(children);
+      prisma.chore.update.mockResolvedValue({
+        id: BigInt(1),
+        status: ChoreStatus.PENDING,
+        completedBy: null,
+        completedAt: null,
+        completer: null,
+      });
+    }
+
+    it('존재하지 않는 choreId면 404 예외를 던진다', async () => {
+      prisma.chore.findUnique.mockResolvedValue(null);
+
+      await expect(service.incompleteChore(BigInt(999))).rejects.toThrow(BusinessException);
+    });
+
+    it('완료 상태가 아니면 409 예외를 던진다', async () => {
+      prisma.chore.findUnique.mockResolvedValue({ id: BigInt(1), status: ChoreStatus.PENDING });
+
+      await expect(service.incompleteChore(BigInt(1))).rejects.toThrow(BusinessException);
+
+      expect(prisma.chore.update).not.toHaveBeenCalled();
+    });
+
+    it('status를 PENDING으로 되돌리고 완료 정보를 초기화한다', async () => {
+      arrangeIncomplete();
+
+      const result = await service.incompleteChore(BigInt(1));
+
+      expect(prisma.chore.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: BigInt(1) },
+          data: { status: ChoreStatus.PENDING, completedBy: null, completedAt: null },
+        }),
+      );
+      expect(result).toMatchObject({
+        choreId: 1,
+        status: ChoreStatus.PENDING,
+        completedBy: null,
+        completedAt: null,
+      });
+    });
+
+    it('완료 시 생성된 다음 회차를 함께 삭제한다', async () => {
+      arrangeIncomplete([{ id: BigInt(99), status: ChoreStatus.PENDING }]);
+
+      const result = await service.incompleteChore(BigInt(1));
+
+      expect(prisma.chore.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: [BigInt(99)] } },
+      });
+      expect(result.removedNextOccurrenceIds).toEqual([99]);
+    });
+
+    it('다음 회차가 없으면 삭제를 호출하지 않는다', async () => {
+      arrangeIncomplete();
+
+      const result = await service.incompleteChore(BigInt(1));
+
+      expect(prisma.chore.deleteMany).not.toHaveBeenCalled();
+      expect(result.removedNextOccurrenceIds).toEqual([]);
+    });
+
+    it('다음 회차가 이미 완료됐으면 409 예외를 던진다', async () => {
+      arrangeIncomplete([{ id: BigInt(99), status: ChoreStatus.DONE }]);
+
+      await expect(service.incompleteChore(BigInt(1))).rejects.toThrow(BusinessException);
+
+      expect(prisma.chore.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.chore.update).not.toHaveBeenCalled();
+    });
+
+    it('회차 삭제와 상태 복원을 하나의 트랜잭션에서 처리한다', async () => {
+      arrangeIncomplete([{ id: BigInt(99), status: ChoreStatus.PENDING }]);
+
+      await service.incompleteChore(BigInt(1));
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     });
   });
 
