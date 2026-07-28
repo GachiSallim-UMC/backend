@@ -1039,6 +1039,22 @@
               }
             }
           },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
           "404": {
             "description": "집안일 없음",
             "content": {
@@ -1107,7 +1123,7 @@
             }
           },
           "403": {
-            "description": "등록자도 관리자도 아님",
+            "description": "그룹에 속하지 않은 사용자(GROUP_MEMBER_NOT_FOUND) 또는 등록자·관리자가 아님(CHORE_403)",
             "content": {
               "application/json": {
                 "example": {
@@ -1204,6 +1220,22 @@
               }
             }
           },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
           "404": {
             "description": "집안일 없음",
             "content": {
@@ -1289,6 +1321,22 @@
                   "error": {
                     "code": "AUTH_UNAUTHORIZED",
                     "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
                     "errors": []
                   }
                 }
@@ -1444,6 +1492,22 @@
                   "error": {
                     "code": "AUTH_UNAUTHORIZED",
                     "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
                     "errors": []
                   }
                 }
@@ -1697,6 +1761,22 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -1801,6 +1881,22 @@
                   "error": {
                     "code": "AUTH_UNAUTHORIZED",
                     "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
                     "errors": []
                   }
                 }

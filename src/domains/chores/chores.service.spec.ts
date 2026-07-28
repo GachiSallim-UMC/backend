@@ -40,11 +40,67 @@ describe('ChoresService', () => {
       $transaction: jest.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
     };
 
+    // 모든 엔드포인트가 요청자의 그룹 멤버십을 확인하므로 기본값은 '활성 멤버'로 둔다.
+    prisma.groupMember.findUnique.mockResolvedValue({ id: BigInt(1), leftAt: null });
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [ChoresService, { provide: PrismaService, useValue: prisma }],
     }).compile();
 
     service = module.get(ChoresService);
+  });
+
+  describe('요청자 그룹 멤버십 검증', () => {
+    it('그룹 멤버가 아니면 목록 조회 시 403 예외를 던진다', async () => {
+      prisma.groupMember.findUnique.mockResolvedValue(null);
+
+      await expect(service.listChores({ groupId: 1 }, BigInt(9))).rejects.toMatchObject({
+        code: 'GROUP_MEMBER_NOT_FOUND',
+      });
+
+      expect(prisma.chore.findMany).not.toHaveBeenCalled();
+    });
+
+    it('탈퇴한 멤버(leftAt)면 403 예외를 던진다', async () => {
+      prisma.groupMember.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        leftAt: new Date('2026-07-01T00:00:00Z'),
+      });
+
+      await expect(service.listChores({ groupId: 1 }, BigInt(9))).rejects.toMatchObject({
+        code: 'GROUP_MEMBER_NOT_FOUND',
+      });
+    });
+
+    it('그룹 멤버가 아니면 완료 처리 시 403 예외를 던진다', async () => {
+      prisma.chore.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        groupId: BigInt(1),
+        status: ChoreStatus.PENDING,
+      });
+      prisma.groupMember.findUnique.mockResolvedValue(null);
+
+      await expect(service.completeChore(BigInt(1), BigInt(9))).rejects.toMatchObject({
+        code: 'GROUP_MEMBER_NOT_FOUND',
+      });
+
+      expect(prisma.chore.update).not.toHaveBeenCalled();
+    });
+
+    it('그룹 멤버가 아니면 완료 취소 시 403 예외를 던진다', async () => {
+      prisma.chore.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        groupId: BigInt(1),
+        status: ChoreStatus.DONE,
+      });
+      prisma.groupMember.findUnique.mockResolvedValue(null);
+
+      await expect(service.incompleteChore(BigInt(1), BigInt(9))).rejects.toMatchObject({
+        code: 'GROUP_MEMBER_NOT_FOUND',
+      });
+
+      expect(prisma.chore.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('createChore', () => {
@@ -309,6 +365,7 @@ describe('ChoresService', () => {
     it('이미 완료된 집안일이면 409 예외를 던진다', async () => {
       prisma.chore.findUnique.mockResolvedValue({
         id: BigInt(1),
+        groupId: BigInt(1),
         status: ChoreStatus.DONE,
       });
 
@@ -539,13 +596,19 @@ describe('ChoresService', () => {
     it('존재하지 않는 choreId면 404 예외를 던진다', async () => {
       prisma.chore.findUnique.mockResolvedValue(null);
 
-      await expect(service.incompleteChore(BigInt(999))).rejects.toThrow(BusinessException);
+      await expect(service.incompleteChore(BigInt(999), BigInt(1))).rejects.toThrow(
+        BusinessException,
+      );
     });
 
     it('완료 상태가 아니면 409 예외를 던진다', async () => {
-      prisma.chore.findUnique.mockResolvedValue({ id: BigInt(1), status: ChoreStatus.PENDING });
+      prisma.chore.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        groupId: BigInt(1),
+        status: ChoreStatus.PENDING,
+      });
 
-      await expect(service.incompleteChore(BigInt(1))).rejects.toThrow(BusinessException);
+      await expect(service.incompleteChore(BigInt(1), BigInt(1))).rejects.toThrow(BusinessException);
 
       expect(prisma.chore.update).not.toHaveBeenCalled();
     });
@@ -553,7 +616,7 @@ describe('ChoresService', () => {
     it('status를 PENDING으로 되돌리고 완료 정보를 초기화한다', async () => {
       arrangeIncomplete();
 
-      const result = await service.incompleteChore(BigInt(1));
+      const result = await service.incompleteChore(BigInt(1), BigInt(1));
 
       expect(prisma.chore.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -572,7 +635,7 @@ describe('ChoresService', () => {
     it('완료 시 생성된 다음 회차를 함께 삭제한다', async () => {
       arrangeIncomplete([{ id: BigInt(99), status: ChoreStatus.PENDING }]);
 
-      const result = await service.incompleteChore(BigInt(1));
+      const result = await service.incompleteChore(BigInt(1), BigInt(1));
 
       expect(prisma.chore.deleteMany).toHaveBeenCalledWith({
         where: { id: { in: [BigInt(99)] } },
@@ -583,7 +646,7 @@ describe('ChoresService', () => {
     it('다음 회차가 없으면 삭제를 호출하지 않는다', async () => {
       arrangeIncomplete();
 
-      const result = await service.incompleteChore(BigInt(1));
+      const result = await service.incompleteChore(BigInt(1), BigInt(1));
 
       expect(prisma.chore.deleteMany).not.toHaveBeenCalled();
       expect(result.removedNextOccurrenceIds).toEqual([]);
@@ -592,7 +655,7 @@ describe('ChoresService', () => {
     it('다음 회차가 이미 완료됐으면 409 예외를 던진다', async () => {
       arrangeIncomplete([{ id: BigInt(99), status: ChoreStatus.DONE }]);
 
-      await expect(service.incompleteChore(BigInt(1))).rejects.toThrow(BusinessException);
+      await expect(service.incompleteChore(BigInt(1), BigInt(1))).rejects.toThrow(BusinessException);
 
       expect(prisma.chore.deleteMany).not.toHaveBeenCalled();
       expect(prisma.chore.update).not.toHaveBeenCalled();
@@ -601,7 +664,7 @@ describe('ChoresService', () => {
     it('회차 삭제와 상태 복원을 하나의 트랜잭션에서 처리한다', async () => {
       arrangeIncomplete([{ id: BigInt(99), status: ChoreStatus.PENDING }]);
 
-      await service.incompleteChore(BigInt(1));
+      await service.incompleteChore(BigInt(1), BigInt(1));
 
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     });

@@ -159,7 +159,9 @@ function addInterval(date: Date, config: RepeatConfig): Date {
 export class ChoresService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listChores(query: ListChoresQueryDto) {
+  async listChores(query: ListChoresQueryDto, requesterId: bigint) {
+    await this.requireActiveGroupMemberOrThrow(BigInt(query.groupId), requesterId);
+
     const chores = await this.prisma.chore.findMany({
       where: {
         groupId: BigInt(query.groupId),
@@ -174,6 +176,8 @@ export class ChoresService {
   }
 
   async createChore(dto: CreateChoreDto, createdBy: bigint) {
+    await this.requireActiveGroupMemberOrThrow(BigInt(dto.groupId), createdBy);
+
     const repeat = this.toRepeatConfig(dto);
     const startDate = new Date(dto.startDate);
     const dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
@@ -211,8 +215,10 @@ export class ChoresService {
     return this.toCreateResponse(chore);
   }
 
-  async updateChore(choreId: bigint, dto: UpdateChoreDto) {
+  async updateChore(choreId: bigint, dto: UpdateChoreDto, requesterId: bigint) {
     const existing = await this.findChoreOrThrow(choreId);
+
+    await this.requireActiveGroupMemberOrThrow(existing.groupId, requesterId);
 
     const repeat = this.toRepeatConfig(dto);
     const startDate = new Date(dto.startDate);
@@ -252,6 +258,8 @@ export class ChoresService {
 
   async completeChore(choreId: bigint, completedBy: bigint) {
     const chore = await this.findChoreOrThrow(choreId);
+
+    await this.requireActiveGroupMemberOrThrow(chore.groupId, completedBy);
 
     if (chore.status === ChoreStatus.DONE) {
       throw new BusinessException(ErrorCode.CHORE_ALREADY_DONE);
@@ -334,8 +342,10 @@ export class ChoresService {
    * 완료 처리 때 자동 생성된 다음 회차를 함께 제거해야
    * 완료 -> 취소 -> 재완료 시 회차가 중복 생성되지 않는다.
    */
-  async incompleteChore(choreId: bigint) {
+  async incompleteChore(choreId: bigint, requesterId: bigint) {
     const chore = await this.findChoreOrThrow(choreId);
+
+    await this.requireActiveGroupMemberOrThrow(chore.groupId, requesterId);
 
     if (chore.status !== ChoreStatus.DONE) {
       throw new BusinessException(ErrorCode.CHORE_NOT_DONE);
@@ -377,6 +387,7 @@ export class ChoresService {
   async deleteChore(choreId: bigint, requesterId: bigint): Promise<{ choreId: number }> {
     const chore = await this.findChoreOrThrow(choreId);
 
+    await this.requireActiveGroupMemberOrThrow(chore.groupId, requesterId);
     await this.assertDeletePermission(chore, requesterId);
 
     await this.prisma.chore.delete({ where: { id: choreId } });
@@ -386,6 +397,8 @@ export class ChoresService {
 
   async shareChore(choreId: bigint, senderId: bigint, chatRoomId: bigint, content?: string) {
     const chore = await this.findChoreOrThrow(choreId);
+
+    await this.requireActiveGroupMemberOrThrow(chore.groupId, senderId);
 
     const chatRoom = await this.prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
 
@@ -443,6 +456,20 @@ export class ChoresService {
 
     if (!membership || membership.role !== GroupRole.ADMIN) {
       throw new BusinessException(ErrorCode.CHORE_FORBIDDEN);
+    }
+  }
+
+  /**
+   * 요청자가 해당 그룹의 활성 멤버인지 확인한다.
+   * RULE 도메인의 requireActiveGroupMemberOrThrow와 동일한 규칙을 따른다.
+   */
+  private async requireActiveGroupMemberOrThrow(groupId: bigint, userId: bigint): Promise<void> {
+    const member = await this.prisma.groupMember.findUnique({
+      where: { userId_groupId: { userId, groupId } },
+    });
+
+    if (!member || member.leftAt) {
+      throw new BusinessException(ErrorCode.GROUP_MEMBER_NOT_FOUND);
     }
   }
 
