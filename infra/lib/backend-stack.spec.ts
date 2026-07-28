@@ -308,6 +308,12 @@ describe('BackendStack', () => {
     expect(policies).toContain('/main/profiles/*');
     expect(policies).toContain('/develop/profiles/*');
 
+    const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
+    expect(userData).toContain('PROFILE_IMAGE_BUCKET');
+    expect(userData).toContain("PROFILE_IMAGE_OBJECT_PREFIX='main/profiles'");
+    expect(userData).toContain("PROFILE_IMAGE_OBJECT_PREFIX='develop/profiles'");
+    expect(userData).toContain('PROFILE_IMAGE_PUBLIC_BASE_URL');
+
     const runtimeConfiguration = JSON.stringify(template.findResources('AWS::SSM::Document'));
     expect(runtimeConfiguration).toContain('PROFILE_IMAGE_BUCKET');
     expect(runtimeConfiguration).toContain('PROFILE_IMAGE_OBJECT_PREFIX');

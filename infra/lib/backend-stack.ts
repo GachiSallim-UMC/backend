@@ -696,6 +696,9 @@ CORS_ORIGIN='${environment.corsOrigin}'
 AWS_REGION='${Aws.REGION}'
 COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
 COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
+PROFILE_IMAGE_BUCKET='${profileImageBucket.bucketName}'
+PROFILE_IMAGE_OBJECT_PREFIX='${environment.branch}/profiles'
+PROFILE_IMAGE_PUBLIC_BASE_URL='https://${profileImageDistribution.distributionDomainName}'
 ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
