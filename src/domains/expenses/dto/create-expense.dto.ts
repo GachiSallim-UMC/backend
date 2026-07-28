@@ -7,6 +7,7 @@ import {
   Min,
   IsNotEmpty,
   ValidateNested,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -15,12 +16,12 @@ import { ExpenseCategory, SplitType } from '@prisma/client';
 // Prisma의 ExpenseCategory Enum을 다시 export하여 다른 파일에서도 공통 사용 가능하도록 처리
 export { ExpenseCategory };
 
-
 // 1. 참여자별 개별 분담 정보 DTO (EXACT / PERCENTAGE 분담 시 사용)
 export class ExpenseParticipantDto {
-  @ApiProperty({ description: '분담 대상 유저 ID', example: '12' })
+  @ApiProperty({ description: '분담 대상 유저 ID (양의 정수 문자열)', example: '12' })
   @IsString()
   @IsNotEmpty()
+  @Matches(/^[1-9]\d*$/, { message: 'userId는 양의 정수 문자열이어야 합니다.' }) // "abc", "0", "-1" 방지
   userId!: string;
 
   @ApiPropertyOptional({
@@ -60,9 +61,10 @@ export class CreateExpenseDto {
   @IsNotEmpty()
   amount!: number;
 
-  @ApiProperty({ description: '선결제자 유저 ID', example: '12' })
+  @ApiProperty({ description: '선결제자 유저 ID (양의 정수 문자열)', example: '12' })
   @IsString()
   @IsNotEmpty()
+  @Matches(/^[1-9]\d*$/, { message: 'payerId는 양의 정수 문자열이어야 합니다.' }) // "abc", "0", "-1" 방지
   payerId!: string;
 
   @ApiProperty({ description: '지출 일자 (YYYY-MM-DD)', example: '2026-07-23' })
