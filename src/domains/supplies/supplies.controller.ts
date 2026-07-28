@@ -22,6 +22,7 @@ import { CreateSupplyDto } from './dto/create-supply.dto';
 import { ListSuppliesQueryDto } from './dto/list-supplies-query.dto';
 import { PurchaseSupplyDto } from './dto/purchase-supply.dto';
 import { ShareSupplyDto } from './dto/share-supply.dto';
+import { UpdateSupplyDto } from './dto/update-supply.dto';
 import { UpdateSupplyStatusDto } from './dto/update-supply-status.dto';
 import { SuppliesService } from './supplies.service';
 
@@ -47,6 +48,20 @@ export class SuppliesController {
     return this.suppliesService.createSupply(dto, auth.cognitoSub);
   }
 
+  @Patch(':supplyId')
+  @ApiOperation({ summary: '물품 수정 (SUP-EDIT-01)' })
+  @ApiParam({ name: 'supplyId', type: Number, example: 21 })
+  updateSupply(
+    @Param('supplyId') supplyId: string,
+    @Body() dto: UpdateSupplyDto,
+    @CurrentAuth() auth: AuthContext,
+  ) {
+    return this.suppliesService.updateSupply(
+      this.parseId(supplyId, 'supplyId'),
+      dto,
+      auth.cognitoSub,
+    );
+  }
   @Patch(':supplyId/status')
   @ApiOperation({ summary: '물품 상태 변경 (SUP-STATUS-01)' })
   @ApiParam({ name: 'supplyId', type: Number, example: 21 })

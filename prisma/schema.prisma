@@ -251,15 +251,17 @@ model ExpenseLog {
 // =====================================================
 
 model Supply {
-  id              BigInt       @id @default(autoincrement())
-  groupId         BigInt       @map("group_id")
-  name            String       @db.VarChar(100)
-  status          SupplyStatus @default(SUFFICIENT)
-  assigneeId      BigInt?      @map("assignee_id")
-  linkedExpenseId BigInt?      @map("linked_expense_id")
-  createdBy       BigInt       @map("created_by")
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
+  id              BigInt         @id @default(autoincrement())
+  groupId         BigInt         @map("group_id")
+  name            String         @db.VarChar(100)
+  category        SupplyCategory @default(ETC)
+  status          SupplyStatus   @default(SUFFICIENT)
+  assigneeId      BigInt?        @map("assignee_id")
+  memo            String?        @db.VarChar(255)
+  linkedExpenseId BigInt?        @map("linked_expense_id")
+  createdBy       BigInt         @map("created_by")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
 
   group         Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
   assignee      User?       @relation("SupplyAssignee", fields: [assigneeId], references: [id])
@@ -579,6 +581,18 @@ enum SupplyStatus {
   LOW
   EMPTY
   PURCHASED
+}
+
+enum SupplyCategory {
+  DAILY_NECESSITIES
+  BATHROOM
+  KITCHEN
+  LAUNDRY_CLEANING
+  FOOD
+  HEALTH_HYGIENE
+  PET_PLANT
+  TOOLS_ETC
+  ETC
 }
 
 enum RuleStatus {

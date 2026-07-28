@@ -16,6 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateSupplyDto } from './dto/create-supply.dto';
 import { ListSuppliesQueryDto } from './dto/list-supplies-query.dto';
 import { PurchaseSupplyDto } from './dto/purchase-supply.dto';
+import { UpdateSupplyDto } from './dto/update-supply.dto';
 import { UpdateSupplyStatusDto } from './dto/update-supply-status.dto';
 import { SupplyUsersService } from './supply-users.service';
 
@@ -53,6 +54,7 @@ export class SuppliesService {
       where: {
         groupId,
         status: query.status,
+        category: query.category,
       },
       include: SUPPLY_WITH_USERS,
       orderBy: { createdAt: 'desc' },
@@ -76,14 +78,73 @@ export class SuppliesService {
         data: {
           groupId,
           name: dto.name,
+          category: dto.category,
           status: dto.status ?? SupplyStatus.SUFFICIENT,
           assigneeId: dto.assigneeId !== undefined ? BigInt(dto.assigneeId) : null,
+          memo: dto.memo ?? null,
           createdBy,
         },
         include: SUPPLY_WITH_USERS,
       });
 
       return this.toSupplyResponse(supply);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        // @@unique([groupId, name]) 위반
+        throw new BusinessException(ErrorCode.SUP_CONFLICT);
+      }
+
+      throw error;
+    }
+  }
+
+  async updateSupply(supplyId: bigint, dto: UpdateSupplyDto, cognitoSub: string) {
+    const userId = await this.supplyUsers.resolveActiveUserId(cognitoSub);
+    const supply = await this.findSupplyOrThrow(supplyId);
+
+    await this.assertActiveGroupMember(userId, supply.groupId);
+
+    const data: Prisma.SupplyUpdateInput = {};
+
+    if (dto.name !== undefined) {
+      data.name = dto.name;
+    }
+
+    if (dto.category !== undefined) {
+      data.category = dto.category;
+    }
+
+    if (dto.memo !== undefined) {
+      data.memo = dto.memo;
+    }
+
+    if (dto.assigneeId !== undefined) {
+      if (dto.assigneeId === null) {
+        data.assignee = { disconnect: true };
+      } else {
+        await this.assertAssigneeInGroup(
+          BigInt(dto.assigneeId),
+          supply.groupId,
+          String(dto.assigneeId),
+        );
+        data.assignee = { connect: { id: BigInt(dto.assigneeId) } };
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+        { field: 'body', value: null, reason: '수정할 항목이 하나 이상 필요합니다.' },
+      ]);
+    }
+
+    try {
+      const updated = await this.prisma.supply.update({
+        where: { id: supplyId },
+        data,
+        include: SUPPLY_WITH_USERS,
+      });
+
+      return this.toSupplyResponse(updated);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         // @@unique([groupId, name]) 위반
@@ -385,7 +446,11 @@ export class SuppliesService {
 
     if (!membership || membership.leftAt) {
       throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
-        { field: 'assigneeId', value: rawAssigneeId, reason: '담당자는 해당 그룹의 멤버여야 합니다.' },
+        {
+          field: 'assigneeId',
+          value: rawAssigneeId,
+          reason: '담당자는 해당 그룹의 멤버여야 합니다.',
+        },
       ]);
     }
   }
@@ -408,8 +473,10 @@ export class SuppliesService {
       supplyId: Number(supply.id),
       groupId: Number(supply.groupId),
       name: supply.name,
+      category: supply.category,
       assignee: supply.assignee ? mapUser(supply.assignee) : null,
       status: supply.status,
+      memo: supply.memo,
       linkedExpenseId: supply.linkedExpenseId ? Number(supply.linkedExpenseId) : null,
       createdBy: mapUser(supply.creator),
       createdAt: toIsoNoMillis(supply.createdAt),
