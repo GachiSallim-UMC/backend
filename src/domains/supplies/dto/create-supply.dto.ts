@@ -1,7 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { SupplyStatus } from '@prisma/client';
+import { SupplyCategory, SupplyStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import {
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 // 등록 시 지정 가능한 상태값 (PURCHASED는 구매 완료 API에서만 처리)
 export const CREATABLE_SUPPLY_STATUSES = [
@@ -23,6 +32,14 @@ export class CreateSupplyDto {
   @MaxLength(100)
   name!: string;
 
+  @ApiProperty({
+    enum: SupplyCategory,
+    example: SupplyCategory.DAILY_NECESSITIES,
+    description: '물품 카테고리 (필수)',
+  })
+  @IsEnum(SupplyCategory)
+  category!: SupplyCategory;
+
   @ApiPropertyOptional({
     enum: CREATABLE_SUPPLY_STATUSES,
     example: SupplyStatus.SUFFICIENT,
@@ -39,4 +56,13 @@ export class CreateSupplyDto {
   @IsInt()
   @Min(1)
   assigneeId?: number;
+
+  @ApiPropertyOptional({
+    example: '매달 구매, 마트에서 대용량으로 구입',
+    description: '메모 (최대 255자)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  memo?: string;
 }
