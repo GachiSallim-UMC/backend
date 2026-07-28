@@ -2767,6 +2767,26 @@
                 "PURCHASED"
               ]
             }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "description": "물품 카테고리 필터",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DAILY_NECESSITIES",
+                "BATHROOM",
+                "KITCHEN",
+                "LAUNDRY_CLEANING",
+                "FOOD",
+                "HEALTH_HYGIENE",
+                "PET_PLANT",
+                "TOOLS_ETC",
+                "ETC"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2781,11 +2801,13 @@
                       "supplyId": 21,
                       "groupId": 1,
                       "name": "화장지",
+                      "category": "BATHROOM",
                       "assignee": {
                         "userId": 5,
                         "nickname": "홍길동"
                       },
                       "status": "LOW",
+                      "memo": "매달 구매, 마트에서 대용량으로 구입",
                       "linkedExpenseId": null,
                       "createdBy": {
                         "userId": 5,
@@ -2854,7 +2876,8 @@
                 "type": "object",
                 "required": [
                   "groupId",
-                  "name"
+                  "name",
+                  "category"
                 ],
                 "properties": {
                   "groupId": {
@@ -2867,6 +2890,22 @@
                     "maxLength": 100,
                     "description": "물품명 (그룹 내 고유)",
                     "example": "화장지"
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "DAILY_NECESSITIES",
+                      "BATHROOM",
+                      "KITCHEN",
+                      "LAUNDRY_CLEANING",
+                      "FOOD",
+                      "HEALTH_HYGIENE",
+                      "PET_PLANT",
+                      "TOOLS_ETC",
+                      "ETC"
+                    ],
+                    "description": "물품 카테고리 (생필품/욕실용품/주방용품/세탁·청소용품/식료품/의약·위생용품/반려동물·식물용품/공구·기타 생활용품/기타)",
+                    "example": "BATHROOM"
                   },
                   "status": {
                     "type": "string",
@@ -2883,6 +2922,13 @@
                     "type": "integer",
                     "description": "담당자 사용자 ID (선택, 해당 그룹 구성원이어야 함)",
                     "example": 5
+                  },
+                  "memo": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "nullable": true,
+                    "description": "메모 (선택)",
+                    "example": "매달 구매, 마트에서 대용량으로 구입"
                   }
                 }
               }
@@ -2900,11 +2946,13 @@
                     "supplyId": 21,
                     "groupId": 1,
                     "name": "화장지",
+                    "category": "BATHROOM",
                     "assignee": {
                       "userId": 5,
                       "nickname": "홍길동"
                     },
                     "status": "SUFFICIENT",
+                    "memo": null,
                     "linkedExpenseId": null,
                     "createdBy": {
                       "userId": 5,
@@ -2976,6 +3024,191 @@
       }
     },
     "/api/v1/supplies/{supplyId}": {
+      "patch": {
+        "tags": [
+          "물품"
+        ],
+        "summary": "물품 수정 (SUP-EDIT-01)",
+        "description": "물품명·카테고리·구매담당자·메모를 수정한다. 전달된 필드만 부분 수정되며, 최소 한 개 이상의 필드가 필요하다. 상태(status) 변경은 SUP-STATUS-01(PATCH /supplies/{supplyId}/status)에서 처리한다.",
+        "parameters": [
+          {
+            "name": "supplyId",
+            "in": "path",
+            "required": true,
+            "description": "수정할 물품 ID",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 21
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "minProperties": 1,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "물품명 (그룹 내 고유)",
+                    "example": "두루마리 화장지"
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "DAILY_NECESSITIES",
+                      "BATHROOM",
+                      "KITCHEN",
+                      "LAUNDRY_CLEANING",
+                      "FOOD",
+                      "HEALTH_HYGIENE",
+                      "PET_PLANT",
+                      "TOOLS_ETC",
+                      "ETC"
+                    ],
+                    "description": "물품 카테고리",
+                    "example": "BATHROOM"
+                  },
+                  "assigneeId": {
+                    "type": "integer",
+                    "nullable": true,
+                    "description": "구매 담당자 사용자 ID (해당 그룹 구성원이어야 함). null을 보내면 담당자를 해제한다.",
+                    "example": 5
+                  },
+                  "memo": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "nullable": true,
+                    "description": "메모. null을 보내면 삭제한다.",
+                    "example": "매달 구매, 마트에서 대용량으로 구입"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "수정 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "supplyId": 21,
+                    "groupId": 1,
+                    "name": "두루마리 화장지",
+                    "category": "BATHROOM",
+                    "assignee": {
+                      "userId": 5,
+                      "nickname": "홍길동"
+                    },
+                    "status": "LOW",
+                    "memo": "매달 구매, 마트에서 대용량으로 구입",
+                    "linkedExpenseId": null,
+                    "createdBy": {
+                      "userId": 5,
+                      "nickname": "홍길동"
+                    },
+                    "createdAt": "2026-07-03T09:00:00Z",
+                    "updatedAt": "2026-07-29T10:00:00Z"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "수정할 항목이 없거나 담당자가 그룹 구성원이 아님",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 400,
+                  "data": null,
+                  "error": {
+                    "code": "COMMON_INVALID_PARAMETER",
+                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "errors": [
+                      {
+                        "field": "body",
+                        "value": null,
+                        "reason": "수정할 항목이 하나 이상 필요합니다."
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 토큰이 없거나 올바르지 않음",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "해당 그룹의 활성 구성원이 아님",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_403",
+                    "message": "해당 공용물품에 접근할 권한이 없습니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "존재하지 않는 물품",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_404",
+                    "message": "공용물품을 찾을 수 없습니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "같은 그룹에 동일한 물품명이 이미 존재",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 409,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_409",
+                    "message": "이미 등록된 공용물품입니다. (그룹 내 동일 물품명)",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "tags": [
           "물품"
