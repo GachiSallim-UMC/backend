@@ -223,13 +223,14 @@ User=ec2-user
 Group=ec2-user
 EnvironmentFile=/etc/gachisallim/%i.env
 WorkingDirectory=/opt/gachisallim/current/%i
-ExecStart=/opt/gachisallim/current/%i/bin/node dist/main.js
+ExecStart=/bin/bash -o pipefail -c '/opt/gachisallim/current/%i/bin/node dist/main.js 2>&1 | /usr/bin/tee -a ${applicationLogDirectory}/%i.log'
 Restart=always
 RestartSec=5
 LogsDirectory=gachisallim
 LogsDirectoryMode=0750
-StandardOutput=append:${applicationLogDirectory}/%i.log
-StandardError=inherit
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gachisallim-%i
 NoNewPrivileges=true
 PrivateTmp=true
 
@@ -264,6 +265,8 @@ WantedBy=multi-user.target`;
   delaycompress
   missingok
   notifempty
+  # Avoid restarting both application services during rotation; accept the small
+  # copy/truncate race window instead of scheduled application downtime.
   copytruncate
 }`;
 
@@ -717,7 +720,17 @@ ENVIRONMENT_CONFIG`,
       'dnf install -y amazon-cloudwatch-agent logrotate',
       `cat > /usr/local/bin/gachisallim-deploy <<'DEPLOY_SCRIPT'\n${deployScript}\nDEPLOY_SCRIPT`,
       'chmod 0755 /usr/local/bin/gachisallim-deploy',
-      `cat > /etc/systemd/system/gachisallim@.service <<'SYSTEMD_UNIT'\n${applicationServiceUnit}\nSYSTEMD_UNIT`,
+      `unit_file='/etc/systemd/system/gachisallim@.service'
+temporary_unit="$(mktemp)"
+cat > "\${temporary_unit}" <<'SYSTEMD_UNIT'
+${applicationServiceUnit}
+SYSTEMD_UNIT
+unit_changed=false
+if [[ ! -f "\${unit_file}" ]] || ! cmp -s "\${temporary_unit}" "\${unit_file}"; then
+  install -m 0644 "\${temporary_unit}" "\${unit_file}"
+  unit_changed=true
+fi
+rm -f "\${temporary_unit}"`,
       `cat > /opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json <<'CLOUDWATCH_AGENT_CONFIGURATION'\n${cloudWatchAgentConfiguration}\nCLOUDWATCH_AGENT_CONFIGURATION`,
       `cat > /etc/logrotate.d/gachisallim <<'LOGROTATE_CONFIGURATION'\n${applicationLogrotateConfiguration}\nLOGROTATE_CONFIGURATION`,
       '/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json',
@@ -751,11 +764,15 @@ ENVIRONMENT_CONFIG`,
       );
     }
     runtimeConfigurationCommands.push(
-      'systemctl daemon-reload',
+      `if [[ "\${unit_changed}" == true ]]; then
+  systemctl daemon-reload
+fi`,
       `for environment_name in main develop; do
   if [[ -e "/opt/gachisallim/current/\${environment_name}/dist/main.js" ]]; then
     systemctl enable "gachisallim@\${environment_name}.service"
-    systemctl try-restart "gachisallim@\${environment_name}.service"
+    if [[ "\${unit_changed}" == true ]]; then
+      systemctl try-restart "gachisallim@\${environment_name}.service"
+    fi
   fi
 done`,
       'echo "Applied runtime configuration {{ ConfigurationVersion }}"',

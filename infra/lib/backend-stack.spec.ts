@@ -282,7 +282,9 @@ describe('BackendStack', () => {
     expect(instancePolicyJson).toContain('logs:DescribeLogStreams');
 
     const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
-    expect(userData).toContain('StandardOutput=append:/var/log/gachisallim/%i.log');
+    expect(userData).toContain('/usr/bin/tee -a /var/log/gachisallim/%i.log');
+    expect(userData).toContain('StandardOutput=journal');
+    expect(userData).toContain('StandardError=journal');
 
     const runtimeConfiguration = JSON.stringify(
       template.findResources('AWS::SSM::Document'),
@@ -294,6 +296,9 @@ describe('BackendStack', () => {
     expect(runtimeConfiguration).toContain('develop/{instance_id}');
     expect(runtimeConfiguration).toContain('/etc/logrotate.d/gachisallim');
     expect(runtimeConfiguration).toContain('amazon-cloudwatch-agent-ctl -a fetch-config');
+    expect(runtimeConfiguration).toContain('cmp -s');
+    expect(runtimeConfiguration).toContain('unit_changed=true');
+    expect(runtimeConfiguration).toContain('if [[ \\"${unit_changed}\\" == true ]]');
   });
 
   it('creates encrypted notification push queues and dead-letter queues per environment', () => {
