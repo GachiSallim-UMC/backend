@@ -6,11 +6,13 @@ import {
   HttpCode,
   HttpStatus,
   Patch,
+  Post,
   UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiCreatedResponse,
   ApiExtraModels,
   ApiOkResponse,
   ApiOperation,
@@ -24,16 +26,22 @@ import { CognitoAccessTokenGuard } from '../common/cognito-access-token.guard';
 import { CurrentAuth } from '../common/current-auth.decorator';
 import { AuthAccountService } from './account.service';
 import { AuthAccountResponseDto } from './dto/auth-account-response.dto';
+import { CreateProfileImageUploadDto } from './dto/create-profile-image-upload.dto';
 import { DeleteAuthAccountResponseDto } from './dto/delete-auth-account-response.dto';
+import { ProfileImageUploadResponseDto } from './dto/profile-image-upload-response.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ProfileImageService } from './profile-image.service';
 
 @ApiTags('인증')
 @ApiBearerAuth('BearerAuth')
-@ApiExtraModels(AuthAccountResponseDto, DeleteAuthAccountResponseDto)
+@ApiExtraModels(AuthAccountResponseDto, DeleteAuthAccountResponseDto, ProfileImageUploadResponseDto)
 @UseGuards(CognitoAccessTokenGuard)
 @Controller('auth')
 export class AuthAccountController {
-  constructor(private readonly accountService: AuthAccountService) {}
+  constructor(
+    private readonly accountService: AuthAccountService,
+    private readonly profileImages: ProfileImageService,
+  ) {}
 
   @Get('me')
   @HttpCode(HttpStatus.OK)
@@ -51,7 +59,10 @@ export class AuthAccountController {
 
   @Patch('profile')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '프로필 수정', description: '닉네임 또는 프로필 이미지를 수정합니다.' })
+  @ApiOperation({
+    summary: '프로필 수정',
+    description: '이름, 닉네임 또는 프로필 이미지를 수정합니다.',
+  })
   @ApiBody({ type: UpdateProfileDto })
   @ApiOkResponse({ description: '프로필 수정 성공', schema: successSchema(AuthAccountResponseDto) })
   @ApiResponse({ status: 400, description: '요청 파라미터가 잘못되었습니다.' })
@@ -63,6 +74,29 @@ export class AuthAccountController {
     @Body() dto: UpdateProfileDto,
   ): Promise<AuthAccountResponseDto> {
     return this.accountService.updateProfile(auth.cognitoSub, dto);
+  }
+
+  @Post('profile-image/upload-url')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: '프로필 이미지 업로드 URL 발급',
+    description:
+      '최대 5MB의 JPEG, PNG 또는 WebP 파일을 업로드할 수 있는 S3 Presigned POST를 발급합니다.',
+  })
+  @ApiBody({ type: CreateProfileImageUploadDto })
+  @ApiCreatedResponse({
+    description: '프로필 이미지 업로드 URL 발급 성공',
+    schema: successSchema(ProfileImageUploadResponseDto, 201),
+  })
+  @ApiResponse({ status: 400, description: '파일 형식 또는 크기가 올바르지 않습니다.' })
+  @ApiResponse({ status: 401, description: '인증 토큰이 없거나 올바르지 않습니다.' })
+  @ApiResponse({ status: 403, description: '비활성화된 계정입니다.' })
+  @ApiResponse({ status: 404, description: '인증 계정 정보를 찾을 수 없습니다.' })
+  createProfileImageUpload(
+    @CurrentAuth() auth: AuthContext,
+    @Body() dto: CreateProfileImageUploadDto,
+  ): Promise<ProfileImageUploadResponseDto> {
+    return this.profileImages.createUpload(auth.cognitoSub, dto);
   }
 
   @Delete('me')
@@ -85,12 +119,18 @@ export class AuthAccountController {
   }
 }
 
-function successSchema(model: typeof AuthAccountResponseDto | typeof DeleteAuthAccountResponseDto) {
+function successSchema(
+  model:
+    | typeof AuthAccountResponseDto
+    | typeof DeleteAuthAccountResponseDto
+    | typeof ProfileImageUploadResponseDto,
+  statusCode = 200,
+) {
   return {
     type: 'object',
     required: ['statusCode', 'data', 'error'],
     properties: {
-      statusCode: { type: 'integer', example: 200 },
+      statusCode: { type: 'integer', example: statusCode },
       data: { $ref: getSchemaPath(model) },
       error: { type: 'object', nullable: true, example: null },
     },

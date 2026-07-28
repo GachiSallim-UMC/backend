@@ -13,6 +13,16 @@ export const ENV_VALIDATION_SCHEMA = joi.object({
   AWS_REGION: joi.string().min(1).required(),
   COGNITO_USER_POOL_ID: joi.string().min(1).required(),
   COGNITO_CLIENT_ID: joi.string().min(1).required(),
+  PROFILE_IMAGE_BUCKET: joi.string().min(3).required(),
+  PROFILE_IMAGE_OBJECT_PREFIX: joi
+    .string()
+    .pattern(/^[0-9A-Za-z][0-9A-Za-z/_-]*[0-9A-Za-z]$/)
+    .max(128)
+    .required(),
+  PROFILE_IMAGE_PUBLIC_BASE_URL: joi
+    .string()
+    .uri({ scheme: ['https'] })
+    .required(),
   NOTIFICATION_PUSH_QUEUE_URL: joi
     .string()
     .uri({ scheme: ['https'] })

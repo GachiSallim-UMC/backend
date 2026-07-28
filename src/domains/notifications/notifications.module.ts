@@ -5,15 +5,13 @@ import { SQSClient } from '@aws-sdk/client-sqs';
 
 import { AuthCommonModule } from '../auth/common/auth-common.module';
 import { ChoreDueCommandConsumer } from './chore-due-command.consumer';
-import {
-  CHORE_DUE_SCHEDULER_CLIENT,
-  CHORE_DUE_SQS_CLIENT,
-} from './chore-due-scheduler.constants';
+import { CHORE_DUE_SCHEDULER_CLIENT, CHORE_DUE_SQS_CLIENT } from './chore-due-scheduler.constants';
 import { ChoreDueSchedulerService } from './chore-due-scheduler.service';
 import { InternalNotificationsController } from './internal-notifications.controller';
 import { InternalNotificationsService } from './internal-notifications.service';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationOutboxPublisher } from './notification-outbox.publisher';
+import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationPushResultConsumer } from './notification-push-result.consumer';
 import { NotificationPushSubscriptionsController } from './notification-push-subscriptions.controller';
 import { NotificationPushSubscriptionsService } from './notification-push-subscriptions.service';
@@ -36,6 +34,7 @@ import { VapidPublicKeyService } from './vapid-public-key.service';
     NotificationPushSubscriptionsService,
     InternalNotificationsService,
     NotificationDeliveryService,
+    NotificationPreferencesService,
     NotificationOutboxPublisher,
     NotificationPushResultConsumer,
     VapidPublicKeyService,

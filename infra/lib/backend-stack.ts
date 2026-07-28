@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 import { Aws, CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -204,6 +206,35 @@ export class BackendStack extends Stack {
     vpc.addGatewayEndpoint('S3Endpoint', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
       subnets: [applicationSubnet],
+    });
+
+    const profileImageBucket = new s3.Bucket(this, 'ProfileImageBucket', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      removalPolicy: RemovalPolicy.RETAIN,
+      cors: [
+        {
+          allowedHeaders: ['*'],
+          allowedMethods: [s3.HttpMethods.POST],
+          allowedOrigins: [
+            ...RUNTIME_ENVIRONMENTS.map(({ webAppUrl }) => webAppUrl),
+            'http://localhost:5173',
+          ],
+          exposedHeaders: ['ETag'],
+          maxAge: 300,
+        },
+      ],
+    });
+    const profileImageDistribution = new cloudfront.Distribution(this, 'ProfileImageDistribution', {
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(profileImageBucket),
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+      },
+      priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
     });
 
     const applicationLogGroup = new logs.LogGroup(this, 'ApplicationLogGroup', {
@@ -542,6 +573,9 @@ export class BackendStack extends Stack {
     const databaseSecret = database.secret!;
     databaseSecret.grantRead(instanceRole);
     props.artifactBucket.grantRead(instanceRole, 'releases/*');
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      profileImageBucket.grantPut(instanceRole, `${environment.branch}/profiles/*`);
+    }
     applicationLogGroup.grantWrite(instanceRole);
     for (const queue of notificationPushQueues.values()) {
       queue.grantSendMessages(instanceRole);
@@ -689,6 +723,9 @@ CORS_ORIGIN='${environment.corsOrigin}'
 AWS_REGION='${Aws.REGION}'
 COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
 COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
+PROFILE_IMAGE_BUCKET='${profileImageBucket.bucketName}'
+PROFILE_IMAGE_OBJECT_PREFIX='${environment.branch}/profiles'
+PROFILE_IMAGE_PUBLIC_BASE_URL='https://${profileImageDistribution.distributionDomainName}'
 NOTIFICATION_PUSH_QUEUE_URL='${notificationPushQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_PUSH_RESULT_QUEUE_URL='${notificationPushResultQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_VAPID_PUBLIC_KEY='${notificationVapidPublicKeys.get(environment.branch)!}'

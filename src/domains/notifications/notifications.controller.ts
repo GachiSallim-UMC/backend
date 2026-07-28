@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
@@ -10,6 +11,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiExtraModels,
   ApiNoContentResponse,
   ApiOkResponse,
@@ -25,15 +27,19 @@ import { AuthContext } from '../auth/common/auth-context.interface';
 import { CognitoAccessTokenGuard } from '../auth/common/cognito-access-token.guard';
 import { CurrentAuth } from '../auth/common/current-auth.decorator';
 import { NotificationListResponseDto } from './dto/notification-list-response.dto';
+import { NotificationPreferencesResponseDto } from './dto/notification-preferences-response.dto';
 import { ReadAllNotificationsResponseDto } from './dto/read-all-notifications-response.dto';
 import { ReadNotificationResponseDto } from './dto/read-notification-response.dto';
 import { UnreadNotificationCountResponseDto } from './dto/unread-notification-count-response.dto';
+import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
+import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationsService } from './notifications.service';
 
 @ApiTags('알림')
 @ApiBearerAuth('BearerAuth')
 @ApiExtraModels(
   NotificationListResponseDto,
+  NotificationPreferencesResponseDto,
   UnreadNotificationCountResponseDto,
   ReadNotificationResponseDto,
   ReadAllNotificationsResponseDto,
@@ -41,7 +47,10 @@ import { NotificationsService } from './notifications.service';
 @UseGuards(CognitoAccessTokenGuard)
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly notificationPreferences: NotificationPreferencesService,
+  ) {}
 
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -69,6 +78,43 @@ export class NotificationsController {
   @ApiResponse({ status: 404, description: '인증 계정 정보를 찾을 수 없습니다.' })
   getUnreadCount(@CurrentAuth() auth: AuthContext): Promise<UnreadNotificationCountResponseDto> {
     return this.notificationsService.getUnreadCount(auth.cognitoSub);
+  }
+
+  @Get('preferences')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '알림 설정 조회' })
+  @ApiOkResponse({
+    description: '알림 설정 조회 성공',
+    schema: successSchema(NotificationPreferencesResponseDto),
+  })
+  @ApiResponse({ status: 401, description: '인증 토큰이 없거나 올바르지 않습니다.' })
+  @ApiResponse({ status: 403, description: '비활성화된 계정입니다.' })
+  @ApiResponse({ status: 404, description: '인증 계정 정보를 찾을 수 없습니다.' })
+  getPreferences(@CurrentAuth() auth: AuthContext): Promise<NotificationPreferencesResponseDto> {
+    return this.notificationPreferences.getPreferences(auth.cognitoSub);
+  }
+
+  @Patch('preferences')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '알림 설정 수정',
+    description:
+      '전달된 설정만 수정합니다. 비활성화한 유형도 앱 내 알림은 유지하고 웹 푸시만 중단합니다.',
+  })
+  @ApiBody({ type: UpdateNotificationPreferencesDto })
+  @ApiOkResponse({
+    description: '알림 설정 수정 성공',
+    schema: successSchema(NotificationPreferencesResponseDto),
+  })
+  @ApiResponse({ status: 400, description: '요청 파라미터가 올바르지 않습니다.' })
+  @ApiResponse({ status: 401, description: '인증 토큰이 없거나 올바르지 않습니다.' })
+  @ApiResponse({ status: 403, description: '비활성화된 계정입니다.' })
+  @ApiResponse({ status: 404, description: '인증 계정 정보를 찾을 수 없습니다.' })
+  updatePreferences(
+    @CurrentAuth() auth: AuthContext,
+    @Body() dto: UpdateNotificationPreferencesDto,
+  ): Promise<NotificationPreferencesResponseDto> {
+    return this.notificationPreferences.updatePreferences(auth.cognitoSub, dto);
   }
 
   @Patch(':notificationId/read')
@@ -126,6 +172,7 @@ export class NotificationsController {
 function successSchema(
   model:
     | typeof NotificationListResponseDto
+    | typeof NotificationPreferencesResponseDto
     | typeof UnreadNotificationCountResponseDto
     | typeof ReadNotificationResponseDto
     | typeof ReadAllNotificationsResponseDto,
