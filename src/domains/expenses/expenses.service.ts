@@ -42,7 +42,7 @@ export class ExpensesService {
     return user.id;
   }
 
-  // 1. 비용 등록 및 정산 요청 생성
+// 1. 비용 등록 및 정산 요청 생성
   async createExpense(auth: AuthContext, createExpenseDto: CreateExpenseDto) {
     const { 
       groupId,
@@ -66,6 +66,19 @@ export class ExpensesService {
     const numericPayerId = Number(payerId);
     const targetGroupId = groupId ? Number(groupId) : 1;
 
+    // 💡 1-1. 요청자(로그인 유저) 본인이 해당 그룹의 활성 구성원(leftAt: null)인지 검증
+    const requesterMembership = await this.prisma.groupMember.findFirst({
+      where: {
+        groupId: BigInt(targetGroupId),
+        userId: currentUserId,
+        leftAt: null, // 탈퇴 구성원 제외
+      },
+    });
+
+    if (!requesterMembership) {
+      throw new ForbiddenException('해당 그룹의 활성 구성원만 정산을 생성할 수 있습니다.');
+    }
+
     // 중복 유저 ID 제거 및 정산 대상 목록 추출
     const targetUserMap = new Map<number, { amount?: number; percentage?: number }>();
     targetMemberIds.forEach((m) => {
@@ -85,16 +98,17 @@ export class ExpensesService {
       throw new BadRequestException('존재하지 않는 사용자 ID가 정산 대상에 포함되어 있습니다.');
     }
 
-    // 그룹 멤버십 검증
+    // 💡 1-2. 정산 참여 유저들이 대상 그룹의 활성 멤버(leftAt: null)인지 검증
     const groupMemberships = await this.prisma.groupMember.findMany({
       where: {
         groupId: BigInt(targetGroupId),
         userId: { in: allRequiredUserIds.map((id) => BigInt(id)) },
+        leftAt: null, // 👈 탈퇴 구성원 배제 조건 추가!
       },
       select: { userId: true },
     });
     if (groupMemberships.length !== allRequiredUserIds.length) {
-      throw new ForbiddenException('해당 그룹의 멤버가 아닌 사용자가 정산 대상에 포함되어 있습니다.');
+      throw new ForbiddenException('해당 그룹의 멤버가 아니거나 이미 탈퇴한 사용자가 정산 대상에 포함되어 있습니다.');
     }
 
     // 정산 분담금 계산

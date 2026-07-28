@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { ArgumentMetadata, ValidationPipe, BadRequestException } from '@nestjs/common';
 import { CreateExpenseDto } from './create-expense.dto';
 import { ExpenseCategory, SplitType } from '@prisma/client';

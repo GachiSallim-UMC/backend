@@ -17,7 +17,7 @@ describe('ExpensesService - settleSplit 기본값(isBulkComplete: false) 및 상
     };
     user: {
       findUnique: jest.Mock;
-      findFirst: jest.Mock; // findFirst 추가
+      findFirst: jest.Mock;
     };
     $transaction: jest.Mock;
   };
@@ -39,10 +39,17 @@ describe('ExpensesService - settleSplit 기본값(isBulkComplete: false) 및 상
       },
       user: {
         findUnique: jest.fn(),
-        findFirst: jest.fn(), // 👈 findFirst 메서드 모킹
+        findFirst: jest.fn(),
       },
-      $transaction: jest.fn((callback) => callback(prisma)),
+      $transaction: jest.fn(),
     };
+
+    // $transaction 콜백 실행 타입 명시
+    prisma.$transaction.mockImplementation(
+      (
+        cb: (tx: typeof prisma) => Promise<unknown>,
+      ): Promise<unknown> => cb(prisma),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -56,7 +63,7 @@ describe('ExpensesService - settleSplit 기본값(isBulkComplete: false) 및 상
 
     service = module.get<ExpensesService>(ExpensesService);
 
-    // 사용자 Auth 조회 mock (BigInt ID: 4n)
+    // 사용자 Auth 조회 mock
     prisma.user.findFirst.mockResolvedValue({ id: 4n });
     prisma.user.findUnique.mockResolvedValue({ id: 4n });
   });
@@ -84,7 +91,6 @@ describe('ExpensesService - settleSplit 기본값(isBulkComplete: false) 및 상
         { id: 1n, status: 'REQUESTED' },
       ]);
 
-      // settleDto 전달 안 함
       const result = await service.settleSplit(mockAuthContext, 1);
 
       expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
@@ -137,7 +143,7 @@ describe('ExpensesService - settleSplit 기본값(isBulkComplete: false) 및 상
         where: { id: 1n },
         data: {
           status: 'DONE',
-          completedAt: expect.any(Date),
+          completedAt: expect.any(Date) as Date,
         },
       });
       expect(result.status).toBe('DONE');
@@ -151,7 +157,7 @@ describe('ExpensesService - settleSplit 기본값(isBulkComplete: false) 및 상
     it('4. 권한 없는 사용자가 요청할 경우 ForbiddenException을 던져야 한다', async () => {
       prisma.expenseSplit.findUnique.mockResolvedValue({
         ...mockSplitData,
-        userId: 99n, // 다른 유저의 분담 내역
+        userId: 99n,
         expense: { payerId: 99n, createdBy: 99n },
       });
 
