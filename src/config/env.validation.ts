@@ -54,4 +54,15 @@ export const ENV_VALIDATION_SCHEMA = joi.object({
     .default('09:00'),
   CHORE_DUE_TIME_ZONE: joi.string().min(1).default('Asia/Seoul'),
   NOTIFICATION_COMMAND_POLL_INTERVAL_MS: joi.number().integer().min(1000).default(5000),
+
+  // WEBHOOK_SECRET 필수값 설정 및 하드코딩 기본값 거부
+  WEBHOOK_SECRET: joi
+    .string()
+    .min(1)
+    .invalid('gachisallim-webhook-secret-key')
+    .required()
+    .messages({
+      'any.invalid': 'WEBHOOK_SECRET에 기본 하드코딩 키를 사용할 수 없습니다.',
+      'any.required': 'WEBHOOK_SECRET 환경변수는 필수 설정 항목입니다.',
+    }),
 });

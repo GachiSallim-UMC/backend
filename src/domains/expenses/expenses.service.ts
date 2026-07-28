@@ -1,9 +1,9 @@
-import { 
-  Injectable, 
-  BadRequestException, 
-  ForbiddenException, 
-  UnauthorizedException, 
-  InternalServerErrorException 
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+  UnauthorizedException,
+  InternalServerErrorException
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
@@ -12,9 +12,9 @@ import { CalculateExpenseDto } from './dto/calculate-expense.dto';
 import { WebhookExpenseDto } from './dto/webhook-expense.dto';
 import { GetExpenseQueryDto } from './dto/get-expense-query.dto';
 import { SettleSplitDto } from './dto/settle-split.dto';
-import { ExpenseNotFoundException } from './expenses.exception'; 
+import { ExpenseNotFoundException } from './expenses.exception';
 import { AuthContext } from '../auth/common/auth-context.interface';
-import { ExpenseCategory, MessageType, ExpenseSplitStatus, SplitType  } from '@prisma/client';
+import { ExpenseCategory, MessageType, ExpenseSplitStatus, SplitType } from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import * as crypto from 'crypto';
@@ -23,7 +23,7 @@ import * as crypto from 'crypto';
 export class ExpensesService {
   private readonly WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'gachisallim-webhook-secret-key';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   // DB User.id 조회
   private async getUserIdByAuth(auth: AuthContext): Promise<bigint> {
@@ -42,19 +42,19 @@ export class ExpensesService {
     return user.id;
   }
 
-// 1. 비용 등록 및 정산 요청 생성
+  // 1. 비용 등록 및 정산 요청 생성
   async createExpense(auth: AuthContext, createExpenseDto: CreateExpenseDto) {
-    const { 
+    const {
       groupId,
-      title, 
-      amount, 
-      payerId, 
-      date, 
-      splitType, 
-      category, 
-      targetMemberIds, 
-      memo, 
-      receiptUrl 
+      title,
+      amount,
+      payerId,
+      date,
+      splitType,
+      category,
+      targetMemberIds,
+      memo,
+      receiptUrl
     } = createExpenseDto;
 
     const currentUserId = await this.getUserIdByAuth(auth);
@@ -224,7 +224,7 @@ export class ExpensesService {
     return expense;
   }
 
-// 4. 지출 내역 수정
+  // 4. 지출 내역 수정
   async updateExpense(auth: AuthContext, expenseId: number, updateExpenseDto: UpdateExpenseDto) {
     const currentUserId = await this.getUserIdByAuth(auth);
     const numericExpenseId = BigInt(expenseId);
@@ -452,8 +452,9 @@ export class ExpensesService {
   }
 
   // 9. 결제 수신 웹훅 처리
-  async handleWebhook(signature: string, timestamp: string, webhookDto: WebhookExpenseDto) {
-    if (!this.WEBHOOK_SECRET) {
+  async handleWebhook(signature: string, timestamp: string, webhookDto: WebhookExpenseDto, webhookSecret?: string) {
+    const secret = webhookSecret || this.WEBHOOK_SECRET;
+    if (!secret) {
       throw new InternalServerErrorException('웹훅 검증용 Secret Key가 서버에 설정되지 않았습니다.');
     }
 
@@ -471,7 +472,7 @@ export class ExpensesService {
 
     const payload = `${timestamp}.${transactionId}.${amount}`;
     const expectedSignature = crypto
-      .createHmac('sha256', this.WEBHOOK_SECRET)
+      .createHmac('sha256', secret) // 지역변수 사용
       .update(payload)
       .digest('hex');
 
@@ -509,7 +510,7 @@ export class ExpensesService {
     return { status: 'SUCCESS' };
   }
 
-// 10. 분담 상태 완료 처리
+  // 10. 분담 상태 완료 처리
   async settleSplit(auth: AuthContext, splitId: number, settleDto?: SettleSplitDto) {
     if (auth.cognitoSub !== 'SYSTEM') {
       const currentUserId = await this.getUserIdByAuth(auth);

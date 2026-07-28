@@ -659,7 +659,7 @@ describe('updateExpense', () => {
       const result = await service.settleSplit(mockAuthContext, 1);
 
       expect(result.isAllSettled).toBe(false);
-      expect(result.status).toBe('DONE');
+      expect(result.status).toBe('REQUESTED');
     });
 
     it('전원 정산이 완료된 경우, 부모 Expense 상태를 DONE으로 자동 갱신해야 한다', async () => {

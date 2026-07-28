@@ -1,8 +1,9 @@
 import { 
   Controller, Post, Get, Patch, Delete, 
-  Body, Query, Param, ParseIntPipe, HttpCode, HttpStatus, UseGuards, Headers, UnauthorizedException 
+  Body, Query, Param, ParseIntPipe, HttpCode, HttpStatus, UseGuards, Headers, UnauthorizedException, InternalServerErrorException 
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiParam, ApiBearerAuth, ApiHeader,ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiParam, ApiBearerAuth, ApiHeader, ApiBody } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config'; 
 import { ExpensesService } from './expenses.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { GetExpenseQueryDto } from './dto/get-expense-query.dto';
@@ -18,9 +19,12 @@ import { AuthContext } from '../auth/common/auth-context.interface';
 
 @ApiTags('생활비 정산 (EXP)')
 @ApiBearerAuth('BearerAuth')
-@Controller('expenses') // 👈 auth 모듈 수정을 피하기 위해 클래스 레벨 @UseGuards 제거
+@Controller('expenses')
 export class ExpensesController {
-  constructor(private readonly expensesService: ExpensesService) {}
+  constructor(
+    private readonly expensesService: ExpensesService,
+    private readonly configService: ConfigService, 
+  ) {}
 
   // ==========================================
   // [1] 정적 라우트 & 생성/조회 API (우선순위 높음)
@@ -68,7 +72,7 @@ export class ExpensesController {
     return this.expensesService.calculateSplitsPreview(auth, calculateDto);
   }
 
-  // 💡 가드를 붙이지 않음으로써 auth 수정 없이 외부 PG/핀테크 웹훅 호출 허용!
+  // Secret 필수화 및 기본값 사용 시 Fail-closed 처리
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
@@ -82,10 +86,20 @@ export class ExpensesController {
     @Headers('x-timestamp') timestamp: string,
     @Body() webhookDto: WebhookExpenseDto,
   ) {
+    const webhookSecret = this.configService.get<string>('WEBHOOK_SECRET');
+
+    // Secret 미설정 또는 하드코딩 기본값 사용 시 500 에러로 즉시 차단 (Fail-closed)
+    if (!webhookSecret || webhookSecret === 'gachisallim-webhook-secret-key') {
+      throw new InternalServerErrorException(
+        '서버 설정 오류: WEBHOOK_SECRET 환경변수가 설정되지 않았거나 올바르지 않습니다.',
+      );
+    }
+
     if (!signature || !timestamp) {
       throw new UnauthorizedException('웹훅 필수 헤더(x-signature, x-timestamp)가 누락되었습니다.');
     }
-    return this.expensesService.handleWebhook(signature, timestamp, webhookDto);
+
+    return this.expensesService.handleWebhook(signature, timestamp, webhookDto, webhookSecret);
   }
 
   // ==========================================
@@ -157,7 +171,7 @@ export class ExpensesController {
     return this.expensesService.getExpenseDetail(auth, expenseId);
   }
 
-@Patch(':expenseId')
+  @Patch(':expenseId')
   @UseGuards(CognitoAccessTokenGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
