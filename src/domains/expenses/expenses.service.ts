@@ -42,7 +42,7 @@ export class ExpensesService {
     return user.id;
   }
 
-  // 1. 비용 등록 및 정산 요청 생성
+ // 1. 비용 등록 및 정산 요청 생성
   async createExpense(auth: AuthContext, createExpenseDto: CreateExpenseDto) {
     const {
       groupId,
@@ -63,10 +63,27 @@ export class ExpensesService {
       throw new BadRequestException('정산 대상 멤버가 최소 1명 이상 필요합니다.');
     }
 
+    // 정산 금액 및 비율 합계 부합성 검증 로직
+    if (splitType === SplitType.CUSTOM) {
+      const sumAmount = targetMemberIds.reduce((sum, m) => sum + (m.amount ?? 0), 0);
+      if (sumAmount !== amount) {
+        throw new BadRequestException(
+          `각 멤버별 분담금 합계(${sumAmount.toLocaleString()}원)가 총 정산 금액(${amount.toLocaleString()}원)과 일치하지 않습니다.`
+        );
+      }
+    } else if (splitType === SplitType.RATIO) {
+      const sumPercentage = targetMemberIds.reduce((sum, m) => sum + (m.percentage ?? 0), 0);
+      if (sumPercentage !== 100) {
+        throw new BadRequestException(
+          `분담 비율의 총합(${sumPercentage}%)은 반드시 100%이어야 합니다.`
+        );
+      }
+    }
+
     const numericPayerId = Number(payerId);
     const targetGroupId = groupId ? Number(groupId) : 1;
 
-    // 💡 1-1. 요청자(로그인 유저) 본인이 해당 그룹의 활성 구성원(leftAt: null)인지 검증
+    // 1-1. 요청자(로그인 유저) 본인이 해당 그룹의 활성 구성원(leftAt: null)인지 검증
     const requesterMembership = await this.prisma.groupMember.findFirst({
       where: {
         groupId: BigInt(targetGroupId),
@@ -98,12 +115,12 @@ export class ExpensesService {
       throw new BadRequestException('존재하지 않는 사용자 ID가 정산 대상에 포함되어 있습니다.');
     }
 
-    // 💡 1-2. 정산 참여 유저들이 대상 그룹의 활성 멤버(leftAt: null)인지 검증
+    // 1-2. 정산 참여 유저들이 대상 그룹의 활성 멤버(leftAt: null)인지 검증
     const groupMemberships = await this.prisma.groupMember.findMany({
       where: {
         groupId: BigInt(targetGroupId),
         userId: { in: allRequiredUserIds.map((id) => BigInt(id)) },
-        leftAt: null, // 👈 탈퇴 구성원 배제 조건 추가!
+        leftAt: null, // 탈퇴 구성원 배제 조건 추가
       },
       select: { userId: true },
     });
@@ -251,6 +268,25 @@ export class ExpensesService {
     const newTotalAmount = totalAmount ?? expense.totalAmount;
     const newSplitType = splitType ?? expense.splitType;
 
+    // 💡 [추가] targetMemberIds 전달 시 총액 및 비율 검증 로직
+    if (targetMemberIds && targetMemberIds.length > 0) {
+      if (newSplitType === SplitType.CUSTOM) {
+        const sumAmount = targetMemberIds.reduce((sum, m) => sum + (m.amount ?? 0), 0);
+        if (sumAmount !== newTotalAmount) {
+          throw new BadRequestException(
+            `각 멤버별 분담금 합계(${sumAmount.toLocaleString()}원)가 총 정산 금액(${newTotalAmount.toLocaleString()}원)과 일치하지 않습니다.`
+          );
+        }
+      } else if (newSplitType === SplitType.RATIO) {
+        const sumPercentage = targetMemberIds.reduce((sum, m) => sum + (m.percentage ?? 0), 0);
+        if (sumPercentage !== 100) {
+          throw new BadRequestException(
+            `분담 비율의 총합(${sumPercentage}%)은 반드시 100%이어야 합니다.`
+          );
+        }
+      }
+    }
+
     // 총액이나 분담 방식이 실제로 변경되었는지 여부
     const isCalculationChanged =
       (totalAmount !== undefined && totalAmount !== expense.totalAmount) ||
@@ -338,7 +374,6 @@ export class ExpensesService {
       return updatedExpense;
     });
   }
-
   // 5. 지출 내역 삭제
   async deleteExpense(auth: AuthContext, expenseId: number) {
     const currentUserId = await this.getUserIdByAuth(auth);
