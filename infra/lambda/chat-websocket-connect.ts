@@ -4,6 +4,9 @@ import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 interface WebSocketConnectEvent {
   requestContext: {
     connectionId: string;
+    authorizer: {
+      cognitoSub: string;
+    };
   };
 }
 
@@ -18,13 +21,14 @@ export function createChatWebSocketConnectHandler(
   tableName: string,
 ) {
   return async (event: WebSocketConnectEvent): Promise<WebSocketLambdaResult> => {
-    const { connectionId } = event.requestContext;
+    const { connectionId, authorizer } = event.requestContext;
 
     await client.send(
       new PutCommand({
         TableName: tableName,
         Item: {
           connectionId,
+          cognitoSub: authorizer.cognitoSub,
           connectedAt: new Date().toISOString(),
           expiresAt: Math.floor(Date.now() / 1000) + CONNECTION_TTL_SECONDS,
         },

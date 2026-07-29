@@ -8,7 +8,9 @@ describe('chat websocket $connect handler', () => {
     const client = { send } as unknown as DynamoDBDocumentClient;
     const handler = createChatWebSocketConnectHandler(client, 'chat-connections-table');
 
-    const result = await handler({ requestContext: { connectionId: 'abc123' } });
+    const result = await handler({
+      requestContext: { connectionId: 'abc123', authorizer: { cognitoSub: 'user-sub' } },
+    });
 
     expect(result).toEqual({ statusCode: 200 });
     expect(send).toHaveBeenCalledTimes(1);
@@ -18,6 +20,7 @@ describe('chat websocket $connect handler', () => {
     expect(command.input.Item).toEqual(
       expect.objectContaining({
         connectionId: 'abc123',
+        cognitoSub: 'user-sub',
         connectedAt: expect.any(String) as string,
         expiresAt: expect.any(Number) as number,
       }),
