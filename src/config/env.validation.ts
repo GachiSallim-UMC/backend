@@ -64,4 +64,9 @@ export const ENV_VALIDATION_SCHEMA = joi.object({
     .default('09:00'),
   CHORE_DUE_TIME_ZONE: joi.string().min(1).default('Asia/Seoul'),
   NOTIFICATION_COMMAND_POLL_INTERVAL_MS: joi.number().integer().min(1000).default(5000),
+  CHAT_CONNECTIONS_TABLE_NAME: joi.string().min(1).required(),
+  CHAT_WEBSOCKET_CALLBACK_URL: joi
+    .string()
+    .uri({ scheme: ['https'] })
+    .required(),
 });
