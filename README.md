@@ -117,10 +117,10 @@ AWS_PROFILE=gachisallim AWS_REGION=ap-northeast-2 \
 ### 비밀번호 재설정 이메일
 
 런타임 스택은 `gachisallim.com` SES 도메인 ID와 DKIM 레코드를 생성하고, Cognito가
-`noreply@gachisallim.com`에서 비밀번호 재설정 링크를 발송하도록 설정합니다. 운영 수신자에게
-발송하려면 `ap-northeast-2`의 SES 계정을 sandbox에서 production access로 전환해야 합니다.
-`cdk:deploy`와 `cdk:deploy:backend`는 이 상태를 AWS SES API로 확인하고, 승인 전에는 런타임
-스택 배포를 중단합니다.
+`noreply@gachisallim.com`에서 비밀번호 재설정 링크를 발송하도록 설정합니다. SES 계정은
+`ap-northeast-2` 리전에서 sandbox 상태로 유지하므로, 같은 리전의 SES에서 검증한 수신자 주소와
+SES mailbox simulator로만 발송할 수 있습니다. 실제 이메일로 테스트하려면 SES 콘솔의
+Verified identities에서 수신자 이메일 주소를 먼저 검증해야 합니다.
 
 프론트엔드는 `/reset-password#email=...&code=...`에서 이메일과 인증 코드를 읽고
 `POST /api/v1/auth/password/reset`을 호출해야 합니다. 인증 코드는 URL fragment에 두어 서버,

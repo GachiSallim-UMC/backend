@@ -23,12 +23,11 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "vapid:provision": "ts-node scripts/provision-vapid.ts",
-    "ses:check-production-access": "bash scripts/check-ses-production-access.sh",
     "cdk:synth": "cdk synth",
     "cdk:diff": "cdk diff",
-    "cdk:deploy": "npm run ses:check-production-access && cdk deploy",
+    "cdk:deploy": "cdk deploy",
     "cdk:deploy:foundation": "cdk deploy GachiSallimDeploymentStack",
-    "cdk:deploy:backend": "npm run ses:check-production-access && cdk deploy GachiSallimBackendStack"
+    "cdk:deploy:backend": "cdk deploy GachiSallimBackendStack"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1087.0",
