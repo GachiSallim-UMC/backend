@@ -521,4 +521,42 @@ describe('BackendStack', () => {
     );
     expect(JSON.stringify(instancePolicies)).not.toContain('notification-vapid');
   });
+
+  it('provisions a chat WebSocket API with connect/disconnect Lambdas and a connections table per environment', () => {
+    template.resourceCountIs('AWS::ApiGatewayV2::Api', 2);
+    template.resourceCountIs('AWS::ApiGatewayV2::Stage', 2);
+    template.resourceCountIs('AWS::DynamoDB::Table', 2);
+    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+      Name: 'gachisallim-main-chat-ws',
+      ProtocolType: 'WEBSOCKET',
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+      Name: 'gachisallim-develop-chat-ws',
+      ProtocolType: 'WEBSOCKET',
+    });
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'gachisallim-main-chat-connections',
+      KeySchema: [{ AttributeName: 'connectionId', KeyType: 'HASH' }],
+      TimeToLiveSpecification: { AttributeName: 'expiresAt', Enabled: true },
+      GlobalSecondaryIndexes: Match.arrayWith([
+        Match.objectLike({
+          IndexName: 'chatRoomId-index',
+        }),
+      ]),
+    });
+
+    const lambdaFunctions = JSON.stringify(template.findResources('AWS::Lambda::Function'));
+    expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-connect');
+    expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-disconnect');
+    expect(lambdaFunctions).toContain('gachisallim-develop-chat-ws-connect');
+    expect(lambdaFunctions).toContain('gachisallim-develop-chat-ws-disconnect');
+
+    const instancePolicies = JSON.stringify(
+      Object.values(template.findResources('AWS::IAM::Policy')).filter((policy) =>
+        JSON.stringify(policy).includes('InstanceRole'),
+      ),
+    );
+    expect(instancePolicies).toContain('execute-api:ManageConnections');
+    expect(instancePolicies).toContain('dynamodb:GetItem');
+  });
 });
