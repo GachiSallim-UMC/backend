@@ -53,9 +53,9 @@ describe('chat websocket room:leave handler', () => {
     const postCommand = managementSend.mock.calls[0][0];
     const payload = JSON.parse(Buffer.from(postCommand.input.Data as Uint8Array).toString('utf8')) as {
       event: string;
-      chatRoomId: string;
+      data: { chatRoomId: string };
     };
-    expect(payload).toEqual({ event: 'room:left', chatRoomId: '42' });
+    expect(payload).toEqual({ event: 'room:left', data: { chatRoomId: '42' } });
   });
 
   it('succeeds even when the room was never joined (idempotent)', async () => {
