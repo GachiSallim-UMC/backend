@@ -1,5 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DeleteCommand, DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 
 interface WebSocketDisconnectEvent {
   requestContext: {
@@ -18,11 +18,30 @@ export function createChatWebSocketDisconnectHandler(
   return async (event: WebSocketDisconnectEvent): Promise<WebSocketLambdaResult> => {
     const { connectionId } = event.requestContext;
 
-    await client.send(
-      new DeleteCommand({
+    // A connection may have joined several rooms (one row per chatRoomId) plus the
+    // "#CONNECTION#" metadata row written at $connect; all of them share the same
+    // connectionId partition key and must be cleaned up together.
+    const result = await client.send(
+      new QueryCommand({
         TableName: tableName,
-        Key: { connectionId },
+        KeyConditionExpression: 'connectionId = :connectionId',
+        ExpressionAttributeValues: { ':connectionId': connectionId },
       }),
+    );
+
+    const chatRoomIds = (result.Items ?? [])
+      .map((item) => item.chatRoomId as unknown)
+      .filter((chatRoomId): chatRoomId is string => typeof chatRoomId === 'string');
+
+    await Promise.all(
+      chatRoomIds.map((chatRoomId) =>
+        client.send(
+          new DeleteCommand({
+            TableName: tableName,
+            Key: { connectionId, chatRoomId },
+          }),
+        ),
+      ),
     );
 
     return { statusCode: 200 };

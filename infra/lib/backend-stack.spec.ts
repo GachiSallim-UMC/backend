@@ -536,7 +536,10 @@ describe('BackendStack', () => {
     });
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       TableName: 'gachisallim-main-chat-connections',
-      KeySchema: [{ AttributeName: 'connectionId', KeyType: 'HASH' }],
+      KeySchema: [
+        { AttributeName: 'connectionId', KeyType: 'HASH' },
+        { AttributeName: 'chatRoomId', KeyType: 'RANGE' },
+      ],
       TimeToLiveSpecification: { AttributeName: 'expiresAt', Enabled: true },
       GlobalSecondaryIndexes: Match.arrayWith([
         Match.objectLike({
@@ -596,5 +599,40 @@ describe('BackendStack', () => {
     );
     expect(joinPolicies).toContain('execute-api:ManageConnections');
     expect(joinPolicies).toContain('dynamodb:UpdateItem');
+  });
+
+  it('adds a room:leave route with its own Lambda and lets $disconnect query and delete every row for a connection', () => {
+    const routes = JSON.stringify(template.findResources('AWS::ApiGatewayV2::Route'));
+    expect(routes).toContain('room:leave');
+
+    const lambdaFunctions = JSON.stringify(template.findResources('AWS::Lambda::Function'));
+    expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-leave');
+    expect(lambdaFunctions).toContain('gachisallim-develop-chat-ws-leave');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'gachisallim-main-chat-ws-leave',
+      Environment: {
+        Variables: Match.objectLike({
+          CHAT_CONNECTIONS_TABLE_NAME: Match.anyValue(),
+          CHAT_WEBSOCKET_CALLBACK_URL: Match.anyValue(),
+        }),
+      },
+    });
+
+    const leavePolicies = JSON.stringify(
+      Object.values(template.findResources('AWS::IAM::Policy')).filter((policy) =>
+        JSON.stringify(policy).includes('ChatWebSocketLeaveFunction'),
+      ),
+    );
+    expect(leavePolicies).toContain('execute-api:ManageConnections');
+    expect(leavePolicies).toContain('dynamodb:DeleteItem');
+
+    const disconnectPolicies = JSON.stringify(
+      Object.values(template.findResources('AWS::IAM::Policy')).filter((policy) =>
+        JSON.stringify(policy).includes('ChatWebSocketDisconnectFunction'),
+      ),
+    );
+    expect(disconnectPolicies).toContain('dynamodb:Query');
+    expect(disconnectPolicies).toContain('dynamodb:DeleteItem');
   });
 });

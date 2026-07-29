@@ -20,6 +20,7 @@ describe('chat websocket $connect handler', () => {
     expect(command.input.Item).toEqual(
       expect.objectContaining({
         connectionId: 'abc123',
+        chatRoomId: '#CONNECTION#',
         cognitoSub: 'user-sub',
         connectedAt: expect.any(String) as string,
         expiresAt: expect.any(Number) as number,

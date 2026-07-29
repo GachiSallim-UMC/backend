@@ -46,18 +46,30 @@ export class ChatBroadcastService {
     const data = Buffer.from(JSON.stringify({ event, ...payload }));
 
     await Promise.all(
-      connectionIds.map((connectionId) => this.sendToConnection(tableName, connectionId, data)),
+      connectionIds.map((connectionId) =>
+        this.sendToConnection(tableName, connectionId, chatRoomId.toString(), data),
+      ),
     );
   }
 
-  private async sendToConnection(tableName: string, connectionId: string, data: Buffer): Promise<void> {
+  private async sendToConnection(
+    tableName: string,
+    connectionId: string,
+    chatRoomId: string,
+    data: Buffer,
+  ): Promise<void> {
     try {
       await this.managementClient.send(
         new PostToConnectionCommand({ ConnectionId: connectionId, Data: data }),
       );
     } catch (error) {
       if (error instanceof GoneException) {
-        await this.dynamoClient.send(new DeleteCommand({ TableName: tableName, Key: { connectionId } }));
+        // Only this room's subscription row is cleaned up here; if the connection is
+        // truly gone, its other room rows and "#CONNECTION#" metadata row will be
+        // cleaned up the same way the next time each is broadcast to, or via TTL.
+        await this.dynamoClient.send(
+          new DeleteCommand({ TableName: tableName, Key: { connectionId, chatRoomId } }),
+        );
         return;
       }
 

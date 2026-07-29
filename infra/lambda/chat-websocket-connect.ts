@@ -16,6 +16,10 @@ interface WebSocketLambdaResult {
 
 const CONNECTION_TTL_SECONDS = 2 * 60 * 60;
 
+// Sentinel sort key for the row that tracks the connection itself, independent of any
+// room it may join later. Room subscription rows use the real chatRoomId as sort key.
+export const CONNECTION_METADATA_SORT_KEY = '#CONNECTION#';
+
 export function createChatWebSocketConnectHandler(
   client: DynamoDBDocumentClient,
   tableName: string,
@@ -28,6 +32,7 @@ export function createChatWebSocketConnectHandler(
         TableName: tableName,
         Item: {
           connectionId,
+          chatRoomId: CONNECTION_METADATA_SORT_KEY,
           cognitoSub: authorizer.cognitoSub,
           connectedAt: new Date().toISOString(),
           expiresAt: Math.floor(Date.now() / 1000) + CONNECTION_TTL_SECONDS,

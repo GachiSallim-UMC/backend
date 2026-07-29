@@ -1,6 +1,6 @@
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 
 interface WebSocketJoinEvent {
   requestContext: {
@@ -22,6 +22,7 @@ interface JoinRequestBody {
 
 const JOIN_ERROR_EVENT = 'room:join:error';
 const JOIN_SUCCESS_EVENT = 'room:joined';
+const ROOM_SUBSCRIPTION_TTL_SECONDS = 2 * 60 * 60;
 
 export function createChatWebSocketJoinHandler(
   dynamoClient: DynamoDBDocumentClient,
@@ -52,12 +53,17 @@ export function createChatWebSocketJoinHandler(
       return { statusCode: 403 };
     }
 
+    // A separate item per (connectionId, chatRoomId) pair, so joining a new room never
+    // overwrites a connection's other room subscriptions.
     await dynamoClient.send(
-      new UpdateCommand({
+      new PutCommand({
         TableName: tableName,
-        Key: { connectionId },
-        UpdateExpression: 'SET chatRoomId = :chatRoomId',
-        ExpressionAttributeValues: { ':chatRoomId': chatRoomId },
+        Item: {
+          connectionId,
+          chatRoomId,
+          joinedAt: new Date().toISOString(),
+          expiresAt: Math.floor(Date.now() / 1000) + ROOM_SUBSCRIPTION_TTL_SECONDS,
+        },
       }),
     );
 
