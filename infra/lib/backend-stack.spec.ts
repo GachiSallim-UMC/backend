@@ -176,6 +176,16 @@ describe('BackendStack', () => {
         }),
       ]),
     });
+
+    const listenerRules = template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule');
+    const passwordResetRules = Object.values(listenerRules).filter((rule) =>
+      JSON.stringify(rule).includes('/api/v1/auth/password/forgot'),
+    );
+
+    expect(passwordResetRules).toHaveLength(2);
+    for (const rule of passwordResetRules) {
+      expect(JSON.stringify(rule)).not.toContain('/api/v1/auth/signup');
+    }
   });
 
   it('exposes Swagger documents only on the development domain', () => {
