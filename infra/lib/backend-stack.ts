@@ -4,9 +4,12 @@ import { join } from 'node:path';
 
 import { Aws, CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigatewayv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
@@ -450,6 +453,98 @@ export class BackendStack extends Stack {
       },
     });
 
+    const chatConnectionsTables = new Map<string, dynamodb.Table>();
+    const chatWebSocketStages = new Map<string, apigatewayv2.WebSocketStage>();
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      const connectionsTable = new dynamodb.Table(this, `${environment.id}ChatConnectionsTable`, {
+        tableName: `gachisallim-${environment.branch}-chat-connections`,
+        partitionKey: { name: 'connectionId', type: dynamodb.AttributeType.STRING },
+        billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+        timeToLiveAttribute: 'expiresAt',
+        removalPolicy: RemovalPolicy.RETAIN,
+      });
+      connectionsTable.addGlobalSecondaryIndex({
+        indexName: 'chatRoomId-index',
+        partitionKey: { name: 'chatRoomId', type: dynamodb.AttributeType.STRING },
+      });
+      chatConnectionsTables.set(environment.branch, connectionsTable);
+
+      const connectFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}ChatWebSocketConnectFunction`,
+        {
+          functionName: `gachisallim-${environment.branch}-chat-ws-connect`,
+          entry: join(__dirname, '../lambda/chat-websocket-connect.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(10),
+          memorySize: 128,
+          logGroup: new logs.LogGroup(this, `${environment.id}ChatWebSocketConnectLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-chat-ws-connect`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          environment: {
+            CHAT_CONNECTIONS_TABLE_NAME: connectionsTable.tableName,
+          },
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+      connectionsTable.grantWriteData(connectFunction);
+
+      const disconnectFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}ChatWebSocketDisconnectFunction`,
+        {
+          functionName: `gachisallim-${environment.branch}-chat-ws-disconnect`,
+          entry: join(__dirname, '../lambda/chat-websocket-disconnect.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(10),
+          memorySize: 128,
+          logGroup: new logs.LogGroup(this, `${environment.id}ChatWebSocketDisconnectLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-chat-ws-disconnect`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          environment: {
+            CHAT_CONNECTIONS_TABLE_NAME: connectionsTable.tableName,
+          },
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+      connectionsTable.grantWriteData(disconnectFunction);
+
+      const webSocketApi = new apigatewayv2.WebSocketApi(this, `${environment.id}ChatWebSocketApi`, {
+        apiName: `gachisallim-${environment.branch}-chat-ws`,
+        connectRouteOptions: {
+          integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+            `${environment.id}ChatWebSocketConnectIntegration`,
+            connectFunction,
+          ),
+        },
+        disconnectRouteOptions: {
+          integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+            `${environment.id}ChatWebSocketDisconnectIntegration`,
+            disconnectFunction,
+          ),
+        },
+      });
+
+      const webSocketStage = new apigatewayv2.WebSocketStage(
+        this,
+        `${environment.id}ChatWebSocketStage`,
+        {
+          webSocketApi,
+          stageName: environment.branch,
+          autoDeploy: true,
+        },
+      );
+      chatWebSocketStages.set(environment.branch, webSocketStage);
+    }
+
     const authentication = new Map<string, AuthenticationResources>();
     for (const environment of RUNTIME_ENVIRONMENTS) {
       const pool = new cognito.UserPool(this, `${environment.id}UserPool`, {
@@ -626,6 +721,23 @@ export class BackendStack extends Stack {
       queue.grantSendMessages(instanceRole);
       queue.grantConsumeMessages(instanceRole);
     }
+    for (const table of chatConnectionsTables.values()) {
+      table.grantReadWriteData(instanceRole);
+    }
+    for (const stage of chatWebSocketStages.values()) {
+      instanceRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['execute-api:ManageConnections'],
+          resources: [
+            this.formatArn({
+              service: 'execute-api',
+              resource: stage.api.apiId,
+              resourceName: `${stage.stageName}/POST/@connections/*`,
+            }),
+          ],
+        }),
+      );
+    }
     for (const environment of RUNTIME_ENVIRONMENTS) {
       const scheduleGroup = choreDueScheduleGroups.get(environment.branch)!;
       const scheduleRole = choreDueScheduleRoles.get(environment.branch)!;
@@ -777,6 +889,9 @@ NOTIFICATION_COMMAND_DLQ_ARN='${notificationCommandDeadLetterQueues.get(environm
 CHORE_DUE_SCHEDULE_GROUP='${choreDueScheduleGroups.get(environment.branch)!.name}'
 CHORE_DUE_SCHEDULE_ROLE_ARN='${choreDueScheduleRoles.get(environment.branch)!.roleArn}'
 CHORE_DUE_SCHEDULE_PREFIX='${environment.branch}'
+CHAT_CONNECTIONS_TABLE_NAME='${chatConnectionsTables.get(environment.branch)!.tableName}'
+CHAT_WEBSOCKET_URL='${chatWebSocketStages.get(environment.branch)!.url}'
+CHAT_WEBSOCKET_CALLBACK_URL='${chatWebSocketStages.get(environment.branch)!.callbackUrl}'
 ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
@@ -1018,6 +1133,12 @@ done`,
       });
       new CfnOutput(this, `${environment.id}ChoreDueScheduleGroupName`, {
         value: choreDueScheduleGroups.get(environment.branch)!.name!,
+      });
+      new CfnOutput(this, `${environment.id}ChatWebSocketUrl`, {
+        value: chatWebSocketStages.get(environment.branch)!.url,
+      });
+      new CfnOutput(this, `${environment.id}ChatConnectionsTableName`, {
+        value: chatConnectionsTables.get(environment.branch)!.tableName,
       });
     }
 
