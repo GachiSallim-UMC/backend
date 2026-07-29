@@ -91,23 +91,32 @@ export class GroupsService {
     await this.findGroupOrThrow(groupId);
     await this.requireActiveMemberOrThrow(groupId, currentUserId);
 
-    return this.prisma.groupPermission.findUniqueOrThrow({ where: { groupId } });
+    // Self-heals groups created without a permission row (e.g. by a rolled-back
+    // pre-permission release) instead of throwing P2025.
+    return this.prisma.groupPermission.upsert({
+      where: { groupId },
+      create: { groupId },
+      update: {},
+    });
   }
 
   async updateGroupPermission(groupId: bigint, dto: UpdateGroupPermissionDto, currentUserId: bigint) {
     await this.findGroupOrThrow(groupId);
     await this.requireAdminOrThrow(groupId, currentUserId);
 
-    return this.prisma.groupPermission.update({
+    const data = {
+      ...(dto.allowChoreRegistration !== undefined ? { allowChoreRegistration: dto.allowChoreRegistration } : {}),
+      ...(dto.allowSettlementRegistration !== undefined
+        ? { allowSettlementRegistration: dto.allowSettlementRegistration }
+        : {}),
+      ...(dto.allowItemStatusChange !== undefined ? { allowItemStatusChange: dto.allowItemStatusChange } : {}),
+      ...(dto.autoApproveNewMembers !== undefined ? { autoApproveNewMembers: dto.autoApproveNewMembers } : {}),
+    };
+
+    return this.prisma.groupPermission.upsert({
       where: { groupId },
-      data: {
-        ...(dto.allowChoreRegistration !== undefined ? { allowChoreRegistration: dto.allowChoreRegistration } : {}),
-        ...(dto.allowSettlementRegistration !== undefined
-          ? { allowSettlementRegistration: dto.allowSettlementRegistration }
-          : {}),
-        ...(dto.allowItemStatusChange !== undefined ? { allowItemStatusChange: dto.allowItemStatusChange } : {}),
-        ...(dto.autoApproveNewMembers !== undefined ? { autoApproveNewMembers: dto.autoApproveNewMembers } : {}),
-      },
+      create: { groupId, ...data },
+      update: data,
     });
   }
 
