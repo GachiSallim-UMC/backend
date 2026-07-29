@@ -1,11 +1,14 @@
-import { Injectable } from '@nestjs/common';
-import { ChatRoomType, MessageType, Prisma } from '@prisma/client';
+import { Injectable, Logger } from '@nestjs/common';
+import { ChatRoomType, MessageType, NotificationType, Prisma } from '@prisma/client';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
+import { NotificationDeliveryService } from '../notifications/notification-delivery.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatBroadcastService } from './chat-broadcast.service';
 import { CardMessageType } from './dto/create-card-message.dto';
+
+const NEW_MESSAGE_PREVIEW_LENGTH = 50;
 
 const CHAT_ROOM_MEMBER_SELECT = {
   userId: true,
@@ -24,9 +27,12 @@ const CHAT_ROOM_MEMBER_SELECT = {
 
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly chatBroadcastService: ChatBroadcastService,
+    private readonly notificationDelivery: NotificationDeliveryService,
   ) {}
 
   async listChatRooms(groupId: bigint, currentUserId: bigint) {
@@ -207,7 +213,7 @@ export class ChatService {
   }
 
   async createTextMessage(roomId: bigint, senderId: bigint, content: string) {
-    await this.findChatRoomOrThrow(roomId);
+    const chatRoom = await this.findChatRoomOrThrow(roomId);
     await this.findChatRoomMemberOrThrow(roomId, senderId);
 
     const message = await this.prisma.message.create({
@@ -220,6 +226,7 @@ export class ChatService {
     });
 
     await this.chatBroadcastService.broadcastToRoom(roomId, 'message:new', message);
+    await this.notifyNewMessage(chatRoom.groupId, roomId, senderId, content.slice(0, NEW_MESSAGE_PREVIEW_LENGTH));
 
     return message;
   }
@@ -231,7 +238,7 @@ export class ChatService {
     refId: bigint,
     content?: string,
   ) {
-    await this.findChatRoomOrThrow(roomId);
+    const chatRoom = await this.findChatRoomOrThrow(roomId);
     await this.findChatRoomMemberOrThrow(roomId, senderId);
 
     const message = await this.prisma.message.create({
@@ -245,6 +252,7 @@ export class ChatService {
     });
 
     await this.chatBroadcastService.broadcastToRoom(roomId, 'message:new', message);
+    await this.notifyNewMessage(chatRoom.groupId, roomId, senderId, '카드 메시지를 보냈습니다.');
 
     return message;
   }
@@ -295,6 +303,36 @@ export class ChatService {
     }
 
     return member;
+  }
+
+  private async notifyNewMessage(
+    groupId: bigint,
+    chatRoomId: bigint,
+    senderId: bigint,
+    previewMessage: string,
+  ): Promise<void> {
+    try {
+      const recipients = await this.prisma.chatRoomMember.findMany({
+        where: { chatRoomId, userId: { not: senderId }, notificationEnabled: true },
+        select: { userId: true },
+      });
+
+      await Promise.all(
+        recipients.map(({ userId }) =>
+          this.notificationDelivery.createNotification({
+            userId,
+            groupId,
+            type: NotificationType.NEW_MESSAGE,
+            refId: chatRoomId,
+            message: previewMessage,
+          }),
+        ),
+      );
+    } catch (error) {
+      // Notification delivery is a best-effort side effect; a failure here must not
+      // fail message creation or the realtime broadcast that already succeeded.
+      this.logger.error('Failed to send new message notifications', error);
+    }
   }
 
   private async findActiveGroupMemberOrThrow(groupId: bigint, userId: bigint) {

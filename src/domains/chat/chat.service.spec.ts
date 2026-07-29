@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 
 import { BusinessException } from '../../common/exceptions/business.exception';
+import { NotificationDeliveryService } from '../notifications/notification-delivery.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatBroadcastService } from './chat-broadcast.service';
 import { ChatService } from './chat.service';
@@ -38,10 +39,15 @@ type MockedChatBroadcastService = {
   broadcastToRoom: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
 };
 
+type MockedNotificationDeliveryService = {
+  createNotification: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+};
+
 describe('ChatService', () => {
   let service: ChatService;
   let prisma: MockedPrisma;
   let chatBroadcastService: MockedChatBroadcastService;
+  let notificationDelivery: MockedNotificationDeliveryService;
 
   beforeEach(() => {
     prisma = {
@@ -78,9 +84,16 @@ describe('ChatService', () => {
       broadcastToRoom: jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined),
     };
 
+    notificationDelivery = {
+      createNotification: jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined),
+    };
+
+    prisma.chatRoomMember.findMany.mockResolvedValue([]);
+
     service = new ChatService(
       prisma as unknown as PrismaService,
       chatBroadcastService as unknown as ChatBroadcastService,
+      notificationDelivery as unknown as NotificationDeliveryService,
     );
   });
 
@@ -447,9 +460,10 @@ describe('ChatService', () => {
   });
 
   describe('createTextMessage', () => {
-    it('broadcasts the created message to the chat room', async () => {
-      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+    it('broadcasts the created message and notifies other members', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, groupId: 10n, createdBy: 1n });
       prisma.chatRoomMember.findUnique.mockResolvedValue({ userId: 1n });
+      prisma.chatRoomMember.findMany.mockResolvedValue([{ userId: 2n }, { userId: 3n }]);
       const message = { id: 10n, chatRoomId: 1n, senderId: 1n, type: 'TEXT', content: '안녕하세요' };
       prisma.message.create.mockResolvedValue(message);
 
@@ -457,23 +471,50 @@ describe('ChatService', () => {
 
       expect(result).toEqual(message);
       expect(chatBroadcastService.broadcastToRoom).toHaveBeenCalledWith(1n, 'message:new', message);
+      expect(prisma.chatRoomMember.findMany).toHaveBeenCalledWith({
+        where: { chatRoomId: 1n, userId: { not: 1n }, notificationEnabled: true },
+        select: { userId: true },
+      });
+      expect(notificationDelivery.createNotification).toHaveBeenCalledTimes(2);
+      expect(notificationDelivery.createNotification).toHaveBeenCalledWith({
+        userId: 2n,
+        groupId: 10n,
+        type: 'NEW_MESSAGE',
+        refId: 1n,
+        message: '안녕하세요',
+      });
+    });
+
+    it('does not fail message creation when notification delivery throws', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, groupId: 10n, createdBy: 1n });
+      prisma.chatRoomMember.findUnique.mockResolvedValue({ userId: 1n });
+      prisma.chatRoomMember.findMany.mockResolvedValue([{ userId: 2n }]);
+      const message = { id: 10n, chatRoomId: 1n, senderId: 1n, type: 'TEXT', content: '안녕하세요' };
+      prisma.message.create.mockResolvedValue(message);
+      notificationDelivery.createNotification.mockRejectedValue(new Error('sqs unavailable'));
+
+      const result = await service.createTextMessage(1n, 1n, '안녕하세요');
+
+      expect(result).toEqual(message);
     });
 
     it('throws when the requester is not a member of the chat room', async () => {
-      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, groupId: 10n, createdBy: 1n });
       prisma.chatRoomMember.findUnique.mockResolvedValue(null);
 
       await expect(service.createTextMessage(1n, 99n, '안녕하세요')).rejects.toMatchObject({
         code: 'CHAT_ROOM_MEMBER_NOT_FOUND',
       });
       expect(chatBroadcastService.broadcastToRoom).not.toHaveBeenCalled();
+      expect(notificationDelivery.createNotification).not.toHaveBeenCalled();
     });
   });
 
   describe('createCardMessage', () => {
-    it('broadcasts the created message to the chat room', async () => {
-      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+    it('broadcasts the created message and notifies other members', async () => {
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, groupId: 10n, createdBy: 1n });
       prisma.chatRoomMember.findUnique.mockResolvedValue({ userId: 1n });
+      prisma.chatRoomMember.findMany.mockResolvedValue([{ userId: 2n }]);
       const message = { id: 11n, chatRoomId: 1n, senderId: 1n, type: 'CARD_RULE', content: '', refId: 5n };
       prisma.message.create.mockResolvedValue(message);
 
@@ -481,16 +522,24 @@ describe('ChatService', () => {
 
       expect(result).toEqual(message);
       expect(chatBroadcastService.broadcastToRoom).toHaveBeenCalledWith(1n, 'message:new', message);
+      expect(notificationDelivery.createNotification).toHaveBeenCalledWith({
+        userId: 2n,
+        groupId: 10n,
+        type: 'NEW_MESSAGE',
+        refId: 1n,
+        message: '카드 메시지를 보냈습니다.',
+      });
     });
 
     it('throws when the requester is not a member of the chat room', async () => {
-      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, createdBy: 1n });
+      prisma.chatRoom.findUnique.mockResolvedValue({ id: 1n, groupId: 10n, createdBy: 1n });
       prisma.chatRoomMember.findUnique.mockResolvedValue(null);
 
       await expect(service.createCardMessage(1n, 99n, 'CARD_RULE', 5n)).rejects.toMatchObject({
         code: 'CHAT_ROOM_MEMBER_NOT_FOUND',
       });
       expect(chatBroadcastService.broadcastToRoom).not.toHaveBeenCalled();
+      expect(notificationDelivery.createNotification).not.toHaveBeenCalled();
     });
   });
 });
