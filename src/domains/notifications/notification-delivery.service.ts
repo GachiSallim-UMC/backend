@@ -28,10 +28,16 @@ export class NotificationDeliveryService {
           }
         }
 
-        const subscriptions = await transaction.notificationPushSubscription.findMany({
-          where: { userId: input.userId, isActive: true },
-          select: { id: true },
+        const preference = await transaction.userNotificationPreference.findUnique({
+          where: { userId: input.userId },
+          select: NOTIFICATION_DELIVERY_PREFERENCE_SELECT,
         });
+        const subscriptions = this.isPushEnabled(input, preference)
+          ? await transaction.notificationPushSubscription.findMany({
+              where: { userId: input.userId, isActive: true },
+              select: { id: true },
+            })
+          : [];
 
         return transaction.notification.create({
           data: {
@@ -60,4 +66,44 @@ export class NotificationDeliveryService {
   private isUniqueConstraintViolation(error: unknown): boolean {
     return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
   }
+
+  private isPushEnabled(
+    input: CreateNotificationInput,
+    preference: NotificationDeliveryPreference | null,
+  ): boolean {
+    if (!preference) {
+      return true;
+    }
+    if (input.groupId !== null && !preference.groupActivityEnabled) {
+      return false;
+    }
+
+    switch (input.type) {
+      case NotificationType.CHORE_DUE:
+        return preference.choreDueEnabled;
+      case NotificationType.SUPPLY_LOW:
+        return preference.supplyStatusChangedEnabled;
+      case NotificationType.NEW_MESSAGE:
+        return preference.newMessageEnabled;
+      case NotificationType.EXPENSE_REQUEST:
+        return preference.expenseRequestEnabled;
+      case NotificationType.RULE_CHANGED:
+        return preference.ruleAgreementRequestEnabled;
+      default:
+        return true;
+    }
+  }
 }
+
+const NOTIFICATION_DELIVERY_PREFERENCE_SELECT = {
+  choreDueEnabled: true,
+  supplyStatusChangedEnabled: true,
+  newMessageEnabled: true,
+  expenseRequestEnabled: true,
+  ruleAgreementRequestEnabled: true,
+  groupActivityEnabled: true,
+} satisfies Prisma.UserNotificationPreferenceSelect;
+
+type NotificationDeliveryPreference = Prisma.UserNotificationPreferenceGetPayload<{
+  select: typeof NOTIFICATION_DELIVERY_PREFERENCE_SELECT;
+}>;

@@ -7111,7 +7111,7 @@
           "인증"
         ],
         "summary": "프로필 수정",
-        "description": "프로필 수정",
+        "description": "이름, 닉네임 또는 프로필 이미지를 수정합니다.",
         "operationId": "patchAuthProfile",
         "responses": {
           "200": {
@@ -7298,6 +7298,13 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "이름 (1~30자)",
+                    "minLength": 1,
+                    "maxLength": 30,
+                    "example": "홍길동"
+                  },
                   "nickname": {
                     "type": "string",
                     "description": "닉네임 (2~10자, 특수문자 불가)",
@@ -7318,10 +7325,102 @@
                 "minProperties": 1
               },
               "example": {
+                "name": "홍길동",
                 "nickname": "길동",
                 "profileImage": null
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/profile-image/upload-url": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "프로필 이미지 업로드 URL 발급",
+        "description": "최대 5MB의 JPEG, PNG 또는 WebP 파일을 업로드할 수 있는 5분 유효 S3 Presigned POST를 발급합니다.",
+        "operationId": "postAuthProfileImageUploadUrl",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProfileImageUpload"
+              },
+              "example": {
+                "contentType": "image/jpeg",
+                "fileSize": 824123
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "프로필 이미지 업로드 URL 발급 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 201
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ProfileImageUploadResponse"
+                    },
+                    "error": {
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 201,
+                  "data": {
+                    "uploadMethod": "POST",
+                    "uploadUrl": "https://profile-images.s3.ap-northeast-2.amazonaws.com",
+                    "fields": {
+                      "key": "develop/profiles/7/550e8400-e29b-41d4-a716-446655440000.jpg",
+                      "Content-Type": "image/jpeg",
+                      "policy": "base64-policy",
+                      "x-amz-signature": "signature"
+                    },
+                    "objectKey": "develop/profiles/7/550e8400-e29b-41d4-a716-446655440000.jpg",
+                    "profileImageUrl": "https://example.cloudfront.net/develop/profiles/7/550e8400-e29b-41d4-a716-446655440000.jpg",
+                    "expiresAt": "2026-07-28T12:05:00.000Z"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
@@ -7747,6 +7846,135 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/preferences": {
+      "get": {
+        "tags": [
+          "알림"
+        ],
+        "summary": "알림 설정 조회",
+        "description": "사용자별 알림 설정을 조회합니다. 저장된 설정이 없으면 모든 항목을 true로 반환합니다.",
+        "operationId": "getNotificationPreferences",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "알림 설정 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/NotificationPreferences"
+                    },
+                    "error": {
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "알림"
+        ],
+        "summary": "알림 설정 수정",
+        "description": "전달된 설정만 수정합니다. 비활성화한 유형도 앱 내 알림은 유지하고 웹 푸시만 중단합니다. groupActivity는 그룹에 속한 모든 알림의 상위 설정입니다.",
+        "operationId": "patchNotificationPreferences",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationPreferences"
+              },
+              "example": {
+                "choreDue": true,
+                "newMessage": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "알림 설정 수정 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/NotificationPreferences"
+                    },
+                    "error": {
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "401": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -8413,6 +8641,138 @@
                 }
               }
             }
+          }
+        }
+      },
+      "CreateProfileImageUpload": {
+        "type": "object",
+        "required": [
+          "contentType",
+          "fileSize"
+        ],
+        "properties": {
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "example": "image/jpeg"
+          },
+          "fileSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5242880,
+            "example": 824123
+          }
+        }
+      },
+      "ProfileImageUploadResponse": {
+        "type": "object",
+        "required": [
+          "uploadMethod",
+          "uploadUrl",
+          "fields",
+          "objectKey",
+          "profileImageUrl",
+          "expiresAt"
+        ],
+        "properties": {
+          "uploadMethod": {
+            "type": "string",
+            "enum": [
+              "POST"
+            ],
+            "example": "POST"
+          },
+          "uploadUrl": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://profile-images.s3.ap-northeast-2.amazonaws.com"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "objectKey": {
+            "type": "string",
+            "example": "develop/profiles/7/550e8400-e29b-41d4-a716-446655440000.jpg"
+          },
+          "profileImageUrl": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://example.cloudfront.net/develop/profiles/7/550e8400-e29b-41d4-a716-446655440000.jpg"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-07-28T12:05:00.000Z"
+          }
+        }
+      },
+      "NotificationPreferences": {
+        "type": "object",
+        "required": [
+          "choreDue",
+          "supplyStatusChanged",
+          "newMessage",
+          "expenseRequest",
+          "ruleAgreementRequest",
+          "groupActivity"
+        ],
+        "properties": {
+          "choreDue": {
+            "type": "boolean",
+            "example": true
+          },
+          "supplyStatusChanged": {
+            "type": "boolean",
+            "example": true
+          },
+          "newMessage": {
+            "type": "boolean",
+            "example": true
+          },
+          "expenseRequest": {
+            "type": "boolean",
+            "example": true
+          },
+          "ruleAgreementRequest": {
+            "type": "boolean",
+            "example": true
+          },
+          "groupActivity": {
+            "type": "boolean",
+            "description": "그룹에 속한 모든 알림의 웹 푸시 상위 설정",
+            "example": true
+          }
+        }
+      },
+      "UpdateNotificationPreferences": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "choreDue": {
+            "type": "boolean"
+          },
+          "supplyStatusChanged": {
+            "type": "boolean"
+          },
+          "newMessage": {
+            "type": "boolean"
+          },
+          "expenseRequest": {
+            "type": "boolean"
+          },
+          "ruleAgreementRequest": {
+            "type": "boolean"
+          },
+          "groupActivity": {
+            "type": "boolean",
+            "description": "그룹에 속한 모든 알림의 웹 푸시 상위 설정"
           }
         }
       },
