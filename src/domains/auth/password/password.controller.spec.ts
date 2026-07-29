@@ -1,9 +1,35 @@
 import { AuthContext } from '../common/auth-context.interface';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { PasswordController } from './password.controller';
 import { PasswordService } from './password.service';
 
 describe('PasswordController', () => {
+  it('requests a password reset without authentication', async () => {
+    const requestPasswordReset = jest.fn().mockResolvedValue({ accepted: true });
+    const service = { requestPasswordReset } as unknown as PasswordService;
+    const controller = new PasswordController(service);
+    const dto: RequestPasswordResetDto = { email: 'member@example.com' };
+
+    await expect(controller.requestPasswordReset(dto)).resolves.toEqual({ accepted: true });
+    expect(requestPasswordReset).toHaveBeenCalledWith(dto);
+  });
+
+  it('confirms a password reset without authentication', async () => {
+    const resetPassword = jest.fn().mockResolvedValue({ reset: true });
+    const service = { resetPassword } as unknown as PasswordService;
+    const controller = new PasswordController(service);
+    const dto: ResetPasswordDto = {
+      email: 'member@example.com',
+      confirmationCode: '123456',
+      newPassword: 'NewPassword1',
+    };
+
+    await expect(controller.resetPassword(dto)).resolves.toEqual({ reset: true });
+    expect(resetPassword).toHaveBeenCalledWith(dto);
+  });
+
   it('uses the access token from the authenticated request', async () => {
     const changePassword = jest.fn().mockResolvedValue({ changed: true });
     const service = { changePassword } as unknown as PasswordService;

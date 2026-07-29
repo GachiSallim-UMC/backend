@@ -8587,6 +8587,229 @@
           }
         }
       }
+    },
+    "/api/v1/auth/password/forgot": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "비밀번호 재설정 이메일 요청",
+        "description": "계정 존재 여부를 노출하지 않고 Cognito를 통해 비밀번호 재설정 링크 이메일을 요청합니다.",
+        "operationId": "postAuthPasswordForgot",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "비밀번호 재설정 이메일 요청 접수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "accepted"
+                      ],
+                      "properties": {
+                        "accepted": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      }
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "accepted": true
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "COMMON_INVALID_PARAMETER | 이메일 형식이 잘못된 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 100,
+                    "example": "member@example.com"
+                  }
+                }
+              },
+              "example": {
+                "email": "member@example.com"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/password/reset": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "비밀번호 재설정",
+        "description": "이메일 링크의 Cognito 인증 코드와 새 비밀번호로 비밀번호를 재설정합니다.",
+        "operationId": "postAuthPasswordReset",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "비밀번호 재설정 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "reset"
+                      ],
+                      "properties": {
+                        "reset": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      }
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "reset": true
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "AUTH_INVALID_CONFIRMATION_CODE | AUTH_EXPIRED_CONFIRMATION_CODE | AUTH_PASSWORD_POLICY_VIOLATION | COMMON_INVALID_PARAMETER",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "AUTH_TOO_MANY_REQUESTS | 인증 서비스 요청 제한을 초과한 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "AUTH_PROVIDER_ERROR | 인증 서비스 요청 처리에 실패한 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "confirmationCode",
+                  "newPassword"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 100,
+                    "example": "member@example.com"
+                  },
+                  "confirmationCode": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$",
+                    "example": "123456"
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 16,
+                    "pattern": "^\\S+$",
+                    "description": "새 비밀번호 (8~16자, 공백 없이 영문 대문자·소문자·숫자 포함)",
+                    "example": "NewPassword1"
+                  }
+                }
+              },
+              "example": {
+                "email": "member@example.com",
+                "confirmationCode": "123456",
+                "newPassword": "NewPassword1"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {

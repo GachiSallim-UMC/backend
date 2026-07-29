@@ -26,7 +26,9 @@
     "vapid:provision": "ts-node scripts/provision-vapid.ts",
     "cdk:synth": "cdk synth",
     "cdk:diff": "cdk diff",
-    "cdk:deploy": "cdk deploy"
+    "cdk:deploy": "cdk deploy",
+    "cdk:deploy:foundation": "cdk deploy GachiSallimDeploymentStack",
+    "cdk:deploy:backend": "cdk deploy GachiSallimBackendStack"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1087.0",
