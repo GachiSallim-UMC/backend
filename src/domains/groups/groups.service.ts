@@ -8,12 +8,29 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
+import { UpdateGroupPermissionDto } from './dto/update-group-permission.dto';
 import { UpdateMemberRoleDto } from './dto/update-member-role.dto';
 
 const INVITE_CODE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const WRITE_CONFLICT_ERROR_CODE = 'P2034';
 const MAX_SERIALIZABLE_RETRIES = 3;
 const INVITE_CODE_GENERATION_ATTEMPTS = 5;
+
+const GROUP_MEMBER_SELECT = {
+  userId: true,
+  groupId: true,
+  role: true,
+  joinedAt: true,
+  leftAt: true,
+  user: {
+    select: {
+      id: true,
+      name: true,
+      nickname: true,
+      profileImage: true,
+    },
+  },
+} satisfies Prisma.GroupMemberSelect;
 
 type PrismaTransactionClient = Prisma.TransactionClient;
 
@@ -32,18 +49,36 @@ export class GroupsService {
   }
 
   async createGroup(dto: CreateGroupDto, createdBy: bigint) {
-    return this.prisma.group.create({
-      data: {
-        name: dto.name,
-        description: dto.description,
-        maxMembers: dto.maxMembers,
-        inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
-        createdBy,
-        members: {
-          create: { userId: createdBy, role: GroupRole.ADMIN },
-        },
-      },
-    });
+    for (let attempt = 0; attempt < INVITE_CODE_GENERATION_ATTEMPTS; attempt++) {
+      const candidate = generateInviteCode();
+
+      try {
+        return await this.prisma.group.create({
+          data: {
+            name: dto.name,
+            description: dto.description,
+            maxMembers: dto.maxMembers,
+            inviteCode: candidate,
+            inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
+            createdBy,
+            members: {
+              create: { userId: createdBy, role: GroupRole.ADMIN },
+            },
+            permission: {
+              create: {},
+            },
+          },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw new BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR);
   }
 
   async getGroupDetail(groupId: bigint, currentUserId: bigint) {
@@ -67,6 +102,39 @@ export class GroupsService {
     });
   }
 
+  async getGroupPermission(groupId: bigint, currentUserId: bigint) {
+    await this.findGroupOrThrow(groupId);
+    await this.requireActiveMemberOrThrow(groupId, currentUserId);
+
+    // Self-heals groups created without a permission row (e.g. by a rolled-back
+    // pre-permission release) instead of throwing P2025.
+    return this.prisma.groupPermission.upsert({
+      where: { groupId },
+      create: { groupId },
+      update: {},
+    });
+  }
+
+  async updateGroupPermission(groupId: bigint, dto: UpdateGroupPermissionDto, currentUserId: bigint) {
+    await this.findGroupOrThrow(groupId);
+    await this.requireAdminOrThrow(groupId, currentUserId);
+
+    const data = {
+      ...(dto.allowChoreRegistration !== undefined ? { allowChoreRegistration: dto.allowChoreRegistration } : {}),
+      ...(dto.allowSettlementRegistration !== undefined
+        ? { allowSettlementRegistration: dto.allowSettlementRegistration }
+        : {}),
+      ...(dto.allowItemStatusChange !== undefined ? { allowItemStatusChange: dto.allowItemStatusChange } : {}),
+      ...(dto.autoApproveNewMembers !== undefined ? { autoApproveNewMembers: dto.autoApproveNewMembers } : {}),
+    };
+
+    return this.prisma.groupPermission.upsert({
+      where: { groupId },
+      create: { groupId, ...data },
+      update: data,
+    });
+  }
+
   async deleteGroup(groupId: bigint, currentUserId: bigint): Promise<void> {
     await this.findGroupOrThrow(groupId);
     await this.requireAdminOrThrow(groupId, currentUserId);
@@ -84,6 +152,7 @@ export class GroupsService {
     return this.prisma.groupMember.findMany({
       where: { groupId, leftAt: null },
       orderBy: { joinedAt: 'asc' },
+      select: GROUP_MEMBER_SELECT,
     });
   }
 

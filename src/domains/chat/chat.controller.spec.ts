@@ -30,7 +30,7 @@ describe('ChatController', () => {
     await controller.createChatRoom(auth, { groupId: '1', name: '같이살림방' });
 
     expect(resolveActiveUserId).toHaveBeenCalledWith('cognito-sub');
-    expect(createChatRoom).toHaveBeenCalledWith(1n, '같이살림방', 1n);
+    expect(createChatRoom).toHaveBeenCalledWith(1n, '같이살림방', 1n, undefined);
   });
 
   it('resolves the authenticated user as the sender when sending a text message', async () => {
@@ -44,6 +44,19 @@ describe('ChatController', () => {
 
     expect(resolveActiveUserId).toHaveBeenCalledWith('cognito-sub');
     expect(createTextMessage).toHaveBeenCalledWith(10n, 1n, '안녕하세요');
+  });
+
+  it('resolves the authenticated user as the target of updateMemberSettings', async () => {
+    const updateMemberSettings = jest
+      .fn<ChatService['updateMemberSettings']>()
+      .mockResolvedValue({} as never);
+    const chatService = { updateMemberSettings } as unknown as ChatService;
+    const controller = new ChatController(chatService, authenticatedUsers);
+
+    await controller.updateMemberSettings(auth, '10', { isPinned: true });
+
+    expect(resolveActiveUserId).toHaveBeenCalledWith('cognito-sub');
+    expect(updateMemberSettings).toHaveBeenCalledWith(10n, 1n, { isPinned: true });
   });
 
   it('resolves the authenticated user for markAsRead without a request body', async () => {
@@ -89,6 +102,19 @@ describe('ChatController', () => {
     await controller.deleteChatRoom(auth, '1');
 
     expect(deleteChatRoom).toHaveBeenCalledWith(1n, 1n);
+  });
+
+  it('resolves the authenticated user as the current owner when transferring ownership', async () => {
+    const transferOwnership = jest
+      .fn<ChatService['transferOwnership']>()
+      .mockResolvedValue({} as never);
+    const chatService = { transferOwnership } as unknown as ChatService;
+    const controller = new ChatController(chatService, authenticatedUsers);
+
+    await controller.transferOwnership(auth, '1', { userId: '2' });
+
+    expect(resolveActiveUserId).toHaveBeenCalledWith('cognito-sub');
+    expect(transferOwnership).toHaveBeenCalledWith(1n, 2n, 1n);
   });
 
   it('passes the authenticated user id to removeMember for the permission check', async () => {

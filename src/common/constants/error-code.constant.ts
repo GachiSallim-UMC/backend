@@ -168,6 +168,16 @@ export const ErrorCode = {
     code: 'CHORE_409',
     message: '이미 완료된 집안일입니다.',
   },
+  CHORE_NOT_DONE: {
+    status: 409,
+    code: 'CHORE_409_NOT_DONE',
+    message: '완료되지 않은 집안일입니다.',
+  },
+  CHORE_NEXT_OCCURRENCE_DONE: {
+    status: 409,
+    code: 'CHORE_409_NEXT_DONE',
+    message: '다음 회차가 이미 완료되어 완료를 취소할 수 없습니다.',
+  },
 
   // Supply
   SUP_INVALID_CATEGORY: {
@@ -269,6 +279,11 @@ export const ErrorCode = {
     status: 409,
     code: 'CHAT_ROOM_MEMBER_ALREADY_JOINED',
     message: '이미 채팅방에 참여 중인 사용자입니다.',
+  },
+  CHAT_ROOM_OWNER_MUST_TRANSFER_BEFORE_LEAVING: {
+    status: 409,
+    code: 'CHAT_ROOM_OWNER_MUST_TRANSFER_BEFORE_LEAVING',
+    message: '방장은 다른 멤버에게 위임한 후에만 채팅방을 나갈 수 있습니다.',
   },
 } as const;
 

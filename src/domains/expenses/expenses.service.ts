@@ -14,7 +14,7 @@ import { GetExpenseQueryDto } from './dto/get-expense-query.dto';
 import { SettleSplitDto } from './dto/settle-split.dto';
 import { ExpenseNotFoundException } from './expenses.exception'; 
 import { AuthContext } from '../auth/common/auth-context.interface';
-import { ExpenseCategory, MessageType, SplitType, ExpenseSplitStatus } from '@prisma/client';
+import { ExpenseCategory, MessageType, ExpenseSplitStatus, SplitType  } from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import * as crypto from 'crypto';
@@ -25,7 +25,7 @@ export class ExpensesService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  // DB User.id 조회 헬퍼 함수
+  // DB User.id 조회
   private async getUserIdByAuth(auth: AuthContext): Promise<bigint> {
     const user = await this.prisma.user.findFirst({
       where: {
@@ -42,7 +42,7 @@ export class ExpensesService {
     return user.id;
   }
 
-  // 1. 비용 등록 및 정산 요청 생성 (EXP-REG-01, EXP-REQ-01)
+  // 1. 비용 등록 및 정산 요청 생성
   async createExpense(auth: AuthContext, createExpenseDto: CreateExpenseDto) {
     const { 
       groupId,
@@ -59,15 +59,21 @@ export class ExpensesService {
 
     const currentUserId = await this.getUserIdByAuth(auth);
 
-    // 타겟 멤버 ID 중복 제거 및 숫자 변환
-    const numericTargetIds = Array.from(new Set(targetMemberIds.map((id) => Number(id))));
-    const count = numericTargetIds.length;
-    if (count === 0) {
+    if (!targetMemberIds || targetMemberIds.length === 0) {
       throw new BadRequestException('정산 대상 멤버가 최소 1명 이상 필요합니다.');
     }
 
     const numericPayerId = Number(payerId);
     const targetGroupId = groupId ? Number(groupId) : 1;
+
+    // 중복 유저 ID 제거 및 정산 대상 목록 추출
+    const targetUserMap = new Map<number, { amount?: number; percentage?: number }>();
+    targetMemberIds.forEach((m) => {
+      targetUserMap.set(Number(m.userId), { amount: m.amount, percentage: m.percentage });
+    });
+
+    const numericTargetIds = Array.from(targetUserMap.keys());
+    const count = numericTargetIds.length;
     const allRequiredUserIds = Array.from(new Set([numericPayerId, ...numericTargetIds]));
 
     // 유저 존재 검증
@@ -91,9 +97,14 @@ export class ExpensesService {
       throw new ForbiddenException('해당 그룹의 멤버가 아닌 사용자가 정산 대상에 포함되어 있습니다.');
     }
 
-    // 몫과 나머지를 활용한 소액 음수 방지 안전 분배 계산
-    const baseAmount = Math.floor(amount / count); // 기본 몫
-    let remainder = amount % count;               // 나머지 1원 단위 분배
+    // 정산 분담금 계산
+    let baseAmount = 0;
+    let remainder = 0;
+
+    if (splitType === SplitType.EQUAL) {
+      baseAmount = Math.floor(amount / count);
+      remainder = amount % count;
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
@@ -104,7 +115,7 @@ export class ExpensesService {
           totalAmount: amount,
           payerId: BigInt(numericPayerId),
           createdBy: currentUserId,
-          splitType: splitType as unknown as SplitType,
+          splitType: splitType,
           ...(memo && { memo }),
           ...(receiptUrl && { receiptUrl }),
           ...(date && { createdAt: new Date(date) }),
@@ -113,11 +124,20 @@ export class ExpensesService {
 
       const splitData = numericTargetIds.map((participantId) => {
         const isPayer = participantId === numericPayerId;
-        
-        let participantAmount = baseAmount;
-        if (remainder > 0) {
-          participantAmount += 1;
-          remainder -= 1;
+        const participantInfo = targetUserMap.get(participantId);
+        let participantAmount = 0;
+
+        if (splitType === SplitType.EQUAL) {
+          participantAmount = baseAmount;
+          if (remainder > 0) {
+            participantAmount += 1;
+            remainder -= 1;
+          }
+        } else if (splitType === SplitType.CUSTOM) {
+          participantAmount = participantInfo?.amount ?? 0;
+        } else if (splitType === SplitType.RATIO) {
+          const pct = participantInfo?.percentage ?? 0;
+          participantAmount = Math.floor(amount * (pct / 100));
         }
 
         return {
@@ -139,7 +159,7 @@ export class ExpensesService {
     });
   }
 
-  // 2. 특정 그룹의 정산 현황 목록 조회 (EXP-LIST-01)
+  // 2. 그룹별 정산 목록 조회
   async getExpenses(auth: AuthContext, query: GetExpenseQueryDto) {
     const { groupId, category, userId } = query;
     const currentUserId = await this.getUserIdByAuth(auth);
@@ -167,7 +187,7 @@ export class ExpensesService {
     });
   }
 
-  // 3. 특정 정산 상세 내역 조회 (EXP-DETAIL-01)
+  // 3. 정산 상세 내역 조회
   async getExpenseDetail(auth: AuthContext, expenseId: number) {
     const currentUserId = await this.getUserIdByAuth(auth);
 
@@ -180,7 +200,6 @@ export class ExpensesService {
 
     if (!expense) throw new ExpenseNotFoundException();
 
-    // 그룹 멤버십 권한 검증
     const isMember = await this.prisma.groupMember.findFirst({
       where: { groupId: expense.groupId, userId: currentUserId },
     });
@@ -191,34 +210,122 @@ export class ExpensesService {
     return expense;
   }
 
-  // 4. 지출 내역 수정 (EXP-EDIT-01)
+// 4. 지출 내역 수정
   async updateExpense(auth: AuthContext, expenseId: number, updateExpenseDto: UpdateExpenseDto) {
     const currentUserId = await this.getUserIdByAuth(auth);
+    const numericExpenseId = BigInt(expenseId);
 
+    // 1. 기존 지출 정보 및 분담 내역(splits) 함께 조회
     const expense = await this.prisma.expense.findUnique({
-      where: { id: BigInt(expenseId) },
+      where: { id: numericExpenseId },
+      include: {
+        splits: true,
+      },
     });
     if (!expense) throw new ExpenseNotFoundException();
 
-    // 수정 권한: 생성자 또는 선결제자만 가능
+    // 2. 권한 검증 (생성자 또는 선결제자만 가능)
     if (expense.createdBy !== currentUserId && expense.payerId !== currentUserId) {
       throw new ForbiddenException('정산 수정 권한이 없습니다. (생성자 또는 선결제자만 가능)');
     }
 
-    const { title, totalAmount, category, splitType } = updateExpenseDto as UpdateExpenseDto & { category?: ExpenseCategory };
+    const { title, totalAmount, category, splitType, targetMemberIds } = updateExpenseDto as UpdateExpenseDto & {
+      category?: ExpenseCategory;
+    };
 
-    return this.prisma.expense.update({
-      where: { id: BigInt(expenseId) },
-      data: {
-        ...(title && { title }),
-        ...(totalAmount !== undefined && { totalAmount }),
-        ...(category && { category }),
-        ...(splitType && { splitType: splitType as unknown as SplitType }),
-      },
+    // 변경될 핵심 값들 (전달되지 않았으면 기존 값 유지)
+    const newTotalAmount = totalAmount ?? expense.totalAmount;
+    const newSplitType = splitType ?? expense.splitType;
+
+    // 총액이나 분담 방식이 실제로 변경되었는지 여부
+    const isCalculationChanged =
+      (totalAmount !== undefined && totalAmount !== expense.totalAmount) ||
+      (splitType !== undefined && splitType !== expense.splitType);
+
+    // 3. 트랜잭션으로 지출 내역과 분담 내역 함께 업데이트
+    return this.prisma.$transaction(async (tx) => {
+      // 3-1. Expense 테이블 기본 정보 업데이트
+      const updatedExpense = await tx.expense.update({
+        where: { id: numericExpenseId },
+        data: {
+          ...(title && { title }),
+          ...(totalAmount !== undefined && { totalAmount }),
+          ...(category && { category }),
+          ...(splitType && { splitType }),
+        },
+      });
+
+      // 3-2. 분담 내역(splits) 갱신 로직
+      if (targetMemberIds && targetMemberIds.length > 0) {
+        // ⭕ Case A: 프론트에서 targetMemberIds를 보낸 경우 (CUSTOM 지정, 비율 변경, 멤버 변경 등)
+        await tx.expenseSplit.deleteMany({
+          where: { expenseId: numericExpenseId },
+        });
+
+        const newSplits = targetMemberIds.map((member) => {
+          let calculatedAmount = member.amount ?? 0;
+
+          // RATIO 방식이면서 percentage가 넘어온 경우 비례 계산
+          if (newSplitType === SplitType.RATIO && member.percentage !== undefined) {
+            calculatedAmount = Math.floor((newTotalAmount * member.percentage) / 100);
+          }
+
+          const memberUserId = BigInt(member.userId);
+          return {
+            expenseId: numericExpenseId,
+            userId: memberUserId,
+            amount: calculatedAmount,
+            status: memberUserId === expense.payerId ? ExpenseSplitStatus.PRE_PAID : ExpenseSplitStatus.REQUESTED,
+          };
+        });
+
+        await tx.expenseSplit.createMany({
+          data: newSplits,
+        });
+
+      } else if (isCalculationChanged && expense.splits.length > 0) {
+        // ⭕ Case B: targetMemberIds 없이 총액/분담방식만 수정된 경우 (기존 멤버 및 비율 유지)
+        const splits = expense.splits;
+        const count = splits.length;
+
+        if (newSplitType === SplitType.EQUAL) {
+          // [EQUAL] N분의 1 재계산 (소액/나머지 1원 단위 분배)
+          const baseAmount = Math.floor(newTotalAmount / count);
+          let remainder = newTotalAmount % count;
+
+          for (const split of splits) {
+            let participantAmount = baseAmount;
+            if (remainder > 0) {
+              participantAmount += 1;
+              remainder -= 1;
+            }
+
+            await tx.expenseSplit.update({
+              where: { id: split.id },
+              data: { amount: participantAmount },
+            });
+          }
+        } else if (newSplitType === SplitType.RATIO) {
+          // [RATIO] 기존 분담 비율(기존 분담금 / 기존 총액)을 유지하며 비례 재계산
+          const oldTotalAmount = expense.totalAmount;
+
+          for (const split of splits) {
+            const ratio = oldTotalAmount > 0 ? split.amount / oldTotalAmount : 1 / count;
+            const recalculatedAmount = Math.floor(newTotalAmount * ratio);
+
+            await tx.expenseSplit.update({
+              where: { id: split.id },
+              data: { amount: recalculatedAmount },
+            });
+          }
+        }
+      }
+
+      return updatedExpense;
     });
   }
 
-  // 5. 지출 내역 삭제 (EXP-CNCL-01)
+  // 5. 지출 내역 삭제
   async deleteExpense(auth: AuthContext, expenseId: number) {
     const currentUserId = await this.getUserIdByAuth(auth);
 
@@ -227,7 +334,6 @@ export class ExpensesService {
     });
     if (!expense) throw new ExpenseNotFoundException();
 
-    // 삭제 권한: 생성자만 가능
     if (expense.createdBy !== currentUserId) {
       throw new ForbiddenException('정산 삭제 권한이 없습니다. (생성자만 가능)');
     }
@@ -242,7 +348,7 @@ export class ExpensesService {
     };
   }
 
-  // 6. 정산 금액 미리보기 자동 계산 (EXP-CALC-01)
+  // 6. 정산 금액 미리보기 계산
   calculateSplitsPreview(auth: AuthContext, dto: CalculateExpenseDto) {
     const { totalAmount, participants } = dto;
 
@@ -276,7 +382,7 @@ export class ExpensesService {
     };
   }
 
-  // 7. 외부 송금 앱 연결 정보 생성 (EXP-PAYLINK-01)
+  // 7. 송금 링크 생성
   async createPayLink(auth: AuthContext, splitId: number) {
     const currentUserId = await this.getUserIdByAuth(auth);
 
@@ -304,8 +410,7 @@ export class ExpensesService {
     return { deepLinkUrl, status: updatedSplit.status };
   }
 
-  // 8. 핀테크 샌드박스 API 연동 테스트 (EXP-PAY-POC-01)
-  // 🔒 보안 강화: 제3자가 transactionId를 추측하지 못하도록 강력한 난수(CSPRNG) 적용
+  // 8. 핀테크 결제 POC
   async paySandboxPoc(auth: AuthContext, splitId: number) {
     const currentUserId = await this.getUserIdByAuth(auth);
 
@@ -318,7 +423,6 @@ export class ExpensesService {
       throw new ForbiddenException('본인의 분담금에 대해서만 결제를 진행할 수 있습니다.');
     }
 
-    // 예측 불가능한 암호학적 난수 생성 (128bit hex)
     const secureRandomHex = crypto.randomBytes(16).toString('hex');
     const transactionId = `TX_${Date.now()}_${secureRandomHex}`;
 
@@ -333,36 +437,30 @@ export class ExpensesService {
     return { transactionId, apiStatus: 'PROCESSING' };
   }
 
-  // 9. 결제/송금 결과 수신 웹훅 (EXP-WEBHOOK-01)
-  // 🔒 보안 강화: Secret 서명 검증 + Timing Attack 방어 + Replay 공격 방어 + 멱등성 검증
+  // 9. 결제 수신 웹훅 처리
   async handleWebhook(signature: string, timestamp: string, webhookDto: WebhookExpenseDto) {
-    // 0. Secret 설정 여부 검증
     if (!this.WEBHOOK_SECRET) {
       throw new InternalServerErrorException('웹훅 검증용 Secret Key가 서버에 설정되지 않았습니다.');
     }
 
-    // 1. 필수 헤더 정보 유효성 검증
     if (!signature || !timestamp) {
       throw new UnauthorizedException('웹훅 헤더 정보(x-signature, x-timestamp)가 누락되었습니다.');
     }
 
     const { transactionId, amount } = webhookDto;
 
-    // 2. 타임스탬프 기반 Replay Attack 방어 (5분 제한)
     const requestTime = parseInt(timestamp, 10);
     const now = Date.now();
     if (isNaN(requestTime) || Math.abs(now - requestTime) > 5 * 60 * 1000) {
       throw new UnauthorizedException('만료되었거나 유효하지 않은 웹훅 타임스탬프입니다.');
     }
 
-    // 3. HMAC-SHA256 제공자 secret 기반 서명 검증
     const payload = `${timestamp}.${transactionId}.${amount}`;
     const expectedSignature = crypto
       .createHmac('sha256', this.WEBHOOK_SECRET)
       .update(payload)
       .digest('hex');
 
-    // Timing Attack 방지를 위한 safeCompare 적용
     const sigBuffer = Buffer.from(signature, 'utf8');
     const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
 
@@ -370,7 +468,6 @@ export class ExpensesService {
       throw new UnauthorizedException('웹훅 서명(Signature) 검증에 실패했습니다.');
     }
 
-    // 4. DB 거래 내역 조회
     const split = await this.prisma.expenseSplit.findUnique({
       where: { transactionId },
     });
@@ -379,30 +476,26 @@ export class ExpensesService {
       throw new BadRequestException('해당 거래 ID와 일치하는 정산 분담 내역이 존재하지 않습니다.');
     }
 
-    // 5. 멱등성(Idempotency) 보장: 이미 DONE 상태라면 성공 응답 200 반환
     if (split.status === 'DONE') {
       return { status: 'SUCCESS', message: '이미 처리 완료된 거래입니다.' };
     }
 
-    // 6. 허용된 이전 상태 전이(State Transition) 검증
     const ALLOWED_PREVIOUS_STATUSES = ['TRANSFER_PENDING', 'PROCESSING', 'REQUESTED'];
     if (!ALLOWED_PREVIOUS_STATUSES.includes(split.status)) {
       throw new BadRequestException(`현재 분담 상태(${split.status})에서는 완료 처리할 수 없습니다.`);
     }
 
-    // 7. 정산 금액 일치 검증
     if (split.amount !== amount) {
       throw new BadRequestException('정산 요청 금액과 웹훅 수신 금액이 일치하지 않습니다.');
     }
 
-    // 8. 정산 완료 처리 동기화 (시스템 권한)
     const systemAuthContext: AuthContext = { cognitoSub: 'SYSTEM', accessToken: '' };
     await this.settleSplit(systemAuthContext, Number(split.id), { isBulkComplete: true });
 
     return { status: 'SUCCESS' };
   }
 
-  // 10. 개별 정산 상태 완료 및 전체 동기화 (EXP-SETTLE-01)
+  // 10. 분담 상태 완료 처리
   async settleSplit(auth: AuthContext, splitId: number, settleDto?: SettleSplitDto) {
     if (auth.cognitoSub !== 'SYSTEM') {
       const currentUserId = await this.getUserIdByAuth(auth);
@@ -449,12 +542,10 @@ export class ExpensesService {
     });
   }
 
-  // 11. 정산 정보 메신저 공유 카드 변환 (EXP-SHARE-01)
-  // 💡 프로젝트 내 타 도메인(rules, chores) 공유 컨벤션과 100% 동일하게 구현[cite: 1]
+  // 11. 정산 정보 카드 메시지 공유
   async shareExpenseCard(auth: AuthContext, expenseId: number) {
     const currentUserId = await this.getUserIdByAuth(auth);
 
-    // 1. 공유할 정산 내역 존재 여부 확인
     const expense = await this.prisma.expense.findUnique({
       where: { id: BigInt(expenseId) },
     });
@@ -462,7 +553,6 @@ export class ExpensesService {
       throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
     }
 
-    // 2. 해당 그룹의 기본 채팅방(isDefault: true) 조회[cite: 1]
     const chatRoom = await this.prisma.chatRoom.findFirst({
       where: {
         groupId: expense.groupId,
@@ -470,10 +560,9 @@ export class ExpensesService {
       },
     });
     if (!chatRoom) {
-      throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND); //[cite: 1]
+      throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND);
     }
 
-    // 3. 발신자(요청자)가 해당 채팅방의 멤버인지 권한 검증[cite: 1]
     const chatRoomMember = await this.prisma.chatRoomMember.findUnique({
       where: {
         chatRoomId_userId: {
@@ -483,10 +572,9 @@ export class ExpensesService {
       },
     });
     if (!chatRoomMember) {
-      throw new BusinessException(ErrorCode.CHAT_ROOM_MEMBER_NOT_FOUND); //[cite: 1]
+      throw new BusinessException(ErrorCode.CHAT_ROOM_MEMBER_NOT_FOUND);
     }
 
-    // 4. Message 생성 및 실제 저장된 PK 반환[cite: 1]
     const message = await this.prisma.message.create({
       data: {
         chatRoomId: chatRoom.id,
@@ -499,7 +587,7 @@ export class ExpensesService {
 
     return {
       expenseId: Number(expense.id),
-      messageId: Number(message.id), // 실제 저장된 DB Message ID 반환![cite: 1]
+      messageId: Number(message.id),
     };
   }
 }

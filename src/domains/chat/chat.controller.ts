@@ -13,6 +13,8 @@ import { CreateMessageDto } from './dto/create-message.dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { ListChatRoomsQueryDto } from './dto/list-chat-rooms.query.dto';
 import { ListMessagesQueryDto } from './dto/list-messages.query.dto';
+import { TransferChatRoomOwnerDto } from './dto/transfer-chat-room-owner.dto';
+import { UpdateChatRoomMemberSettingsDto } from './dto/update-chat-room-member-settings.dto';
 
 @ApiTags('chat-rooms')
 @ApiBearerAuth('BearerAuth')
@@ -37,7 +39,7 @@ export class ChatController {
     const createdBy = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     const groupId = parseBigIntId(dto.groupId, 'groupId');
 
-    return this.chatService.createChatRoom(groupId, dto.name, createdBy);
+    return this.chatService.createChatRoom(groupId, dto.name, createdBy, dto.type);
   }
 
   @Get(':roomId')
@@ -53,6 +55,20 @@ export class ChatController {
     return this.chatService.deleteChatRoom(parseBigIntId(roomId, 'roomId'), currentUserId);
   }
 
+  @Patch(':roomId/owner')
+  async transferOwnership(
+    @CurrentAuth() auth: AuthContext,
+    @Param('roomId') roomId: string,
+    @Body() dto: TransferChatRoomOwnerDto,
+  ) {
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.chatService.transferOwnership(
+      parseBigIntId(roomId, 'roomId'),
+      parseBigIntId(dto.userId, 'userId'),
+      currentUserId,
+    );
+  }
+
   @Post(':roomId/members')
   async inviteMember(
     @CurrentAuth() auth: AuthContext,
@@ -63,6 +79,16 @@ export class ChatController {
     const userIds = dto.userIds.map((userId) => parseBigIntId(userId, 'userIds'));
 
     return this.chatService.inviteMember(parseBigIntId(roomId, 'roomId'), userIds, currentUserId);
+  }
+
+  @Patch(':roomId/members/me')
+  async updateMemberSettings(
+    @CurrentAuth() auth: AuthContext,
+    @Param('roomId') roomId: string,
+    @Body() dto: UpdateChatRoomMemberSettingsDto,
+  ) {
+    const currentUserId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.chatService.updateMemberSettings(parseBigIntId(roomId, 'roomId'), currentUserId, dto);
   }
 
   @Delete(':roomId/members/:userId')

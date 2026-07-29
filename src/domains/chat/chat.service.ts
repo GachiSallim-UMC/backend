@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { MessageType, Prisma } from '@prisma/client';
+import { ChatRoomType, MessageType, Prisma } from '@prisma/client';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -10,6 +10,8 @@ const CHAT_ROOM_MEMBER_SELECT = {
   userId: true,
   joinedAt: true,
   lastReadAt: true,
+  notificationEnabled: true,
+  isPinned: true,
   user: {
     select: {
       id: true,
@@ -26,13 +28,47 @@ export class ChatService {
   async listChatRooms(groupId: bigint, currentUserId: bigint) {
     await this.findActiveGroupMemberOrThrow(groupId, currentUserId);
 
-    return this.prisma.chatRoom.findMany({
+    const chatRooms = await this.prisma.chatRoom.findMany({
       where: { groupId },
       orderBy: { createdAt: 'asc' },
+      include: {
+        _count: { select: { members: true } },
+        messages: {
+          orderBy: { id: 'desc' },
+          take: 1,
+          include: { sender: { select: { id: true, nickname: true, profileImage: true } } },
+        },
+        members: {
+          where: { userId: currentUserId },
+          select: { lastReadAt: true, joinedAt: true },
+        },
+      },
     });
+
+    return Promise.all(
+      chatRooms.map(async ({ _count, messages, members, ...room }) => {
+        const membership = members[0];
+        const unreadCount = membership
+          ? await this.prisma.message.count({
+              where: {
+                chatRoomId: room.id,
+                senderId: { not: currentUserId },
+                createdAt: { gt: membership.lastReadAt ?? membership.joinedAt },
+              },
+            })
+          : 0;
+
+        return {
+          ...room,
+          memberCount: _count.members,
+          lastMessage: messages[0] ?? null,
+          unreadCount,
+        };
+      }),
+    );
   }
 
-  async createChatRoom(groupId: bigint, name: string, createdBy: bigint) {
+  async createChatRoom(groupId: bigint, name: string, createdBy: bigint, type?: ChatRoomType) {
     const group = await this.prisma.group.findUnique({ where: { id: groupId } });
 
     if (!group) {
@@ -45,7 +81,9 @@ export class ChatService {
       data: {
         groupId,
         name,
+        type,
         createdBy,
+        ownerId: createdBy,
         members: {
           create: { userId: createdBy },
         },
@@ -71,7 +109,7 @@ export class ChatService {
   async deleteChatRoom(roomId: bigint, currentUserId: bigint): Promise<void> {
     const chatRoom = await this.findChatRoomOrThrow(roomId);
 
-    if (chatRoom.createdBy !== currentUserId) {
+    if (chatRoom.ownerId !== currentUserId) {
       throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
     }
 
@@ -115,14 +153,33 @@ export class ChatService {
   async removeMember(roomId: bigint, userId: bigint, currentUserId: bigint): Promise<void> {
     const chatRoom = await this.findChatRoomOrThrow(roomId);
 
-    if (currentUserId !== userId && chatRoom.createdBy !== currentUserId) {
+    if (currentUserId !== userId && chatRoom.ownerId !== currentUserId) {
       throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+    }
+
+    if (userId === chatRoom.ownerId) {
+      throw new BusinessException(ErrorCode.CHAT_ROOM_OWNER_MUST_TRANSFER_BEFORE_LEAVING);
     }
 
     await this.findChatRoomMemberOrThrow(roomId, userId);
 
     await this.prisma.chatRoomMember.delete({
       where: { chatRoomId_userId: { chatRoomId: roomId, userId } },
+    });
+  }
+
+  async transferOwnership(roomId: bigint, newOwnerId: bigint, currentUserId: bigint) {
+    const chatRoom = await this.findChatRoomOrThrow(roomId);
+
+    if (chatRoom.ownerId !== currentUserId) {
+      throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
+    }
+
+    await this.findChatRoomMemberOrThrow(roomId, newOwnerId);
+
+    return this.prisma.chatRoom.update({
+      where: { id: roomId },
+      data: { ownerId: newOwnerId },
     });
   }
 
@@ -137,6 +194,11 @@ export class ChatService {
       },
       orderBy: { id: 'desc' },
       take: limit,
+      include: {
+        sender: {
+          select: { id: true, nickname: true, profileImage: true },
+        },
+      },
     });
   }
 
@@ -182,6 +244,21 @@ export class ChatService {
     return this.prisma.chatRoomMember.update({
       where: { chatRoomId_userId: { chatRoomId: roomId, userId } },
       data: { lastReadAt: new Date() },
+      select: CHAT_ROOM_MEMBER_SELECT,
+    });
+  }
+
+  async updateMemberSettings(
+    roomId: bigint,
+    currentUserId: bigint,
+    settings: { notificationEnabled?: boolean; isPinned?: boolean },
+  ) {
+    await this.findChatRoomOrThrow(roomId);
+    await this.findChatRoomMemberOrThrow(roomId, currentUserId);
+
+    return this.prisma.chatRoomMember.update({
+      where: { chatRoomId_userId: { chatRoomId: roomId, userId: currentUserId } },
+      data: settings,
       select: CHAT_ROOM_MEMBER_SELECT,
     });
   }

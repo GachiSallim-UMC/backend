@@ -20,6 +20,9 @@ type MockedPrisma = {
     count: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     create: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
+  groupPermission: {
+    upsert: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+  };
   $transaction: jest.MockedFunction<(fn: (tx: unknown) => Promise<unknown>, options?: unknown) => Promise<unknown>>;
 };
 
@@ -45,6 +48,9 @@ describe('GroupsService', () => {
         updateMany: jest.fn<() => Promise<{ count: number }>>().mockResolvedValue({ count: 1 }),
         count: jest.fn<() => Promise<unknown>>(),
         create: jest.fn<() => Promise<unknown>>(),
+      },
+      groupPermission: {
+        upsert: jest.fn<() => Promise<unknown>>(),
       },
       $transaction: jest.fn(),
     };
@@ -72,7 +78,14 @@ describe('GroupsService', () => {
       createdBy: 10n,
     });
     const createArgs = prisma.group.create.mock.calls[0]?.[0] as {
-      data: { name: string; description: string; maxMembers: number; createdBy: bigint; members: unknown };
+      data: {
+        name: string;
+        description: string;
+        maxMembers: number;
+        createdBy: bigint;
+        inviteCode: string;
+        members: unknown;
+      };
     };
 
     expect(createArgs.data).toEqual(
@@ -82,8 +95,22 @@ describe('GroupsService', () => {
         maxMembers: 4,
         createdBy: 10n,
         members: { create: { userId: 10n, role: 'ADMIN' } },
+        permission: { create: {} },
       }),
     );
+    expect(typeof createArgs.data.inviteCode).toBe('string');
+    expect(createArgs.data.inviteCode.length).toBeGreaterThan(0);
+  });
+
+  it('retries with a new invite code candidate when creating a group collides with an existing invite code', async () => {
+    prisma.group.create
+      .mockRejectedValueOnce(prismaKnownError('P2002'))
+      .mockResolvedValueOnce({ id: 1n, name: '우리집', createdBy: 10n });
+
+    const result = await service.createGroup({ name: '우리집', maxMembers: 4 }, 10n);
+
+    expect(result).toEqual({ id: 1n, name: '우리집', createdBy: 10n });
+    expect(prisma.group.create).toHaveBeenCalledTimes(2);
   });
 
   it('returns the group detail when the requester is an active member', async () => {
@@ -127,6 +154,61 @@ describe('GroupsService', () => {
     expect(prisma.group.update).not.toHaveBeenCalled();
   });
 
+  it('returns the group permission for an active member', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'MEMBER', leftAt: null });
+    prisma.groupPermission.upsert.mockResolvedValue({
+      groupId: 1n,
+      allowChoreRegistration: true,
+      allowSettlementRegistration: true,
+      allowItemStatusChange: true,
+      autoApproveNewMembers: false,
+    });
+
+    const result = await service.getGroupPermission(1n, 10n);
+
+    expect(prisma.groupPermission.upsert).toHaveBeenCalledWith({
+      where: { groupId: 1n },
+      create: { groupId: 1n },
+      update: {},
+    });
+    expect(result).toEqual(
+      expect.objectContaining({ allowChoreRegistration: true, autoApproveNewMembers: false }),
+    );
+  });
+
+  it('throws when a non-member tries to read the group permission', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue(null);
+
+    await expect(service.getGroupPermission(1n, 99n)).rejects.toBeInstanceOf(BusinessException);
+    expect(prisma.groupPermission.upsert).not.toHaveBeenCalled();
+  });
+
+  it('updates the group permission when the requester is an ADMIN', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
+    prisma.groupPermission.upsert.mockResolvedValue({ groupId: 1n, autoApproveNewMembers: true });
+
+    await service.updateGroupPermission(1n, { autoApproveNewMembers: true }, 10n);
+
+    expect(prisma.groupPermission.upsert).toHaveBeenCalledWith({
+      where: { groupId: 1n },
+      create: { groupId: 1n, autoApproveNewMembers: true },
+      update: { autoApproveNewMembers: true },
+    });
+  });
+
+  it('throws when a non-ADMIN member tries to update the group permission', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 20n, groupId: 1n, role: 'MEMBER', leftAt: null });
+
+    await expect(
+      service.updateGroupPermission(1n, { autoApproveNewMembers: true }, 20n),
+    ).rejects.toBeInstanceOf(BusinessException);
+    expect(prisma.groupPermission.upsert).not.toHaveBeenCalled();
+  });
+
   it('soft-deletes a group when the requester is an ADMIN', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
     prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
@@ -143,17 +225,48 @@ describe('GroupsService', () => {
     await expect(service.deleteGroup(999n, 10n)).rejects.toBeInstanceOf(BusinessException);
   });
 
-  it('lists active members when the requester is an active member', async () => {
+  it('lists active members with the user name and profile image when the requester is an active member', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
     prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
-    prisma.groupMember.findMany.mockResolvedValue([{ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null }]);
+    prisma.groupMember.findMany.mockResolvedValue([
+      {
+        userId: 10n,
+        groupId: 1n,
+        role: 'ADMIN',
+        leftAt: null,
+        user: { id: 10n, name: '김하루', nickname: '하루', profileImage: null },
+      },
+    ]);
 
     const result = await service.listMembers(1n, 10n);
 
-    expect(result).toEqual([{ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null }]);
+    expect(result).toEqual([
+      {
+        userId: 10n,
+        groupId: 1n,
+        role: 'ADMIN',
+        leftAt: null,
+        user: { id: 10n, name: '김하루', nickname: '하루', profileImage: null },
+      },
+    ]);
     expect(prisma.groupMember.findMany).toHaveBeenCalledWith({
       where: { groupId: 1n, leftAt: null },
       orderBy: { joinedAt: 'asc' },
+      select: {
+        userId: true,
+        groupId: true,
+        role: true,
+        joinedAt: true,
+        leftAt: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            nickname: true,
+            profileImage: true,
+          },
+        },
+      },
     });
   });
 
@@ -266,11 +379,11 @@ describe('GroupsService', () => {
   it('reissues an invite code when the requester is an ADMIN', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
     prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
-    prisma.group.update.mockResolvedValue({ id: 1n, inviteCode: 'ABCDEFGH' });
+    prisma.group.update.mockResolvedValue({ id: 1n, inviteCode: 'ABCDEF' });
 
     const result = await service.reissueInviteCode(1n, 10n);
 
-    expect(result).toEqual({ id: 1n, inviteCode: 'ABCDEFGH' });
+    expect(result).toEqual({ id: 1n, inviteCode: 'ABCDEF' });
     const updateArgs = prisma.group.update.mock.calls[0]?.[0] as {
       where: { id: bigint };
       data: { inviteCode: string; inviteExpiredAt: Date };
@@ -286,11 +399,11 @@ describe('GroupsService', () => {
     prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
     prisma.group.update
       .mockRejectedValueOnce(prismaKnownError('P2002'))
-      .mockResolvedValueOnce({ id: 1n, inviteCode: 'NEWCODE1' });
+      .mockResolvedValueOnce({ id: 1n, inviteCode: 'NEWCOD1' });
 
     const result = await service.reissueInviteCode(1n, 10n);
 
-    expect(result).toEqual({ id: 1n, inviteCode: 'NEWCODE1' });
+    expect(result).toEqual({ id: 1n, inviteCode: 'NEWCOD1' });
     expect(prisma.group.update).toHaveBeenCalledTimes(2);
   });
 
@@ -305,7 +418,7 @@ describe('GroupsService', () => {
     prisma.group.findUnique.mockResolvedValue({
       id: 1n,
       isDeleted: false,
-      inviteCode: 'ABCDEFGH',
+      inviteCode: 'ABCDEF',
       inviteExpiredAt: new Date(Date.now() + 1000 * 60),
       currentMembers: 1,
       maxMembers: 4,
@@ -314,7 +427,7 @@ describe('GroupsService', () => {
     prisma.groupMember.create.mockResolvedValue({ userId: 30n, groupId: 1n, role: 'MEMBER' });
     prisma.group.update.mockResolvedValue({ id: 1n, currentMembers: 2 });
 
-    const result = await service.joinGroup({ inviteCode: 'ABCDEFGH' }, 30n);
+    const result = await service.joinGroup({ inviteCode: 'ABCDEF' }, 30n);
 
     expect(result).toEqual({ id: 1n, currentMembers: 2 });
     expect(prisma.group.update).toHaveBeenCalledWith({
@@ -329,41 +442,41 @@ describe('GroupsService', () => {
   it('throws when the invite code does not match any group', async () => {
     prisma.group.findUnique.mockResolvedValue(null);
 
-    await expect(service.joinGroup({ inviteCode: 'INVALID1' }, 30n)).rejects.toBeInstanceOf(BusinessException);
+    await expect(service.joinGroup({ inviteCode: 'INVALI1' }, 30n)).rejects.toBeInstanceOf(BusinessException);
   });
 
   it('throws when the invite code has expired', async () => {
     prisma.group.findUnique.mockResolvedValue({
       id: 1n,
       isDeleted: false,
-      inviteCode: 'ABCDEFGH',
+      inviteCode: 'ABCDEF',
       inviteExpiredAt: new Date(Date.now() - 1000 * 60),
       currentMembers: 1,
       maxMembers: 4,
     });
 
-    await expect(service.joinGroup({ inviteCode: 'ABCDEFGH' }, 30n)).rejects.toBeInstanceOf(BusinessException);
+    await expect(service.joinGroup({ inviteCode: 'ABCDEF' }, 30n)).rejects.toBeInstanceOf(BusinessException);
   });
 
   it('throws when the requester is already an active member', async () => {
     prisma.group.findUnique.mockResolvedValue({
       id: 1n,
       isDeleted: false,
-      inviteCode: 'ABCDEFGH',
+      inviteCode: 'ABCDEF',
       inviteExpiredAt: new Date(Date.now() + 1000 * 60),
       currentMembers: 2,
       maxMembers: 4,
     });
     prisma.groupMember.findUnique.mockResolvedValue({ userId: 30n, groupId: 1n, role: 'MEMBER', leftAt: null });
 
-    await expect(service.joinGroup({ inviteCode: 'ABCDEFGH' }, 30n)).rejects.toBeInstanceOf(BusinessException);
+    await expect(service.joinGroup({ inviteCode: 'ABCDEF' }, 30n)).rejects.toBeInstanceOf(BusinessException);
   });
 
   it('throws when the group has reached its member limit', async () => {
     prisma.group.findUnique.mockResolvedValue({
       id: 1n,
       isDeleted: false,
-      inviteCode: 'ABCDEFGH',
+      inviteCode: 'ABCDEF',
       inviteExpiredAt: new Date(Date.now() + 1000 * 60),
       currentMembers: 4,
       maxMembers: 4,
@@ -371,7 +484,7 @@ describe('GroupsService', () => {
     prisma.groupMember.findUnique.mockResolvedValue(null);
     prisma.group.update.mockRejectedValue(prismaKnownError('P2025'));
 
-    const error = await service.joinGroup({ inviteCode: 'ABCDEFGH' }, 30n).catch((e: unknown) => e);
+    const error = await service.joinGroup({ inviteCode: 'ABCDEF' }, 30n).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(BusinessException);
     expect((error as BusinessException).code).toBe('GROUP_FULL');
@@ -383,7 +496,7 @@ describe('GroupsService', () => {
     prisma.group.findUnique.mockResolvedValue({
       id: 1n,
       isDeleted: false,
-      inviteCode: 'ABCDEFGH',
+      inviteCode: 'ABCDEF',
       inviteExpiredAt: new Date(Date.now() + 1000 * 60),
       currentMembers: 3,
       maxMembers: 4,
@@ -392,8 +505,8 @@ describe('GroupsService', () => {
     prisma.group.update.mockResolvedValueOnce({ id: 1n, currentMembers: 4 }).mockRejectedValueOnce(prismaKnownError('P2025'));
 
     const results = await Promise.allSettled([
-      service.joinGroup({ inviteCode: 'ABCDEFGH' }, 30n),
-      service.joinGroup({ inviteCode: 'ABCDEFGH' }, 40n),
+      service.joinGroup({ inviteCode: 'ABCDEF' }, 30n),
+      service.joinGroup({ inviteCode: 'ABCDEF' }, 40n),
     ]);
 
     const fulfilled = results.filter((result) => result.status === 'fulfilled');

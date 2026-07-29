@@ -313,6 +313,63 @@ describe('BackendStack', () => {
     expect(endpoints).toContain('.scheduler');
   });
 
+  it('creates a private profile image bucket served through CloudFront', () => {
+    template.resourceCountIs('AWS::S3::Bucket', 1);
+    template.resourceCountIs('AWS::CloudFront::Distribution', 1);
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      BucketEncryption: {
+        ServerSideEncryptionConfiguration: [
+          { ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } },
+        ],
+      },
+      CorsConfiguration: {
+        CorsRules: [
+          Match.objectLike({
+            AllowedMethods: ['POST'],
+            AllowedOrigins: [
+              'https://gachisallim.com',
+              'https://dev.gachisallim.com',
+              'http://localhost:5173',
+            ],
+            MaxAge: 300,
+          }),
+        ],
+      },
+      OwnershipControls: { Rules: [{ ObjectOwnership: 'BucketOwnerEnforced' }] },
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        DefaultCacheBehavior: Match.objectLike({
+          ViewerProtocolPolicy: 'redirect-to-https',
+        }),
+        Enabled: true,
+        PriceClass: 'PriceClass_100',
+      }),
+    });
+
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('s3:PutObject');
+    expect(policies).toContain('/main/profiles/*');
+    expect(policies).toContain('/develop/profiles/*');
+
+    const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
+    expect(userData).toContain('PROFILE_IMAGE_BUCKET');
+    expect(userData).toContain("PROFILE_IMAGE_OBJECT_PREFIX='main/profiles'");
+    expect(userData).toContain("PROFILE_IMAGE_OBJECT_PREFIX='develop/profiles'");
+    expect(userData).toContain('PROFILE_IMAGE_PUBLIC_BASE_URL');
+
+    const runtimeConfiguration = JSON.stringify(template.findResources('AWS::SSM::Document'));
+    expect(runtimeConfiguration).toContain('PROFILE_IMAGE_BUCKET');
+    expect(runtimeConfiguration).toContain('PROFILE_IMAGE_OBJECT_PREFIX');
+    expect(runtimeConfiguration).toContain('PROFILE_IMAGE_PUBLIC_BASE_URL');
+  });
+
   it('creates encrypted notification push queues and dead-letter queues per environment', () => {
     template.resourceCountIs('AWS::SQS::Queue', 12);
     template.resourceCountIs('AWS::KMS::Key', 1);
@@ -332,9 +389,7 @@ describe('BackendStack', () => {
       RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
     });
 
-    const runtimeConfiguration = JSON.stringify(
-      template.findResources('AWS::SSM::Document'),
-    );
+    const runtimeConfiguration = JSON.stringify(template.findResources('AWS::SSM::Document'));
     expect(runtimeConfiguration).toContain('NOTIFICATION_PUSH_QUEUE_URL');
     expect(runtimeConfiguration).toContain('NOTIFICATION_PUSH_RESULT_QUEUE_URL');
     expect(runtimeConfiguration).toContain('NOTIFICATION_VAPID_PUBLIC_KEY');
@@ -385,9 +440,7 @@ describe('BackendStack', () => {
     expect(policies).toContain('iam:PassRole');
     expect(policies).toContain('iam:PassedToService');
 
-    const runtimeConfiguration = JSON.stringify(
-      template.findResources('AWS::SSM::Document'),
-    );
+    const runtimeConfiguration = JSON.stringify(template.findResources('AWS::SSM::Document'));
     expect(runtimeConfiguration).toContain('NOTIFICATION_COMMAND_QUEUE_URL');
     expect(runtimeConfiguration).toContain('CHORE_DUE_SCHEDULE_GROUP');
     expect(runtimeConfiguration).toContain('CHORE_DUE_SCHEDULE_ROLE_ARN');
@@ -428,9 +481,7 @@ describe('BackendStack', () => {
     expect(userData).not.toContain('NOTIFICATION_PUSH_QUEUE_URL');
     expect(userData).not.toContain('NOTIFICATION_COMMAND_QUEUE_URL');
 
-    const runtimeConfiguration = JSON.stringify(
-      template.findResources('AWS::SSM::Document'),
-    );
+    const runtimeConfiguration = JSON.stringify(template.findResources('AWS::SSM::Document'));
     expect(runtimeConfiguration).toContain('/usr/local/bin/gachisallim-deploy');
     expect(runtimeConfiguration).toContain('systemctl enable');
   });

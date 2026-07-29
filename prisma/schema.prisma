@@ -22,29 +22,31 @@ model User {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Relations
-  authIdentities    UserAuthIdentity[]
-  termsAgreements   UserTermsAgreement[]
-  pushSubscriptions NotificationPushSubscription[]
-  ownedGroups       Group[]                        @relation("GroupCreator")
-  groupMembers      GroupMember[]
-  assignedChores    Chore[]                        @relation("ChoreAssignee")
-  completedChores   Chore[]                        @relation("ChoreCompleter")
-  createdChores     Chore[]                        @relation("ChoreCreator")
-  paidExpenses      Expense[]                      @relation("ExpensePayer")
-  createdExpenses   Expense[]                      @relation("ExpenseCreator")
-  expenseSplits     ExpenseSplit[]
-  expenseLogs       ExpenseLog[]
-  createdSupplies   Supply[]                       @relation("SupplyCreator")
-  assignedSupplies  Supply[]                       @relation("SupplyAssignee")
-  supplyLogs        SupplyLog[]
-  createdRules      Rule[]
-  ruleAgreements    RuleAgreement[]
-  ruleLogs          RuleLog[]
-  createdChatRooms  ChatRoom[]
-  chatRoomMembers   ChatRoomMember[]
-  sentMessages      Message[]
-  notifications     Notification[]
-  activityLogs      ActivityLog[]
+  authIdentities         UserAuthIdentity[]
+  termsAgreements        UserTermsAgreement[]
+  pushSubscriptions      NotificationPushSubscription[]
+  notificationPreference UserNotificationPreference?
+  ownedGroups            Group[]                        @relation("GroupCreator")
+  groupMembers           GroupMember[]
+  assignedChores         Chore[]                        @relation("ChoreAssignee")
+  completedChores        Chore[]                        @relation("ChoreCompleter")
+  createdChores          Chore[]                        @relation("ChoreCreator")
+  paidExpenses           Expense[]                      @relation("ExpensePayer")
+  createdExpenses        Expense[]                      @relation("ExpenseCreator")
+  expenseSplits          ExpenseSplit[]
+  expenseLogs            ExpenseLog[]
+  createdSupplies        Supply[]                       @relation("SupplyCreator")
+  assignedSupplies       Supply[]                       @relation("SupplyAssignee")
+  supplyLogs             SupplyLog[]
+  createdRules           Rule[]
+  ruleAgreements         RuleAgreement[]
+  ruleLogs               RuleLog[]
+  createdChatRooms       ChatRoom[]                     @relation("ChatRoomCreator")
+  ownedChatRooms         ChatRoom[]                     @relation("ChatRoomOwner")
+  chatRoomMembers        ChatRoomMember[]
+  sentMessages           Message[]
+  notifications          Notification[]
+  activityLogs           ActivityLog[]
 
   @@map("users")
 }
@@ -98,6 +100,22 @@ model NotificationPushSubscription {
   @@map("notification_push_subscriptions")
 }
 
+model UserNotificationPreference {
+  userId                      BigInt   @id @map("user_id")
+  choreDueEnabled             Boolean  @default(true) @map("chore_due_enabled")
+  supplyStatusChangedEnabled  Boolean  @default(true) @map("supply_status_changed_enabled")
+  newMessageEnabled           Boolean  @default(true) @map("new_message_enabled")
+  expenseRequestEnabled       Boolean  @default(true) @map("expense_request_enabled")
+  ruleAgreementRequestEnabled Boolean  @default(true) @map("rule_agreement_request_enabled")
+  groupActivityEnabled        Boolean  @default(true) @map("group_activity_enabled")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_notification_preferences")
+}
+
 // =====================================================
 // GROUP
 // =====================================================
@@ -115,8 +133,9 @@ model Group {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  creator       User           @relation("GroupCreator", fields: [createdBy], references: [id])
+  creator       User             @relation("GroupCreator", fields: [createdBy], references: [id])
   members       GroupMember[]
+  permission    GroupPermission?
   chores        Chore[]
   expenses      Expense[]
   supplies      Supply[]
@@ -126,6 +145,20 @@ model Group {
   activityLogs  ActivityLog[]
 
   @@map("groups")
+}
+
+model GroupPermission {
+  groupId                     BigInt   @id @map("group_id")
+  allowChoreRegistration      Boolean  @default(true) @map("allow_chore_registration")
+  allowSettlementRegistration Boolean  @default(true) @map("allow_settlement_registration")
+  allowItemStatusChange       Boolean  @default(true) @map("allow_item_status_change")
+  autoApproveNewMembers       Boolean  @default(false) @map("auto_approve_new_members")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("group_permissions")
 }
 
 model GroupMember {
@@ -148,23 +181,25 @@ model GroupMember {
 // =====================================================
 
 model Chore {
-  id          BigInt        @id @default(autoincrement())
-  parentId    BigInt?       @map("parent_id")
-  groupId     BigInt        @map("group_id")
-  title       String        @db.VarChar(100)
-  category    ChoreCategory @default(ETC)
-  assigneeId  BigInt        @map("assignee_id")
-  startDate   DateTime      @map("start_date")
-  dueDate     DateTime?     @map("due_date")
-  repeatType  RepeatType    @default(NONE) @map("repeat_type")
-  repeatDays  Weekday[]     @map("repeat_days")
-  memo        String?       @db.VarChar(255)
-  status      ChoreStatus   @default(PENDING)
-  completedBy BigInt?     @map("completed_by")
-  completedAt DateTime?   @map("completed_at")
-  createdBy   BigInt      @map("created_by")
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
+  id             BigInt        @id @default(autoincrement())
+  parentId       BigInt?       @map("parent_id")
+  groupId        BigInt        @map("group_id")
+  title          String        @db.VarChar(100)
+  category       ChoreCategory @default(ETC)
+  assigneeId     BigInt        @map("assignee_id")
+  startDate      DateTime      @map("start_date")
+  dueDate        DateTime?     @map("due_date")
+  repeatType     RepeatType    @default(NONE) @map("repeat_type")
+  customOption   CustomOption? @map("custom_option")
+  repeatInterval Int?          @map("repeat_interval")
+  repeatDays     Weekday[]     @map("repeat_days")
+  memo           String?       @db.VarChar(255)
+  status         ChoreStatus   @default(PENDING)
+  completedBy    BigInt?       @map("completed_by")
+  completedAt    DateTime?     @map("completed_at")
+  createdBy      BigInt        @map("created_by")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
 
   parent    Chore?  @relation("ChoreChildren", fields: [parentId], references: [id], onDelete: SetNull)
   children  Chore[] @relation("ChoreChildren")
@@ -194,11 +229,11 @@ model Expense {
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  group   Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  payer   User           @relation("ExpensePayer", fields: [payerId], references: [id])
-  creator User           @relation("ExpenseCreator", fields: [createdBy], references: [id])
-  splits  ExpenseSplit[]
-  logs    ExpenseLog[]
+  group    Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer    User           @relation("ExpensePayer", fields: [payerId], references: [id])
+  creator  User           @relation("ExpenseCreator", fields: [createdBy], references: [id])
+  splits   ExpenseSplit[]
+  logs     ExpenseLog[]
   supplies Supply[]
 
   @@map("expenses")
@@ -248,15 +283,17 @@ model ExpenseLog {
 // =====================================================
 
 model Supply {
-  id              BigInt       @id @default(autoincrement())
-  groupId         BigInt       @map("group_id")
-  name            String       @db.VarChar(100)
-  status          SupplyStatus @default(SUFFICIENT)
-  assigneeId      BigInt?      @map("assignee_id")
-  linkedExpenseId BigInt?      @map("linked_expense_id")
-  createdBy       BigInt       @map("created_by")
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
+  id              BigInt         @id @default(autoincrement())
+  groupId         BigInt         @map("group_id")
+  name            String         @db.VarChar(100)
+  category        SupplyCategory @default(ETC)
+  status          SupplyStatus   @default(SUFFICIENT)
+  assigneeId      BigInt?        @map("assignee_id")
+  memo            String?        @db.VarChar(255)
+  linkedExpenseId BigInt?        @map("linked_expense_id")
+  createdBy       BigInt         @map("created_by")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
 
   group         Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
   assignee      User?       @relation("SupplyAssignee", fields: [assigneeId], references: [id])
@@ -351,27 +388,32 @@ model RuleLog {
 // =====================================================
 
 model ChatRoom {
-  id        BigInt   @id @default(autoincrement())
-  groupId   BigInt   @map("group_id")
-  name      String   @db.VarChar(100)
-  isDefault Boolean  @default(false) @map("is_default")
-  createdBy BigInt   @map("created_by")
-  createdAt DateTime @default(now()) @map("created_at")
+  id        BigInt       @id @default(autoincrement())
+  groupId   BigInt       @map("group_id")
+  name      String       @db.VarChar(100)
+  type      ChatRoomType @default(GROUP)
+  isDefault Boolean      @default(false) @map("is_default")
+  createdBy BigInt       @map("created_by")
+  ownerId   BigInt       @map("owner_id")
+  createdAt DateTime     @default(now()) @map("created_at")
 
-  group   Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  creator User             @relation(fields: [createdBy], references: [id])
-  members ChatRoomMember[]
+  group    Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  creator  User             @relation("ChatRoomCreator", fields: [createdBy], references: [id])
+  owner    User             @relation("ChatRoomOwner", fields: [ownerId], references: [id])
+  members  ChatRoomMember[]
   messages Message[]
 
   @@map("chat_rooms")
 }
 
 model ChatRoomMember {
-  id         BigInt    @id @default(autoincrement())
-  chatRoomId BigInt    @map("chat_room_id")
-  userId     BigInt    @map("user_id")
-  joinedAt   DateTime  @default(now()) @map("joined_at")
-  lastReadAt DateTime? @map("last_read_at")
+  id                  BigInt    @id @default(autoincrement())
+  chatRoomId          BigInt    @map("chat_room_id")
+  userId              BigInt    @map("user_id")
+  joinedAt            DateTime  @default(now()) @map("joined_at")
+  lastReadAt          DateTime? @map("last_read_at")
+  notificationEnabled Boolean   @default(true) @map("notification_enabled")
+  isPinned            Boolean   @default(false) @map("is_pinned")
 
   chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id])
@@ -483,6 +525,14 @@ enum RepeatType {
   DAILY
   WEEKLY
   MONTHLY
+  CUSTOM
+}
+
+enum CustomOption {
+  EVERY_N_DAYS
+  EVERY_N_WEEKS
+  EVERY_N_MONTHS
+  SPECIFIC_DAYS
 }
 
 enum ChoreStatus {
@@ -513,8 +563,14 @@ enum Weekday {
 }
 
 enum ExpenseCategory {
+  FINANCE
   FOOD
   SHOPPING
+  EDUCATION
+  GROCERY
+  TRANSPORT
+  LEISURE
+  CAFE
   UTILITIES
   ETC
 }
@@ -559,6 +615,18 @@ enum SupplyStatus {
   PURCHASED
 }
 
+enum SupplyCategory {
+  DAILY_NECESSITIES
+  BATHROOM
+  KITCHEN
+  LAUNDRY_CLEANING
+  FOOD
+  HEALTH_HYGIENE
+  PET_PLANT
+  TOOLS_ETC
+  ETC
+}
+
 enum RuleStatus {
   ACTIVE
   INACTIVE
@@ -575,6 +643,12 @@ enum RuleAction {
   UPDATED
   AGREED
   DISAGREED
+}
+
+enum ChatRoomType {
+  GROUP
+  NOTICE
+  DM
 }
 
 enum MessageType {

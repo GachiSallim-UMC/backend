@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ChoreCategory, RepeatType, Weekday } from '@prisma/client';
+import { ChoreCategory, CustomOption, RepeatType, Weekday } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -10,10 +10,12 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
+import { REPEAT_INTERVAL_MAX, REPEAT_INTERVAL_MIN } from './create-chore.dto';
 
 export class UpdateChoreDto {
   @ApiProperty({ example: '설거지 및 분리수거', description: '집안일 제목 (최대 100자)' })
@@ -49,16 +51,46 @@ export class UpdateChoreDto {
   @IsDateString()
   dueDate?: string;
 
-  @ApiPropertyOptional({ enum: RepeatType, example: RepeatType.WEEKLY })
-  @IsOptional()
+  @ApiProperty({
+    enum: RepeatType,
+    example: RepeatType.WEEKLY,
+    description:
+      '반복 유형 (필수). NONE(일회성), DAILY(매일), WEEKLY(매주), MONTHLY(매월), CUSTOM(사용자 정의)',
+  })
   @IsEnum(RepeatType)
-  repeatType?: RepeatType;
+  repeatType!: RepeatType;
+
+  @ApiPropertyOptional({
+    enum: CustomOption,
+    example: CustomOption.EVERY_N_WEEKS,
+    description:
+      '사용자 정의 반복 방식. repeatType이 CUSTOM일 때만 사용하며 이때 필수입니다. ' +
+      'EVERY_N_DAYS(N일마다), EVERY_N_WEEKS(N주마다), EVERY_N_MONTHS(N개월마다), SPECIFIC_DAYS(특정 요일)',
+  })
+  @IsOptional()
+  @IsEnum(CustomOption)
+  customOption?: CustomOption;
+
+  @ApiPropertyOptional({
+    example: 2,
+    minimum: REPEAT_INTERVAL_MIN,
+    maximum: REPEAT_INTERVAL_MAX,
+    description:
+      '반복 주기 N. customOption이 EVERY_N_DAYS/EVERY_N_WEEKS/EVERY_N_MONTHS일 때만 사용하며 이때 필수입니다.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(REPEAT_INTERVAL_MIN)
+  @Max(REPEAT_INTERVAL_MAX)
+  repeatInterval?: number;
 
   @ApiPropertyOptional({
     enum: Weekday,
     isArray: true,
     example: [Weekday.MON, Weekday.THU],
-    description: '반복 요일. repeatType이 WEEKLY일 때만 사용하며 최소 1개 이상 필요합니다.',
+    description:
+      '반복 요일. repeatType이 WEEKLY이거나 customOption이 SPECIFIC_DAYS일 때만 사용하며 이때 최소 1개 이상 필요합니다.',
   })
   @IsOptional()
   @IsArray()
