@@ -894,8 +894,6 @@ done`,
         conditions: [
           hostCondition,
           elbv2.ListenerCondition.pathPatterns([
-            '/api/v1/auth/password/forgot',
-            '/api/v1/auth/password/reset',
             '/api/v1/auth/signup',
             '/api/v1/auth/signup/confirm',
           ]),
@@ -910,6 +908,18 @@ done`,
           elbv2.ListenerCondition.pathPatterns([
             '/api/v1/auth/login',
             '/api/v1/auth/token/refresh',
+          ]),
+          elbv2.ListenerCondition.httpRequestMethods(['POST']),
+        ],
+        action: elbv2.ListenerAction.forward([targetGroup]),
+      });
+      httpsListener.addAction(`${environment.id}PublicPasswordResetRoutes`, {
+        priority: priorityOffset + 12,
+        conditions: [
+          hostCondition,
+          elbv2.ListenerCondition.pathPatterns([
+            '/api/v1/auth/password/forgot',
+            '/api/v1/auth/password/reset',
           ]),
           elbv2.ListenerCondition.httpRequestMethods(['POST']),
         ],
