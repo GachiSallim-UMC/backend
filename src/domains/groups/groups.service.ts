@@ -49,21 +49,36 @@ export class GroupsService {
   }
 
   async createGroup(dto: CreateGroupDto, createdBy: bigint) {
-    return this.prisma.group.create({
-      data: {
-        name: dto.name,
-        description: dto.description,
-        maxMembers: dto.maxMembers,
-        inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
-        createdBy,
-        members: {
-          create: { userId: createdBy, role: GroupRole.ADMIN },
-        },
-        permission: {
-          create: {},
-        },
-      },
-    });
+    for (let attempt = 0; attempt < INVITE_CODE_GENERATION_ATTEMPTS; attempt++) {
+      const candidate = generateInviteCode();
+
+      try {
+        return await this.prisma.group.create({
+          data: {
+            name: dto.name,
+            description: dto.description,
+            maxMembers: dto.maxMembers,
+            inviteCode: candidate,
+            inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
+            createdBy,
+            members: {
+              create: { userId: createdBy, role: GroupRole.ADMIN },
+            },
+            permission: {
+              create: {},
+            },
+          },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw new BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR);
   }
 
   async getGroupDetail(groupId: bigint, currentUserId: bigint) {
