@@ -4,6 +4,7 @@ import { ChatRoomType, MessageType, Prisma } from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ChatBroadcastService } from './chat-broadcast.service';
 import { CardMessageType } from './dto/create-card-message.dto';
 
 const CHAT_ROOM_MEMBER_SELECT = {
@@ -23,7 +24,10 @@ const CHAT_ROOM_MEMBER_SELECT = {
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly chatBroadcastService: ChatBroadcastService,
+  ) {}
 
   async listChatRooms(groupId: bigint, currentUserId: bigint) {
     await this.findActiveGroupMemberOrThrow(groupId, currentUserId);
@@ -206,7 +210,7 @@ export class ChatService {
     await this.findChatRoomOrThrow(roomId);
     await this.findChatRoomMemberOrThrow(roomId, senderId);
 
-    return this.prisma.message.create({
+    const message = await this.prisma.message.create({
       data: {
         chatRoomId: roomId,
         senderId,
@@ -214,6 +218,10 @@ export class ChatService {
         content,
       },
     });
+
+    await this.chatBroadcastService.broadcastToRoom(roomId, 'message:new', message);
+
+    return message;
   }
 
   async createCardMessage(
@@ -226,7 +234,7 @@ export class ChatService {
     await this.findChatRoomOrThrow(roomId);
     await this.findChatRoomMemberOrThrow(roomId, senderId);
 
-    return this.prisma.message.create({
+    const message = await this.prisma.message.create({
       data: {
         chatRoomId: roomId,
         senderId,
@@ -235,6 +243,10 @@ export class ChatService {
         refId,
       },
     });
+
+    await this.chatBroadcastService.broadcastToRoom(roomId, 'message:new', message);
+
+    return message;
   }
 
   async markAsRead(roomId: bigint, userId: bigint) {

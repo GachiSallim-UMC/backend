@@ -24,6 +24,8 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     CHORE_DUE_SCHEDULE_ROLE_ARN:
       'arn:aws:iam::123456789012:role/gachisallim-develop-chore-due-scheduler',
     CHORE_DUE_SCHEDULE_PREFIX: 'develop',
+    CHAT_CONNECTIONS_TABLE_NAME: 'gachisallim-develop-chat-connections',
+    CHAT_WEBSOCKET_CALLBACK_URL: 'https://example.execute-api.ap-northeast-2.amazonaws.com/develop',
   };
 
   it('accepts the Cognito runtime configuration', () => {
@@ -48,6 +50,8 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     'CHORE_DUE_SCHEDULE_GROUP',
     'CHORE_DUE_SCHEDULE_ROLE_ARN',
     'CHORE_DUE_SCHEDULE_PREFIX',
+    'CHAT_CONNECTIONS_TABLE_NAME',
+    'CHAT_WEBSOCKET_CALLBACK_URL',
   ])('requires %s', (key) => {
     const environment = { ...validEnvironment };
     delete environment[key as keyof typeof environment];
