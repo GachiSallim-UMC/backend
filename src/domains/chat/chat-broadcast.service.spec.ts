@@ -59,7 +59,7 @@ describe('ChatBroadcastService', () => {
     expect(dynamoSend).toHaveBeenCalledTimes(2);
     const deleteCommand = dynamoSend.mock.calls[1]?.[0] as DeleteCommand;
     expect(deleteCommand.input.TableName).toBe(tableName);
-    expect(deleteCommand.input.Key).toEqual({ connectionId: 'stale-conn' });
+    expect(deleteCommand.input.Key).toEqual({ connectionId: 'stale-conn', chatRoomId: '42' });
   });
 
   it('propagates errors other than GoneException', async () => {
