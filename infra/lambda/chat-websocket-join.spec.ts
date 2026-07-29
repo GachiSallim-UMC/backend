@@ -1,5 +1,5 @@
 import { PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
-import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand } from '@aws-sdk/lib-dynamodb';
 
 import { createChatWebSocketJoinHandler } from './chat-websocket-join';
 
@@ -91,10 +91,16 @@ describe('chat websocket room:join handler', () => {
     const result = await handler(buildEvent(JSON.stringify({ chatRoomId: '42' })));
 
     expect(result).toEqual({ statusCode: 200 });
-    const updateCommand = dynamoSend.mock.calls[0][0] as UpdateCommand;
-    expect(updateCommand.input.TableName).toBe('chat-connections-table');
-    expect(updateCommand.input.Key).toEqual({ connectionId });
-    expect(updateCommand.input.ExpressionAttributeValues).toEqual({ ':chatRoomId': '42' });
+    const putCommand = dynamoSend.mock.calls[0][0] as PutCommand;
+    expect(putCommand.input.TableName).toBe('chat-connections-table');
+    expect(putCommand.input.Item).toEqual(
+      expect.objectContaining({
+        connectionId,
+        chatRoomId: '42',
+        joinedAt: expect.any(String) as string,
+        expiresAt: expect.any(Number) as number,
+      }),
+    );
 
     const postCommand = managementSend.mock.calls[0][0];
     const payload = JSON.parse(Buffer.from(postCommand.input.Data as Uint8Array).toString('utf8')) as {
