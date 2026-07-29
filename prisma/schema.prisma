@@ -116,8 +116,9 @@ model Group {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  creator       User           @relation("GroupCreator", fields: [createdBy], references: [id])
+  creator       User             @relation("GroupCreator", fields: [createdBy], references: [id])
   members       GroupMember[]
+  permission    GroupPermission?
   chores        Chore[]
   expenses      Expense[]
   supplies      Supply[]
@@ -127,6 +128,20 @@ model Group {
   activityLogs  ActivityLog[]
 
   @@map("groups")
+}
+
+model GroupPermission {
+  groupId                     BigInt   @id @map("group_id")
+  allowChoreRegistration      Boolean  @default(true) @map("allow_chore_registration")
+  allowSettlementRegistration Boolean  @default(true) @map("allow_settlement_registration")
+  allowItemStatusChange       Boolean  @default(true) @map("allow_item_status_change")
+  autoApproveNewMembers       Boolean  @default(false) @map("auto_approve_new_members")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("group_permissions")
 }
 
 model GroupMember {
@@ -197,11 +212,11 @@ model Expense {
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  group   Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  payer   User           @relation("ExpensePayer", fields: [payerId], references: [id])
-  creator User           @relation("ExpenseCreator", fields: [createdBy], references: [id])
-  splits  ExpenseSplit[]
-  logs    ExpenseLog[]
+  group    Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer    User           @relation("ExpensePayer", fields: [payerId], references: [id])
+  creator  User           @relation("ExpenseCreator", fields: [createdBy], references: [id])
+  splits   ExpenseSplit[]
+  logs     ExpenseLog[]
   supplies Supply[]
 
   @@map("expenses")

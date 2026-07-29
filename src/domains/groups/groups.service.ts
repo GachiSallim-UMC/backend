@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
+import { UpdateGroupPermissionDto } from './dto/update-group-permission.dto';
 import { UpdateMemberRoleDto } from './dto/update-member-role.dto';
 
 const INVITE_CODE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -58,6 +59,9 @@ export class GroupsService {
         members: {
           create: { userId: createdBy, role: GroupRole.ADMIN },
         },
+        permission: {
+          create: {},
+        },
       },
     });
   }
@@ -80,6 +84,39 @@ export class GroupsService {
         ...(dto.description !== undefined ? { description: dto.description } : {}),
         ...(dto.maxMembers !== undefined ? { maxMembers: dto.maxMembers } : {}),
       },
+    });
+  }
+
+  async getGroupPermission(groupId: bigint, currentUserId: bigint) {
+    await this.findGroupOrThrow(groupId);
+    await this.requireActiveMemberOrThrow(groupId, currentUserId);
+
+    // Self-heals groups created without a permission row (e.g. by a rolled-back
+    // pre-permission release) instead of throwing P2025.
+    return this.prisma.groupPermission.upsert({
+      where: { groupId },
+      create: { groupId },
+      update: {},
+    });
+  }
+
+  async updateGroupPermission(groupId: bigint, dto: UpdateGroupPermissionDto, currentUserId: bigint) {
+    await this.findGroupOrThrow(groupId);
+    await this.requireAdminOrThrow(groupId, currentUserId);
+
+    const data = {
+      ...(dto.allowChoreRegistration !== undefined ? { allowChoreRegistration: dto.allowChoreRegistration } : {}),
+      ...(dto.allowSettlementRegistration !== undefined
+        ? { allowSettlementRegistration: dto.allowSettlementRegistration }
+        : {}),
+      ...(dto.allowItemStatusChange !== undefined ? { allowItemStatusChange: dto.allowItemStatusChange } : {}),
+      ...(dto.autoApproveNewMembers !== undefined ? { autoApproveNewMembers: dto.autoApproveNewMembers } : {}),
+    };
+
+    return this.prisma.groupPermission.upsert({
+      where: { groupId },
+      create: { groupId, ...data },
+      update: data,
     });
   }
 
