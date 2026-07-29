@@ -133,10 +133,8 @@ describe('BackendStack', () => {
     expect(policies).not.toContain(':userpool/*');
   });
 
-  it('creates environment-specific password reset message links', () => {
-    template.hasResourceProperties('AWS::SES::EmailIdentity', {
-      EmailIdentity: 'gachisallim.com',
-    });
+  it('uses the existing SES domain for environment-specific password reset links', () => {
+    template.resourceCountIs('AWS::SES::EmailIdentity', 0);
     template.hasResourceProperties('AWS::Cognito::UserPool', {
       EmailConfiguration: Match.objectLike({
         EmailSendingAccount: 'DEVELOPER',
@@ -215,7 +213,7 @@ describe('BackendStack', () => {
       SubjectAlternativeNames: ['dev-api.gachisallim.com'],
       ValidationMethod: 'DNS',
     });
-    template.resourceCountIs('AWS::Route53::RecordSet', 5);
+    template.resourceCountIs('AWS::Route53::RecordSet', 2);
     const records = JSON.stringify(template.findResources('AWS::Route53::RecordSet'));
     expect(records).toContain('api.gachisallim.com');
     expect(records).toContain('dev-api.gachisallim.com');

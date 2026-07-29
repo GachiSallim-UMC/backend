@@ -20,7 +20,6 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
-import * as ses from 'aws-cdk-lib/aws-ses';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -92,9 +91,6 @@ export class BackendStack extends Stack {
     const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
       hostedZoneId: HOSTED_ZONE_ID,
       zoneName: ROOT_DOMAIN,
-    });
-    const emailIdentity = new ses.EmailIdentity(this, 'EmailIdentity', {
-      identity: ses.Identity.publicHostedZone(hostedZone),
     });
 
     const natProvider = ec2.NatProvider.instanceV2({
@@ -478,7 +474,6 @@ export class BackendStack extends Stack {
         deletionProtection: true,
         removalPolicy: RemovalPolicy.RETAIN,
       });
-      pool.node.addDependency(emailIdentity);
       pool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, preSignupLinkFunction);
       const passwordResetMessageLogGroup = new logs.LogGroup(
         this,
