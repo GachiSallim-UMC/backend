@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Aws, CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigatewayv2Authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as apigatewayv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
@@ -517,12 +518,37 @@ export class BackendStack extends Stack {
       );
       connectionsTable.grantWriteData(disconnectFunction);
 
+      const authorizerFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}ChatWebSocketAuthorizerFunction`,
+        {
+          functionName: `gachisallim-${environment.branch}-chat-ws-authorizer`,
+          entry: join(__dirname, '../lambda/chat-websocket-authorizer.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(10),
+          memorySize: 128,
+          logGroup: new logs.LogGroup(this, `${environment.id}ChatWebSocketAuthorizerLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-chat-ws-authorizer`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+
       const webSocketApi = new apigatewayv2.WebSocketApi(this, `${environment.id}ChatWebSocketApi`, {
         apiName: `gachisallim-${environment.branch}-chat-ws`,
         connectRouteOptions: {
           integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
             `${environment.id}ChatWebSocketConnectIntegration`,
             connectFunction,
+          ),
+          authorizer: new apigatewayv2Authorizers.WebSocketLambdaAuthorizer(
+            `${environment.id}ChatWebSocketAuthorizer`,
+            authorizerFunction,
+            { identitySource: ['route.request.querystring.token'] },
           ),
         },
         disconnectRouteOptions: {
@@ -531,6 +557,44 @@ export class BackendStack extends Stack {
             disconnectFunction,
           ),
         },
+      });
+
+      // The callback URL is deterministic and computed ahead of the stage so the join
+      // function's environment does not depend on the stage created below.
+      const webSocketCallbackUrl = `https://${webSocketApi.apiId}.execute-api.${Aws.REGION}.amazonaws.com/${environment.branch}`;
+
+      const joinFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}ChatWebSocketJoinFunction`,
+        {
+          functionName: `gachisallim-${environment.branch}-chat-ws-join`,
+          entry: join(__dirname, '../lambda/chat-websocket-join.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(10),
+          memorySize: 128,
+          logGroup: new logs.LogGroup(this, `${environment.id}ChatWebSocketJoinLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-chat-ws-join`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          environment: {
+            CHAT_CONNECTIONS_TABLE_NAME: connectionsTable.tableName,
+            CHAT_API_BASE_URL: `https://${environment.domain}`,
+            CHAT_WEBSOCKET_CALLBACK_URL: webSocketCallbackUrl,
+          },
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+      connectionsTable.grantWriteData(joinFunction);
+      webSocketApi.grantManageConnections(joinFunction);
+
+      webSocketApi.addRoute('room:join', {
+        integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+          `${environment.id}ChatWebSocketJoinIntegration`,
+          joinFunction,
+        ),
       });
 
       const webSocketStage = new apigatewayv2.WebSocketStage(

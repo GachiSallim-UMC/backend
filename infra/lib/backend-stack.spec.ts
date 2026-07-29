@@ -559,4 +559,42 @@ describe('BackendStack', () => {
     expect(instancePolicies).toContain('execute-api:ManageConnections');
     expect(instancePolicies).toContain('dynamodb:GetItem');
   });
+
+  it('protects the chat WebSocket $connect route with a Lambda authorizer and adds a room:join route', () => {
+    template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 2);
+    template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
+      AuthorizerType: 'REQUEST',
+      IdentitySource: ['route.request.querystring.token'],
+    });
+
+    const routes = JSON.stringify(template.findResources('AWS::ApiGatewayV2::Route'));
+    expect(routes).toContain('room:join');
+    expect(routes).toContain('$connect');
+    expect(routes).toContain('$disconnect');
+
+    const lambdaFunctions = JSON.stringify(template.findResources('AWS::Lambda::Function'));
+    expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-authorizer');
+    expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-join');
+    expect(lambdaFunctions).toContain('gachisallim-develop-chat-ws-authorizer');
+    expect(lambdaFunctions).toContain('gachisallim-develop-chat-ws-join');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'gachisallim-main-chat-ws-join',
+      Environment: {
+        Variables: Match.objectLike({
+          CHAT_CONNECTIONS_TABLE_NAME: Match.anyValue(),
+          CHAT_API_BASE_URL: Match.anyValue(),
+          CHAT_WEBSOCKET_CALLBACK_URL: Match.anyValue(),
+        }),
+      },
+    });
+
+    const joinPolicies = JSON.stringify(
+      Object.values(template.findResources('AWS::IAM::Policy')).filter((policy) =>
+        JSON.stringify(policy).includes('ChatWebSocketJoinFunction'),
+      ),
+    );
+    expect(joinPolicies).toContain('execute-api:ManageConnections');
+    expect(joinPolicies).toContain('dynamodb:UpdateItem');
+  });
 });
