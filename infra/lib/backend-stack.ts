@@ -460,6 +460,10 @@ export class BackendStack extends Stack {
       const connectionsTable = new dynamodb.Table(this, `${environment.id}ChatConnectionsTable`, {
         tableName: `gachisallim-${environment.branch}-chat-connections`,
         partitionKey: { name: 'connectionId', type: dynamodb.AttributeType.STRING },
+        // Sort key lets one connection subscribe to several chat rooms at once: one item
+        // per (connectionId, chatRoomId) pair, plus a "#CONNECTION#" sentinel row written
+        // at $connect time to track the connection itself independent of any room join.
+        sortKey: { name: 'chatRoomId', type: dynamodb.AttributeType.STRING },
         billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
         timeToLiveAttribute: 'expiresAt',
         removalPolicy: RemovalPolicy.RETAIN,
@@ -516,7 +520,9 @@ export class BackendStack extends Stack {
           bundling: { sourceMap: true, minify: true },
         },
       );
-      connectionsTable.grantWriteData(disconnectFunction);
+      // $disconnect queries every row for this connectionId (the metadata row plus any
+      // joined rooms) before deleting them, so it needs read access too.
+      connectionsTable.grantReadWriteData(disconnectFunction);
 
       const authorizerFunction = new lambdaNodejs.NodejsFunction(
         this,
@@ -594,6 +600,39 @@ export class BackendStack extends Stack {
         integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
           `${environment.id}ChatWebSocketJoinIntegration`,
           joinFunction,
+        ),
+      });
+
+      const leaveFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}ChatWebSocketLeaveFunction`,
+        {
+          functionName: `gachisallim-${environment.branch}-chat-ws-leave`,
+          entry: join(__dirname, '../lambda/chat-websocket-leave.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(10),
+          memorySize: 128,
+          logGroup: new logs.LogGroup(this, `${environment.id}ChatWebSocketLeaveLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-chat-ws-leave`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          environment: {
+            CHAT_CONNECTIONS_TABLE_NAME: connectionsTable.tableName,
+            CHAT_WEBSOCKET_CALLBACK_URL: webSocketCallbackUrl,
+          },
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+      connectionsTable.grantWriteData(leaveFunction);
+      webSocketApi.grantManageConnections(leaveFunction);
+
+      webSocketApi.addRoute('room:leave', {
+        integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+          `${environment.id}ChatWebSocketLeaveIntegration`,
+          leaveFunction,
         ),
       });
 
