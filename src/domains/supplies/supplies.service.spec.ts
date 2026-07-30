@@ -1,5 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ExpenseCategory, ExpenseStatus, SplitType, SupplyStatus } from '@prisma/client';
+import {
+  ExpenseCategory,
+  ExpenseStatus,
+  Prisma,
+  SplitType,
+  SupplyCategory,
+  SupplyStatus,
+} from '@prisma/client';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SuppliesService } from './supplies.service';
@@ -18,7 +25,11 @@ describe('SuppliesService', () => {
     expense: { create: jest.Mock };
     groupMember: { findUnique: jest.Mock };
   };
-  let prisma: { $transaction: jest.Mock; groupMember: { findUnique: jest.Mock } };
+  let prisma: {
+    $transaction: jest.Mock;
+    groupMember: { findUnique: jest.Mock };
+    supply: { findUnique: jest.Mock; update: jest.Mock };
+  };
   let supplyUsers: { resolveActiveUserId: jest.Mock };
 
   beforeEach(async () => {
@@ -36,6 +47,7 @@ describe('SuppliesService', () => {
     prisma = {
       $transaction: jest.fn((cb: (client: typeof tx) => unknown) => cb(tx)),
       groupMember: { findUnique: jest.fn() },
+      supply: { findUnique: jest.fn(), update: jest.fn() },
     };
 
     supplyUsers = { resolveActiveUserId: jest.fn().mockResolvedValue(USER_ID) };
@@ -80,9 +92,9 @@ describe('SuppliesService', () => {
 
   describe('purchase', () => {
     it('category가 없으면 SUP_400_CATEGORY 예외를 던진다', async () => {
-      await expect(
-        service.purchase(SUPPLY_ID, { amount: 8900 }, COGNITO_SUB),
-      ).rejects.toThrow(BusinessException);
+      await expect(service.purchase(SUPPLY_ID, { amount: 8900 }, COGNITO_SUB)).rejects.toThrow(
+        BusinessException,
+      );
 
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
@@ -195,6 +207,126 @@ describe('SuppliesService', () => {
       ).rejects.toThrow(BusinessException);
 
       expect(tx.expense.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateSupply', () => {
+    const EXISTING = {
+      id: SUPPLY_ID,
+      groupId: GROUP_ID,
+      name: '화장지',
+      category: SupplyCategory.DAILY_NECESSITIES,
+      status: SupplyStatus.LOW,
+      assigneeId: null,
+      memo: null,
+      linkedExpenseId: null,
+      createdBy: USER_ID,
+      createdAt: new Date('2026-07-01T00:00:00Z'),
+      updatedAt: new Date('2026-07-01T00:00:00Z'),
+      assignee: null,
+      creator: { id: USER_ID, nickname: '도훈' },
+    };
+
+    function arrangeUpdate(overrides: Record<string, unknown> = {}) {
+      prisma.supply.findUnique.mockResolvedValue(EXISTING);
+      prisma.groupMember.findUnique.mockResolvedValue({ id: BigInt(1), leftAt: null });
+      prisma.supply.update.mockResolvedValue({ ...EXISTING, ...overrides });
+    }
+
+    it('전달된 필드만 부분 수정한다', async () => {
+      arrangeUpdate({ name: '두루마리 화장지', category: SupplyCategory.BATHROOM });
+
+      const result = await service.updateSupply(
+        SUPPLY_ID,
+        { name: '두루마리 화장지', category: SupplyCategory.BATHROOM },
+        COGNITO_SUB,
+      );
+
+      const [args] = prisma.supply.update.mock.calls[0] as [{ data: Record<string, unknown> }];
+
+      expect(args.data).toEqual({ name: '두루마리 화장지', category: SupplyCategory.BATHROOM });
+      expect(result.name).toBe('두루마리 화장지');
+      expect(result.category).toBe(SupplyCategory.BATHROOM);
+    });
+
+    it('status는 수정 대상에 포함되지 않는다 (상태 변경은 /status 담당)', async () => {
+      arrangeUpdate();
+
+      await service.updateSupply(SUPPLY_ID, { memo: '대용량으로 구입' }, COGNITO_SUB);
+
+      const [args] = prisma.supply.update.mock.calls[0] as [{ data: Record<string, unknown> }];
+
+      expect(args.data).not.toHaveProperty('status');
+      expect(args.data.memo).toBe('대용량으로 구입');
+    });
+
+    it('assigneeId가 null이면 담당자를 해제한다', async () => {
+      arrangeUpdate();
+
+      await service.updateSupply(SUPPLY_ID, { assigneeId: null }, COGNITO_SUB);
+
+      const [args] = prisma.supply.update.mock.calls[0] as [{ data: Record<string, unknown> }];
+
+      expect(args.data.assignee).toEqual({ disconnect: true });
+    });
+
+    it('담당자가 그룹 멤버가 아니면 400 예외를 던진다', async () => {
+      prisma.supply.findUnique.mockResolvedValue(EXISTING);
+      prisma.groupMember.findUnique
+        .mockResolvedValueOnce({ id: BigInt(1), leftAt: null }) // 요청자 멤버십
+        .mockResolvedValueOnce(null); // 담당자 멤버십
+
+      await expect(
+        service.updateSupply(SUPPLY_ID, { assigneeId: 99 }, COGNITO_SUB),
+      ).rejects.toThrow(BusinessException);
+
+      expect(prisma.supply.update).not.toHaveBeenCalled();
+    });
+
+    it('수정할 항목이 하나도 없으면 400 예외를 던진다', async () => {
+      arrangeUpdate();
+
+      await expect(service.updateSupply(SUPPLY_ID, {}, COGNITO_SUB)).rejects.toThrow(
+        BusinessException,
+      );
+
+      expect(prisma.supply.update).not.toHaveBeenCalled();
+    });
+
+    it('같은 그룹에 동일한 이름이 있으면(P2002) 409 예외를 던진다', async () => {
+      prisma.supply.findUnique.mockResolvedValue(EXISTING);
+      prisma.groupMember.findUnique.mockResolvedValue({ id: BigInt(1), leftAt: null });
+      prisma.supply.update.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('duplicate', {
+          code: 'P2002',
+          clientVersion: '5.22.0',
+        }),
+      );
+
+      await expect(service.updateSupply(SUPPLY_ID, { name: '샴푸' }, COGNITO_SUB)).rejects.toThrow(
+        BusinessException,
+      );
+    });
+
+    it('존재하지 않는 supplyId면 404 예외를 던진다', async () => {
+      prisma.supply.findUnique.mockResolvedValue(null);
+
+      await expect(service.updateSupply(SUPPLY_ID, { name: '샴푸' }, COGNITO_SUB)).rejects.toThrow(
+        BusinessException,
+      );
+
+      expect(prisma.supply.update).not.toHaveBeenCalled();
+    });
+
+    it('그룹 멤버가 아니면 403 예외를 던진다', async () => {
+      prisma.supply.findUnique.mockResolvedValue(EXISTING);
+      prisma.groupMember.findUnique.mockResolvedValue(null);
+
+      await expect(service.updateSupply(SUPPLY_ID, { name: '샴푸' }, COGNITO_SUB)).rejects.toThrow(
+        BusinessException,
+      );
+
+      expect(prisma.supply.update).not.toHaveBeenCalled();
     });
   });
 });

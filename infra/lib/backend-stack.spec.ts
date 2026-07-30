@@ -109,7 +109,10 @@ describe('BackendStack', () => {
 
   it('links only supported external identities through the pre-signup trigger', () => {
     template.hasResourceProperties('AWS::Cognito::UserPool', {
-      LambdaConfig: Match.objectLike({ PreSignUp: Match.anyValue() }),
+      LambdaConfig: Match.objectLike({
+        CustomMessage: Match.anyValue(),
+        PreSignUp: Match.anyValue(),
+      }),
     });
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: {
@@ -128,6 +131,61 @@ describe('BackendStack', () => {
     expect(policies).toContain('ProductionUserPoolD7CBD407');
     expect(policies).toContain('DevelopmentUserPool1D648632');
     expect(policies).not.toContain(':userpool/*');
+  });
+
+  it('uses the existing SES domain for environment-specific password reset links', () => {
+    template.resourceCountIs('AWS::SES::EmailIdentity', 0);
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      EmailConfiguration: Match.objectLike({
+        EmailSendingAccount: 'DEVELOPER',
+        From: 'GachiSallim <noreply@gachisallim.com>',
+        SourceArn: Match.anyValue(),
+      }),
+    });
+    expect(JSON.stringify(template.findResources('AWS::Cognito::UserPool'))).toContain(
+      'identity/gachisallim.com',
+    );
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: {
+        Variables: {
+          PASSWORD_RESET_URL: 'https://gachisallim.com/reset-password',
+        },
+      },
+    });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: {
+        Variables: {
+          PASSWORD_RESET_URL: 'https://dev.gachisallim.com/reset-password',
+        },
+      },
+    });
+  });
+
+  it('exposes password reset endpoints without JWT authentication', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+      Conditions: Match.arrayWith([
+        Match.objectLike({
+          Field: 'path-pattern',
+          PathPatternConfig: {
+            Values: Match.arrayWith([
+              '/api/v1/auth/password/forgot',
+              '/api/v1/auth/password/reset',
+            ]),
+          },
+        }),
+      ]),
+    });
+
+    const listenerRules = template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule');
+    const passwordResetRules = Object.values(listenerRules).filter((rule) =>
+      JSON.stringify(rule).includes('/api/v1/auth/password/forgot'),
+    );
+
+    expect(passwordResetRules).toHaveLength(2);
+    for (const rule of passwordResetRules) {
+      expect(JSON.stringify(rule)).not.toContain('/api/v1/auth/signup');
+    }
   });
 
   it('exposes Swagger documents only on the development domain', () => {
@@ -263,6 +321,63 @@ describe('BackendStack', () => {
     expect(endpoints).toContain('.scheduler');
   });
 
+  it('creates a private profile image bucket served through CloudFront', () => {
+    template.resourceCountIs('AWS::S3::Bucket', 1);
+    template.resourceCountIs('AWS::CloudFront::Distribution', 1);
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      BucketEncryption: {
+        ServerSideEncryptionConfiguration: [
+          { ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } },
+        ],
+      },
+      CorsConfiguration: {
+        CorsRules: [
+          Match.objectLike({
+            AllowedMethods: ['POST'],
+            AllowedOrigins: [
+              'https://gachisallim.com',
+              'https://dev.gachisallim.com',
+              'http://localhost:5173',
+            ],
+            MaxAge: 300,
+          }),
+        ],
+      },
+      OwnershipControls: { Rules: [{ ObjectOwnership: 'BucketOwnerEnforced' }] },
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        DefaultCacheBehavior: Match.objectLike({
+          ViewerProtocolPolicy: 'redirect-to-https',
+        }),
+        Enabled: true,
+        PriceClass: 'PriceClass_100',
+      }),
+    });
+
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain('s3:PutObject');
+    expect(policies).toContain('/main/profiles/*');
+    expect(policies).toContain('/develop/profiles/*');
+
+    const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
+    expect(userData).toContain('PROFILE_IMAGE_BUCKET');
+    expect(userData).toContain("PROFILE_IMAGE_OBJECT_PREFIX='main/profiles'");
+    expect(userData).toContain("PROFILE_IMAGE_OBJECT_PREFIX='develop/profiles'");
+    expect(userData).toContain('PROFILE_IMAGE_PUBLIC_BASE_URL');
+
+    const runtimeConfiguration = JSON.stringify(template.findResources('AWS::SSM::Document'));
+    expect(runtimeConfiguration).toContain('PROFILE_IMAGE_BUCKET');
+    expect(runtimeConfiguration).toContain('PROFILE_IMAGE_OBJECT_PREFIX');
+    expect(runtimeConfiguration).toContain('PROFILE_IMAGE_PUBLIC_BASE_URL');
+  });
+
   it('creates encrypted notification push queues and dead-letter queues per environment', () => {
     template.resourceCountIs('AWS::SQS::Queue', 12);
     template.resourceCountIs('AWS::KMS::Key', 1);
@@ -282,9 +397,7 @@ describe('BackendStack', () => {
       RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }),
     });
 
-    const runtimeConfiguration = JSON.stringify(
-      template.findResources('AWS::SSM::Document'),
-    );
+    const runtimeConfiguration = JSON.stringify(template.findResources('AWS::SSM::Document'));
     expect(runtimeConfiguration).toContain('NOTIFICATION_PUSH_QUEUE_URL');
     expect(runtimeConfiguration).toContain('NOTIFICATION_PUSH_RESULT_QUEUE_URL');
     expect(runtimeConfiguration).toContain('NOTIFICATION_VAPID_PUBLIC_KEY');
@@ -335,9 +448,7 @@ describe('BackendStack', () => {
     expect(policies).toContain('iam:PassRole');
     expect(policies).toContain('iam:PassedToService');
 
-    const runtimeConfiguration = JSON.stringify(
-      template.findResources('AWS::SSM::Document'),
-    );
+    const runtimeConfiguration = JSON.stringify(template.findResources('AWS::SSM::Document'));
     expect(runtimeConfiguration).toContain('NOTIFICATION_COMMAND_QUEUE_URL');
     expect(runtimeConfiguration).toContain('CHORE_DUE_SCHEDULE_GROUP');
     expect(runtimeConfiguration).toContain('CHORE_DUE_SCHEDULE_ROLE_ARN');
@@ -378,9 +489,7 @@ describe('BackendStack', () => {
     expect(userData).not.toContain('NOTIFICATION_PUSH_QUEUE_URL');
     expect(userData).not.toContain('NOTIFICATION_COMMAND_QUEUE_URL');
 
-    const runtimeConfiguration = JSON.stringify(
-      template.findResources('AWS::SSM::Document'),
-    );
+    const runtimeConfiguration = JSON.stringify(template.findResources('AWS::SSM::Document'));
     expect(runtimeConfiguration).toContain('/usr/local/bin/gachisallim-deploy');
     expect(runtimeConfiguration).toContain('systemctl enable');
   });
@@ -411,5 +520,119 @@ describe('BackendStack', () => {
       (policy) => JSON.stringify(policy).includes('InstanceRole'),
     );
     expect(JSON.stringify(instancePolicies)).not.toContain('notification-vapid');
+  });
+
+  it('provisions a chat WebSocket API with connect/disconnect Lambdas and a connections table per environment', () => {
+    template.resourceCountIs('AWS::ApiGatewayV2::Api', 2);
+    template.resourceCountIs('AWS::ApiGatewayV2::Stage', 2);
+    template.resourceCountIs('AWS::DynamoDB::Table', 2);
+    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+      Name: 'gachisallim-main-chat-ws',
+      ProtocolType: 'WEBSOCKET',
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+      Name: 'gachisallim-develop-chat-ws',
+      ProtocolType: 'WEBSOCKET',
+    });
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'gachisallim-main-chat-connections',
+      KeySchema: [
+        { AttributeName: 'connectionId', KeyType: 'HASH' },
+        { AttributeName: 'chatRoomId', KeyType: 'RANGE' },
+      ],
+      TimeToLiveSpecification: { AttributeName: 'expiresAt', Enabled: true },
+      GlobalSecondaryIndexes: Match.arrayWith([
+        Match.objectLike({
+          IndexName: 'chatRoomId-index',
+        }),
+      ]),
+    });
+
+    const lambdaFunctions = JSON.stringify(template.findResources('AWS::Lambda::Function'));
+    expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-connect');
+    expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-disconnect');
+    expect(lambdaFunctions).toContain('gachisallim-develop-chat-ws-connect');
+    expect(lambdaFunctions).toContain('gachisallim-develop-chat-ws-disconnect');
+
+    const instancePolicies = JSON.stringify(
+      Object.values(template.findResources('AWS::IAM::Policy')).filter((policy) =>
+        JSON.stringify(policy).includes('InstanceRole'),
+      ),
+    );
+    expect(instancePolicies).toContain('execute-api:ManageConnections');
+    expect(instancePolicies).toContain('dynamodb:GetItem');
+  });
+
+  it('protects the chat WebSocket $connect route with a Lambda authorizer and adds a room:join route', () => {
+    template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 2);
+    template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
+      AuthorizerType: 'REQUEST',
+      IdentitySource: ['route.request.querystring.token'],
+    });
+
+    const routes = JSON.stringify(template.findResources('AWS::ApiGatewayV2::Route'));
+    expect(routes).toContain('room:join');
+    expect(routes).toContain('$connect');
+    expect(routes).toContain('$disconnect');
+
+    const lambdaFunctions = JSON.stringify(template.findResources('AWS::Lambda::Function'));
+    expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-authorizer');
+    expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-join');
+    expect(lambdaFunctions).toContain('gachisallim-develop-chat-ws-authorizer');
+    expect(lambdaFunctions).toContain('gachisallim-develop-chat-ws-join');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'gachisallim-main-chat-ws-join',
+      Environment: {
+        Variables: Match.objectLike({
+          CHAT_CONNECTIONS_TABLE_NAME: Match.anyValue(),
+          CHAT_API_BASE_URL: Match.anyValue(),
+          CHAT_WEBSOCKET_CALLBACK_URL: Match.anyValue(),
+        }),
+      },
+    });
+
+    const joinPolicies = JSON.stringify(
+      Object.values(template.findResources('AWS::IAM::Policy')).filter((policy) =>
+        JSON.stringify(policy).includes('ChatWebSocketJoinFunction'),
+      ),
+    );
+    expect(joinPolicies).toContain('execute-api:ManageConnections');
+    expect(joinPolicies).toContain('dynamodb:UpdateItem');
+  });
+
+  it('adds a room:leave route with its own Lambda and lets $disconnect query and delete every row for a connection', () => {
+    const routes = JSON.stringify(template.findResources('AWS::ApiGatewayV2::Route'));
+    expect(routes).toContain('room:leave');
+
+    const lambdaFunctions = JSON.stringify(template.findResources('AWS::Lambda::Function'));
+    expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-leave');
+    expect(lambdaFunctions).toContain('gachisallim-develop-chat-ws-leave');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'gachisallim-main-chat-ws-leave',
+      Environment: {
+        Variables: Match.objectLike({
+          CHAT_CONNECTIONS_TABLE_NAME: Match.anyValue(),
+          CHAT_WEBSOCKET_CALLBACK_URL: Match.anyValue(),
+        }),
+      },
+    });
+
+    const leavePolicies = JSON.stringify(
+      Object.values(template.findResources('AWS::IAM::Policy')).filter((policy) =>
+        JSON.stringify(policy).includes('ChatWebSocketLeaveFunction'),
+      ),
+    );
+    expect(leavePolicies).toContain('execute-api:ManageConnections');
+    expect(leavePolicies).toContain('dynamodb:DeleteItem');
+
+    const disconnectPolicies = JSON.stringify(
+      Object.values(template.findResources('AWS::IAM::Policy')).filter((policy) =>
+        JSON.stringify(policy).includes('ChatWebSocketDisconnectFunction'),
+      ),
+    );
+    expect(disconnectPolicies).toContain('dynamodb:Query');
+    expect(disconnectPolicies).toContain('dynamodb:DeleteItem');
   });
 });

@@ -5,10 +5,12 @@ import { NotificationDeliveryService } from './notification-delivery.service';
 
 describe('NotificationDeliveryService', () => {
   const findSubscriptions = jest.fn();
+  const findPreference = jest.fn();
   const createNotification = jest.fn();
   const findNotification = jest.fn();
   const transaction = {
     notificationPushSubscription: { findMany: findSubscriptions },
+    userNotificationPreference: { findUnique: findPreference },
     notification: { create: createNotification, findUnique: findNotification },
   };
   const runTransaction = jest.fn((callback: (client: typeof transaction) => unknown) =>
@@ -30,6 +32,7 @@ describe('NotificationDeliveryService', () => {
     jest.clearAllMocks();
     createNotification.mockResolvedValue({ id: 101n });
     findNotification.mockResolvedValue(null);
+    findPreference.mockResolvedValue(null);
   });
 
   it('returns an existing notification for a duplicate dedupe key', async () => {
@@ -41,6 +44,7 @@ describe('NotificationDeliveryService', () => {
     ).resolves.toBe(existing);
 
     expect(findSubscriptions).not.toHaveBeenCalled();
+    expect(findPreference).not.toHaveBeenCalled();
     expect(createNotification).not.toHaveBeenCalled();
   });
 
@@ -53,6 +57,17 @@ describe('NotificationDeliveryService', () => {
     expect(findSubscriptions).toHaveBeenCalledWith({
       where: { userId: 8n, isActive: true },
       select: { id: true },
+    });
+    expect(findPreference).toHaveBeenCalledWith({
+      where: { userId: 8n },
+      select: {
+        choreDueEnabled: true,
+        supplyStatusChangedEnabled: true,
+        newMessageEnabled: true,
+        expenseRequestEnabled: true,
+        ruleAgreementRequestEnabled: true,
+        groupActivityEnabled: true,
+      },
     });
     expect(createNotification).toHaveBeenCalledWith({
       data: {
@@ -69,6 +84,48 @@ describe('NotificationDeliveryService', () => {
 
     await service.createNotification(input);
 
+    expect(createNotification).toHaveBeenCalledWith({
+      data: {
+        ...input,
+        pushDeliveries: { create: [] },
+      },
+    });
+  });
+
+  it('keeps the inbox notification but skips push when the type is disabled', async () => {
+    findPreference.mockResolvedValue({
+      choreDueEnabled: true,
+      supplyStatusChangedEnabled: true,
+      newMessageEnabled: true,
+      expenseRequestEnabled: true,
+      ruleAgreementRequestEnabled: false,
+      groupActivityEnabled: true,
+    });
+
+    await service.createNotification(input);
+
+    expect(findSubscriptions).not.toHaveBeenCalled();
+    expect(createNotification).toHaveBeenCalledWith({
+      data: {
+        ...input,
+        pushDeliveries: { create: [] },
+      },
+    });
+  });
+
+  it('uses the group activity setting as a group notification master switch', async () => {
+    findPreference.mockResolvedValue({
+      choreDueEnabled: true,
+      supplyStatusChangedEnabled: true,
+      newMessageEnabled: true,
+      expenseRequestEnabled: true,
+      ruleAgreementRequestEnabled: true,
+      groupActivityEnabled: false,
+    });
+
+    await service.createNotification(input);
+
+    expect(findSubscriptions).not.toHaveBeenCalled();
     expect(createNotification).toHaveBeenCalledWith({
       data: {
         ...input,

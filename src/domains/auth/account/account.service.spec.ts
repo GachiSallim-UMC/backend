@@ -124,6 +124,31 @@ describe('AuthAccountService', () => {
     });
   });
 
+  it('updates the account name', async () => {
+    prisma.userAuthIdentity.findUnique.mockResolvedValue(ACTIVE_ACCOUNT);
+    prisma.user.update.mockResolvedValue({
+      ...ACTIVE_ACCOUNT.user,
+      name: '김길동',
+    });
+
+    await expect(service.updateProfile('cognito-sub', { name: '김길동' })).resolves.toMatchObject({
+      userId: 7,
+      name: '김길동',
+    });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 7n },
+      data: { name: '김길동' },
+      select: {
+        id: true,
+        name: true,
+        nickname: true,
+        email: true,
+        profileImage: true,
+        isActive: true,
+      },
+    });
+  });
+
   it('removes the profile image when profileImage is null', async () => {
     prisma.userAuthIdentity.findUnique.mockResolvedValue(ACTIVE_ACCOUNT);
     prisma.user.update.mockResolvedValue({

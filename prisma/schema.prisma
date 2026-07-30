@@ -22,30 +22,31 @@ model User {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Relations
-  authIdentities    UserAuthIdentity[]
-  termsAgreements   UserTermsAgreement[]
-  pushSubscriptions NotificationPushSubscription[]
-  ownedGroups       Group[]                        @relation("GroupCreator")
-  groupMembers      GroupMember[]
-  assignedChores    Chore[]                        @relation("ChoreAssignee")
-  completedChores   Chore[]                        @relation("ChoreCompleter")
-  createdChores     Chore[]                        @relation("ChoreCreator")
-  paidExpenses      Expense[]                      @relation("ExpensePayer")
-  createdExpenses   Expense[]                      @relation("ExpenseCreator")
-  expenseSplits     ExpenseSplit[]
-  expenseLogs       ExpenseLog[]
-  createdSupplies   Supply[]                       @relation("SupplyCreator")
-  assignedSupplies  Supply[]                       @relation("SupplyAssignee")
-  supplyLogs        SupplyLog[]
-  createdRules      Rule[]
-  ruleAgreements    RuleAgreement[]
-  ruleLogs          RuleLog[]
-  createdChatRooms  ChatRoom[]                     @relation("ChatRoomCreator")
-  ownedChatRooms    ChatRoom[]                     @relation("ChatRoomOwner")
-  chatRoomMembers   ChatRoomMember[]
-  sentMessages      Message[]
-  notifications     Notification[]
-  activityLogs      ActivityLog[]
+  authIdentities         UserAuthIdentity[]
+  termsAgreements        UserTermsAgreement[]
+  pushSubscriptions      NotificationPushSubscription[]
+  notificationPreference UserNotificationPreference?
+  ownedGroups            Group[]                        @relation("GroupCreator")
+  groupMembers           GroupMember[]
+  assignedChores         Chore[]                        @relation("ChoreAssignee")
+  completedChores        Chore[]                        @relation("ChoreCompleter")
+  createdChores          Chore[]                        @relation("ChoreCreator")
+  paidExpenses           Expense[]                      @relation("ExpensePayer")
+  createdExpenses        Expense[]                      @relation("ExpenseCreator")
+  expenseSplits          ExpenseSplit[]
+  expenseLogs            ExpenseLog[]
+  createdSupplies        Supply[]                       @relation("SupplyCreator")
+  assignedSupplies       Supply[]                       @relation("SupplyAssignee")
+  supplyLogs             SupplyLog[]
+  createdRules           Rule[]
+  ruleAgreements         RuleAgreement[]
+  ruleLogs               RuleLog[]
+  createdChatRooms       ChatRoom[]                     @relation("ChatRoomCreator")
+  ownedChatRooms         ChatRoom[]                     @relation("ChatRoomOwner")
+  chatRoomMembers        ChatRoomMember[]
+  sentMessages           Message[]
+  notifications          Notification[]
+  activityLogs           ActivityLog[]
 
   @@map("users")
 }
@@ -99,6 +100,22 @@ model NotificationPushSubscription {
   @@map("notification_push_subscriptions")
 }
 
+model UserNotificationPreference {
+  userId                      BigInt   @id @map("user_id")
+  choreDueEnabled             Boolean  @default(true) @map("chore_due_enabled")
+  supplyStatusChangedEnabled  Boolean  @default(true) @map("supply_status_changed_enabled")
+  newMessageEnabled           Boolean  @default(true) @map("new_message_enabled")
+  expenseRequestEnabled       Boolean  @default(true) @map("expense_request_enabled")
+  ruleAgreementRequestEnabled Boolean  @default(true) @map("rule_agreement_request_enabled")
+  groupActivityEnabled        Boolean  @default(true) @map("group_activity_enabled")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_notification_preferences")
+}
+
 // =====================================================
 // GROUP
 // =====================================================
@@ -116,8 +133,9 @@ model Group {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  creator       User           @relation("GroupCreator", fields: [createdBy], references: [id])
+  creator       User             @relation("GroupCreator", fields: [createdBy], references: [id])
   members       GroupMember[]
+  permission    GroupPermission?
   chores        Chore[]
   expenses      Expense[]
   supplies      Supply[]
@@ -127,6 +145,20 @@ model Group {
   activityLogs  ActivityLog[]
 
   @@map("groups")
+}
+
+model GroupPermission {
+  groupId                     BigInt   @id @map("group_id")
+  allowChoreRegistration      Boolean  @default(true) @map("allow_chore_registration")
+  allowSettlementRegistration Boolean  @default(true) @map("allow_settlement_registration")
+  allowItemStatusChange       Boolean  @default(true) @map("allow_item_status_change")
+  autoApproveNewMembers       Boolean  @default(false) @map("auto_approve_new_members")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("group_permissions")
 }
 
 model GroupMember {
@@ -197,11 +229,11 @@ model Expense {
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  group   Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  payer   User           @relation("ExpensePayer", fields: [payerId], references: [id])
-  creator User           @relation("ExpenseCreator", fields: [createdBy], references: [id])
-  splits  ExpenseSplit[]
-  logs    ExpenseLog[]
+  group    Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer    User           @relation("ExpensePayer", fields: [payerId], references: [id])
+  creator  User           @relation("ExpenseCreator", fields: [createdBy], references: [id])
+  splits   ExpenseSplit[]
+  logs     ExpenseLog[]
   supplies Supply[]
 
   @@map("expenses")
@@ -251,15 +283,17 @@ model ExpenseLog {
 // =====================================================
 
 model Supply {
-  id              BigInt       @id @default(autoincrement())
-  groupId         BigInt       @map("group_id")
-  name            String       @db.VarChar(100)
-  status          SupplyStatus @default(SUFFICIENT)
-  assigneeId      BigInt?      @map("assignee_id")
-  linkedExpenseId BigInt?      @map("linked_expense_id")
-  createdBy       BigInt       @map("created_by")
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
+  id              BigInt         @id @default(autoincrement())
+  groupId         BigInt         @map("group_id")
+  name            String         @db.VarChar(100)
+  category        SupplyCategory @default(ETC)
+  status          SupplyStatus   @default(SUFFICIENT)
+  assigneeId      BigInt?        @map("assignee_id")
+  memo            String?        @db.VarChar(255)
+  linkedExpenseId BigInt?        @map("linked_expense_id")
+  createdBy       BigInt         @map("created_by")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
 
   group         Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
   assignee      User?       @relation("SupplyAssignee", fields: [assigneeId], references: [id])
@@ -579,6 +613,18 @@ enum SupplyStatus {
   LOW
   EMPTY
   PURCHASED
+}
+
+enum SupplyCategory {
+  DAILY_NECESSITIES
+  BATHROOM
+  KITCHEN
+  LAUNDRY_CLEANING
+  FOOD
+  HEALTH_HYGIENE
+  PET_PLANT
+  TOOLS_ETC
+  ETC
 }
 
 enum RuleStatus {

@@ -77,6 +77,11 @@ export const ErrorCode = {
     code: 'AUTH_CURRENT_PASSWORD_INVALID',
     message: '현재 비밀번호가 올바르지 않습니다.',
   },
+  AUTH_PASSWORD_CONFIRMATION_MISMATCH: {
+    status: 400,
+    code: 'AUTH_PASSWORD_CONFIRMATION_MISMATCH',
+    message: '새 비밀번호와 새 비밀번호 확인이 일치하지 않습니다.',
+  },
   AUTH_ACCOUNT_INACTIVE: {
     status: 403,
     code: 'AUTH_ACCOUNT_INACTIVE',
@@ -167,6 +172,16 @@ export const ErrorCode = {
     status: 409,
     code: 'CHORE_409',
     message: '이미 완료된 집안일입니다.',
+  },
+  CHORE_NOT_DONE: {
+    status: 409,
+    code: 'CHORE_409_NOT_DONE',
+    message: '완료되지 않은 집안일입니다.',
+  },
+  CHORE_NEXT_OCCURRENCE_DONE: {
+    status: 409,
+    code: 'CHORE_409_NEXT_DONE',
+    message: '다음 회차가 이미 완료되어 완료를 취소할 수 없습니다.',
   },
 
   // Supply
