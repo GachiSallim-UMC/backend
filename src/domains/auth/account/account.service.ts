@@ -44,6 +44,152 @@ export class AuthAccountService {
     return this.toResponse(user);
   }
 
+  async exportMyData(cognitoSub: string): Promise<MyDataExportFile> {
+    const account = await this.findActiveAccount(cognitoSub);
+    const userId = account.user.id;
+
+    const [chores, expenses, activities] = await Promise.all([
+      this.prisma.chore.findMany({
+        where: {
+          OR: [{ assigneeId: userId }, { createdBy: userId }, { completedBy: userId }],
+        },
+        select: {
+          id: true,
+          groupId: true,
+          group: { select: { name: true } },
+          title: true,
+          category: true,
+          status: true,
+          assigneeId: true,
+          completedBy: true,
+          createdBy: true,
+          startDate: true,
+          dueDate: true,
+          completedAt: true,
+          createdAt: true,
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.expense.findMany({
+        where: {
+          OR: [{ payerId: userId }, { createdBy: userId }, { splits: { some: { userId } } }],
+        },
+        select: {
+          id: true,
+          groupId: true,
+          group: { select: { name: true } },
+          title: true,
+          category: true,
+          status: true,
+          totalAmount: true,
+          payerId: true,
+          createdBy: true,
+          createdAt: true,
+          splits: {
+            where: { userId },
+            select: { amount: true, status: true },
+          },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.activityLog.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          refId: true,
+          groupId: true,
+          group: { select: { name: true } },
+          type: true,
+          description: true,
+          createdAt: true,
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    ]);
+
+    const rows: CsvValue[][] = [
+      ...chores.map((chore) => [
+        'CHORE',
+        Number(chore.id),
+        null,
+        Number(chore.groupId),
+        chore.group.name,
+        chore.title,
+        chore.category,
+        chore.status,
+        null,
+        null,
+        null,
+        [
+          ...(chore.assigneeId === userId ? ['ASSIGNEE'] : []),
+          ...(chore.createdBy === userId ? ['CREATOR'] : []),
+          ...(chore.completedBy === userId ? ['COMPLETER'] : []),
+        ].join('|'),
+        toIso(chore.startDate),
+        toIso(chore.dueDate),
+        toIso(chore.completedAt),
+        toIso(chore.createdAt),
+        null,
+      ]),
+      ...expenses.map((expense) => {
+        const personalSplit = expense.splits[0];
+
+        return [
+          'EXPENSE',
+          Number(expense.id),
+          null,
+          Number(expense.groupId),
+          expense.group.name,
+          expense.title,
+          expense.category,
+          expense.status,
+          personalSplit?.status ?? null,
+          expense.totalAmount,
+          personalSplit?.amount ?? null,
+          [
+            ...(expense.payerId === userId ? ['PAYER'] : []),
+            ...(expense.createdBy === userId ? ['CREATOR'] : []),
+            ...(personalSplit ? ['PARTICIPANT'] : []),
+          ].join('|'),
+          null,
+          null,
+          null,
+          toIso(expense.createdAt),
+          null,
+        ];
+      }),
+      ...activities.map((activity) => [
+        'ACTIVITY',
+        Number(activity.id),
+        activity.refId === null ? null : Number(activity.refId),
+        Number(activity.groupId),
+        activity.group.name,
+        null,
+        activity.type,
+        null,
+        null,
+        null,
+        null,
+        'ACTOR',
+        null,
+        null,
+        null,
+        toIso(activity.createdAt),
+        activity.description,
+      ]),
+    ];
+
+    const csv = [MY_DATA_EXPORT_HEADERS, ...rows]
+      .map((row) => row.map(toCsvCell).join(','))
+      .join('\r\n');
+    const date = new Date().toISOString().slice(0, 10);
+
+    return {
+      filename: `gachisallim-my-data-${date}.csv`,
+      content: Buffer.from(`\uFEFF${csv}\r\n`, 'utf8'),
+    };
+  }
+
   async deleteAccount(
     cognitoSub: string,
     accessToken: string,
@@ -132,4 +278,48 @@ interface AccountUser {
 
 interface AuthAccountRecord {
   user: AccountUser;
+}
+
+interface MyDataExportFile {
+  filename: string;
+  content: Buffer;
+}
+
+type CsvValue = string | number | null;
+
+const MY_DATA_EXPORT_HEADERS = [
+  'recordType',
+  'recordId',
+  'relatedRecordId',
+  'groupId',
+  'groupName',
+  'title',
+  'category',
+  'status',
+  'personalStatus',
+  'totalAmount',
+  'personalAmount',
+  'roles',
+  'startAt',
+  'dueAt',
+  'completedAt',
+  'createdAt',
+  'description',
+] as const;
+
+function toIso(value: Date | null): string | null {
+  return value?.toISOString() ?? null;
+}
+
+function toCsvCell(value: CsvValue): string {
+  if (value === null) {
+    return '';
+  }
+
+  let text = String(value);
+  if (typeof value === 'string' && /^\s*[=+\-@]/.test(text)) {
+    text = `'${text}`;
+  }
+
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }

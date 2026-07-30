@@ -13,6 +13,15 @@ type MockedPrisma = {
     update: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     updateMany: jest.MockedFunction<(args: unknown) => Promise<{ count: number }>>;
   };
+  chore: {
+    findMany: jest.MockedFunction<(args: unknown) => Promise<unknown[]>>;
+  };
+  expense: {
+    findMany: jest.MockedFunction<(args: unknown) => Promise<unknown[]>>;
+  };
+  activityLog: {
+    findMany: jest.MockedFunction<(args: unknown) => Promise<unknown[]>>;
+  };
 };
 
 type MockedCognitoClient = {
@@ -43,6 +52,15 @@ describe('AuthAccountService', () => {
       user: {
         update: jest.fn<() => Promise<unknown>>(),
         updateMany: jest.fn<() => Promise<{ count: number }>>().mockResolvedValue({ count: 1 }),
+      },
+      chore: {
+        findMany: jest.fn<() => Promise<unknown[]>>().mockResolvedValue([]),
+      },
+      expense: {
+        findMany: jest.fn<() => Promise<unknown[]>>().mockResolvedValue([]),
+      },
+      activityLog: {
+        findMany: jest.fn<() => Promise<unknown[]>>().mockResolvedValue([]),
       },
     };
     cognitoClient = {
@@ -181,6 +199,95 @@ describe('AuthAccountService', () => {
       code: 'COMMON_INVALID_PARAMETER',
     });
     expect(prisma.userAuthIdentity.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('exports only the authenticated user related chore, expense, and activity records', async () => {
+    prisma.userAuthIdentity.findUnique.mockResolvedValue(ACTIVE_ACCOUNT);
+    prisma.chore.findMany.mockResolvedValue([
+      {
+        id: 10n,
+        groupId: 2n,
+        group: { name: '우리 "집"' },
+        title: '=SUM(1,2)',
+        category: 'CLEANING',
+        status: 'DONE',
+        assigneeId: 7n,
+        completedBy: 7n,
+        createdBy: 8n,
+        startDate: new Date('2026-07-01T00:00:00.000Z'),
+        dueDate: new Date('2026-07-02T00:00:00.000Z'),
+        completedAt: new Date('2026-07-02T01:00:00.000Z'),
+        createdAt: new Date('2026-06-30T03:00:00.000Z'),
+      },
+    ]);
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        id: 20n,
+        groupId: 2n,
+        group: { name: '우리 "집"' },
+        title: '장보기',
+        category: 'GROCERY',
+        status: 'PARTIAL',
+        totalAmount: 30000,
+        payerId: 8n,
+        createdBy: 7n,
+        createdAt: new Date('2026-07-03T03:00:00.000Z'),
+        splits: [{ amount: 15000, status: 'REQUESTED' }],
+      },
+    ]);
+    prisma.activityLog.findMany.mockResolvedValue([
+      {
+        id: 30n,
+        refId: 10n,
+        groupId: 2n,
+        group: { name: '우리 "집"' },
+        type: 'CHORE_DONE',
+        description: '청소를 완료했습니다.\n고생했어요.',
+        createdAt: new Date('2026-07-02T01:00:00.000Z'),
+      },
+    ]);
+
+    const result = await service.exportMyData('cognito-sub');
+    const csv = result.content.toString('utf8');
+
+    expect(result.filename).toMatch(/^gachisallim-my-data-\d{4}-\d{2}-\d{2}\.csv$/);
+    expect(csv.startsWith('\uFEFFrecordType,recordId')).toBe(true);
+    expect(csv).toContain(
+      'CHORE,10,,2,"우리 ""집""","\'=SUM(1,2)",CLEANING,DONE,,,,ASSIGNEE|COMPLETER',
+    );
+    expect(csv).toContain(
+      'EXPENSE,20,,2,"우리 ""집""",장보기,GROCERY,PARTIAL,REQUESTED,30000,15000,CREATOR|PARTICIPANT',
+    );
+    expect(csv).toContain(
+      'ACTIVITY,30,10,2,"우리 ""집""",,CHORE_DONE,,,,,ACTOR,,,,2026-07-02T01:00:00.000Z,"청소를 완료했습니다.\n고생했어요."',
+    );
+    expect(prisma.chore.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [{ assigneeId: 7n }, { createdBy: 7n }, { completedBy: 7n }],
+        },
+      }),
+    );
+    expect(prisma.expense.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [{ payerId: 7n }, { createdBy: 7n }, { splits: { some: { userId: 7n } } }],
+        },
+      }),
+    );
+    expect(prisma.activityLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 7n } }),
+    );
+  });
+
+  it('exports a header-only CSV when the user has no related data', async () => {
+    prisma.userAuthIdentity.findUnique.mockResolvedValue(ACTIVE_ACCOUNT);
+
+    const result = await service.exportMyData('cognito-sub');
+    const lines = result.content.toString('utf8').trim().split('\r\n');
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('recordType,recordId,relatedRecordId');
   });
 
   it('deactivates the account and deletes the Cognito user', async () => {

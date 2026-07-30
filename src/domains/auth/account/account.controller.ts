@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Patch,
   Post,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -16,11 +17,13 @@ import {
   ApiExtraModels,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
   ApiResponse,
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
 
+import { SkipResponseWrap } from '../../../common/decorators/skip-response-wrap.decorator';
 import { AuthContext } from '../common/auth-context.interface';
 import { CognitoAccessTokenGuard } from '../common/cognito-access-token.guard';
 import { CurrentAuth } from '../common/current-auth.decorator';
@@ -55,6 +58,42 @@ export class AuthAccountController {
   @ApiResponse({ status: 404, description: '인증 계정 정보를 찾을 수 없습니다.' })
   getAccount(@CurrentAuth() auth: AuthContext): Promise<AuthAccountResponseDto> {
     return this.accountService.getAccount(auth.cognitoSub);
+  }
+
+  @Get('me/data-export')
+  @HttpCode(HttpStatus.OK)
+  @SkipResponseWrap()
+  @ApiOperation({
+    summary: '내 데이터 CSV 내보내기',
+    description:
+      '인증된 사용자가 담당·생성·완료한 집안일, 생성·결제·분담에 참여한 정산, 본인이 주체인 활동 내역을 CSV 파일로 내려받습니다.',
+  })
+  @ApiProduces('text/csv')
+  @ApiOkResponse({
+    description: 'UTF-8 BOM이 포함된 CSV 파일',
+    headers: {
+      'Content-Disposition': {
+        description: 'attachment; filename="gachisallim-my-data-YYYY-MM-DD.csv"',
+        schema: { type: 'string' },
+      },
+    },
+    content: {
+      'text/csv': {
+        schema: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: '인증 토큰이 없거나 올바르지 않습니다.' })
+  @ApiResponse({ status: 403, description: '비활성화된 계정입니다.' })
+  @ApiResponse({ status: 404, description: '인증 계정 정보를 찾을 수 없습니다.' })
+  async exportMyData(@CurrentAuth() auth: AuthContext): Promise<StreamableFile> {
+    const file = await this.accountService.exportMyData(auth.cognitoSub);
+
+    return new StreamableFile(file.content, {
+      type: 'text/csv; charset=utf-8',
+      disposition: `attachment; filename="${file.filename}"`,
+      length: file.content.length,
+    });
   }
 
   @Patch('profile')
