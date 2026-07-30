@@ -14,6 +14,7 @@ import { COGNITO_IDP_CLIENT } from '../common/cognito.constants';
 import { AUTH_PASSWORD_PATTERN } from '../common/password-policy.constants';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ChangePasswordResponseDto } from './dto/change-password-response.dto';
+import { ChangePasswordWithConfirmationDto } from './dto/change-password-with-confirmation.dto';
 import {
   RequestPasswordResetDto,
   RequestPasswordResetResponseDto,
@@ -91,6 +92,22 @@ export class PasswordService {
     }
 
     return { changed: true };
+  }
+
+  async changePasswordWithConfirmation(
+    accessToken: string,
+    dto: ChangePasswordWithConfirmationDto,
+  ): Promise<ChangePasswordResponseDto> {
+    const { currentPassword, newPassword, newPasswordConfirmation } = dto;
+
+    if (newPassword !== newPasswordConfirmation) {
+      throw new BusinessException(ErrorCode.AUTH_PASSWORD_CONFIRMATION_MISMATCH);
+    }
+
+    return this.changePassword(accessToken, {
+      previousPassword: currentPassword,
+      newPassword,
+    });
   }
 
   private validatePasswordPolicy(previousPassword: string, newPassword: string): void {
