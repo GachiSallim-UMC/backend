@@ -164,6 +164,37 @@ describe('PasswordService', () => {
     });
   });
 
+  it('changes the password when the confirmation matches', async () => {
+    cognitoClient.send.mockResolvedValue({});
+
+    await expect(
+      service.changePasswordWithConfirmation('access-token', {
+        currentPassword: 'CurrentPass1',
+        newPassword: 'NewPassword1',
+        newPasswordConfirmation: 'NewPassword1',
+      }),
+    ).resolves.toEqual({ changed: true });
+
+    expect(cognitoClient.send).toHaveBeenCalledTimes(1);
+    expect(cognitoClient.send.mock.calls[0][0]).toBeInstanceOf(ChangePasswordCommand);
+    expect(cognitoClient.send.mock.calls[0][0].input).toEqual({
+      AccessToken: 'access-token',
+      PreviousPassword: 'CurrentPass1',
+      ProposedPassword: 'NewPassword1',
+    });
+  });
+
+  it('rejects a password change when the confirmation does not match', async () => {
+    await expect(
+      service.changePasswordWithConfirmation('access-token', {
+        currentPassword: 'CurrentPass1',
+        newPassword: 'NewPassword1',
+        newPasswordConfirmation: 'DifferentPassword1',
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_PASSWORD_CONFIRMATION_MISMATCH' });
+    expect(cognitoClient.send).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['too short', 'CurrentPass1', 'Short1A'],
     ['missing an uppercase letter', 'CurrentPass1', 'lowercase1'],

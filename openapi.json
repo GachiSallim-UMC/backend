@@ -7590,6 +7590,134 @@
         }
       }
     },
+    "/api/v1/auth/password/change-with-confirmation": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "비밀번호 변경(새 비밀번호 확인)",
+        "description": "Cognito access token으로 현재 비밀번호를 확인하고, 새 비밀번호와 확인값이 일치할 때 비밀번호를 변경합니다.",
+        "operationId": "postAuthPasswordChangeWithConfirmation",
+        "responses": {
+          "200": {
+            "description": "비밀번호 변경 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "changed"
+                      ],
+                      "properties": {
+                        "changed": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      }
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "changed": true
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "AUTH_CURRENT_PASSWORD_INVALID | AUTH_PASSWORD_CONFIRMATION_MISMATCH | AUTH_PASSWORD_POLICY_VIOLATION | COMMON_INVALID_PARAMETER",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_PASSWORD_CONFIRMATION_MISMATCH",
+                    "message": "새 비밀번호와 새 비밀번호 확인이 일치하지 않습니다."
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "currentPassword",
+                  "newPassword",
+                  "newPasswordConfirmation"
+                ],
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "pattern": "^\\S+$",
+                    "description": "현재 사용 중인 비밀번호. 1~256자이며 공백은 사용할 수 없습니다.",
+                    "example": "CurrentPass1"
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 16,
+                    "pattern": "^\\S+$",
+                    "description": "새 비밀번호. 8~16자이며 영문 소문자·대문자·숫자를 각각 1개 이상 포함해야 합니다. 공백은 사용할 수 없고 현재 비밀번호와 달라야 합니다.",
+                    "example": "NewPassword1"
+                  },
+                  "newPasswordConfirmation": {
+                    "type": "string",
+                    "maxLength": 16,
+                    "description": "새 비밀번호 확인. newPassword와 일치해야 합니다.",
+                    "example": "NewPassword1"
+                  }
+                }
+              },
+              "example": {
+                "currentPassword": "CurrentPass1",
+                "newPassword": "NewPassword1",
+                "newPasswordConfirmation": "NewPassword1"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/activities": {
       "post": {
         "tags": [

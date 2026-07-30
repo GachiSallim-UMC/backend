@@ -77,6 +77,11 @@ export const ErrorCode = {
     code: 'AUTH_CURRENT_PASSWORD_INVALID',
     message: '현재 비밀번호가 올바르지 않습니다.',
   },
+  AUTH_PASSWORD_CONFIRMATION_MISMATCH: {
+    status: 400,
+    code: 'AUTH_PASSWORD_CONFIRMATION_MISMATCH',
+    message: '새 비밀번호와 새 비밀번호 확인이 일치하지 않습니다.',
+  },
   AUTH_ACCOUNT_INACTIVE: {
     status: 403,
     code: 'AUTH_ACCOUNT_INACTIVE',
