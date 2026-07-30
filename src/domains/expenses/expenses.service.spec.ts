@@ -3,7 +3,12 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  UnauthorizedException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExpenseNotFoundException } from './expenses.exception';
@@ -595,13 +600,21 @@ describe('updateExpense', () => {
   // 8. handleWebhook 검증
   // =========================================================================
   describe('handleWebhook', () => {
-    const secret = process.env.WEBHOOK_SECRET || 'gachisallim-webhook-secret-key';
+    const secret = 'test-only-webhook-secret';
+
+    it('webhookSecret이 전달되지 않으면 InternalServerErrorException을 던져야 한다', async () => {
+      const nowTimestamp = Date.now().toString();
+
+      await expect(
+        service.handleWebhook('any-sig', nowTimestamp, { transactionId: 'TX_1', amount: 5000 }),
+      ).rejects.toThrow(InternalServerErrorException);
+    });
 
     it('5분이 지난 만료된 타임스탬프 요청 시 UnauthorizedException을 던져야 한다', async () => {
       const oldTimestamp = (Date.now() - 6 * 60 * 1000).toString();
 
       await expect(
-        service.handleWebhook('invalid-sig', oldTimestamp, { transactionId: 'TX_1', amount: 5000 }),
+        service.handleWebhook('invalid-sig', oldTimestamp, { transactionId: 'TX_1', amount: 5000 }, secret),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -609,7 +622,7 @@ describe('updateExpense', () => {
       const nowTimestamp = Date.now().toString();
 
       await expect(
-        service.handleWebhook('wrong-signature', nowTimestamp, { transactionId: 'TX_1', amount: 5000 }),
+        service.handleWebhook('wrong-signature', nowTimestamp, { transactionId: 'TX_1', amount: 5000 }, secret),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -634,7 +647,7 @@ describe('updateExpense', () => {
         status: 'DONE',
       });
 
-      const result = await service.handleWebhook(validSignature, nowTimestamp, { transactionId, amount });
+      const result = await service.handleWebhook(validSignature, nowTimestamp, { transactionId, amount }, secret);
       expect(result.status).toBe('SUCCESS');
     });
   });
@@ -643,7 +656,7 @@ describe('updateExpense', () => {
   // 9. settleSplit 검증
   // =========================================================================
   describe('settleSplit', () => {
-    it('body가 생략되더라도 기본적으로 DONE 상태로 전이되어야 한다', async () => {
+    it('body가 생략되더라도 대상 split은 DONE 상태로 전이되어야 한다', async () => {
       prisma.expenseSplit.findUnique.mockResolvedValue({
         id: BigInt(1),
         userId: BigInt(12),
@@ -658,8 +671,13 @@ describe('updateExpense', () => {
 
       const result = await service.settleSplit(mockAuthContext, 1);
 
+      expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
+        where: { id: BigInt(1) },
+        data: { status: 'DONE', completedAt: expect.any(Date) as Date },
+      });
+      expect(result.status).toBe('DONE');
       expect(result.isAllSettled).toBe(false);
-      expect(result.status).toBe('REQUESTED');
+      expect(prisma.expense.update).not.toHaveBeenCalled();
     });
 
     it('전원 정산이 완료된 경우, 부모 Expense 상태를 DONE으로 자동 갱신해야 한다', async () => {
@@ -676,9 +694,32 @@ describe('updateExpense', () => {
       ]);
       prisma.expense.update = jest.fn().mockResolvedValue({ id: BigInt(10), status: 'DONE' });
 
-      const result = await service.settleSplit(mockAuthContext, 1, { isBulkComplete: true });
+      const result = await service.settleSplit(mockAuthContext, 1);
 
       expect(result.isAllSettled).toBe(true);
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: BigInt(10) },
+        data: { status: 'DONE' },
+      });
+    });
+
+    it('isBulkComplete: true이면 다른 분담자가 남아있어도 부모 Expense를 강제로 DONE 처리해야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        expenseId: BigInt(10),
+        expense: { payerId: BigInt(12), createdBy: BigInt(12) },
+      });
+      prisma.expenseSplit.update.mockResolvedValue({ id: BigInt(1), expenseId: BigInt(10), status: 'DONE' });
+      prisma.expenseSplit.findMany.mockResolvedValue([
+        { id: BigInt(1), status: 'DONE' },
+        { id: BigInt(2), status: 'REQUESTED' },
+      ]);
+      prisma.expense.update = jest.fn().mockResolvedValue({ id: BigInt(10), status: 'DONE' });
+
+      const result = await service.settleSplit(mockAuthContext, 1, { isBulkComplete: true });
+
+      expect(result.isAllSettled).toBe(false);
       expect(prisma.expense.update).toHaveBeenCalledWith({
         where: { id: BigInt(10) },
         data: { status: 'DONE' },

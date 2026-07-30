@@ -53,6 +53,7 @@ interface RuntimeEnvironment {
   readonly port: number;
   readonly socialAuthSecretName: string;
   readonly webAppUrl: string;
+  readonly webhookSecretName: string;
 }
 
 const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
@@ -67,6 +68,7 @@ const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
     port: 3000,
     socialAuthSecretName: 'gachisallim/main/social-auth',
     webAppUrl: 'https://gachisallim.com',
+    webhookSecretName: 'gachisallim/main/webhook',
   },
   {
     authDomainPrefix: 'gachisallim-dev-auth',
@@ -79,6 +81,7 @@ const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
     port: 3001,
     socialAuthSecretName: 'gachisallim/develop/social-auth',
     webAppUrl: 'https://dev.gachisallim.com',
+    webhookSecretName: 'gachisallim/develop/webhook',
   },
 ];
 
@@ -415,7 +418,16 @@ export class BackendStack extends Stack {
     });
 
     const authentication = new Map<string, AuthenticationResources>();
+    const webhookSecrets = new Map<string, secretsmanager.ISecret>();
     for (const environment of RUNTIME_ENVIRONMENTS) {
+      webhookSecrets.set(
+        environment.branch,
+        secretsmanager.Secret.fromSecretNameV2(
+          this,
+          `${environment.id}WebhookSecret`,
+          environment.webhookSecretName,
+        ),
+      );
       const pool = new cognito.UserPool(this, `${environment.id}UserPool`, {
         userPoolName: `gachisallim-${environment.branch}-users`,
         selfSignUpEnabled: true,
@@ -541,6 +553,9 @@ export class BackendStack extends Stack {
     });
     const databaseSecret = database.secret!;
     databaseSecret.grantRead(instanceRole);
+    for (const webhookSecret of webhookSecrets.values()) {
+      webhookSecret.grantRead(instanceRole);
+    }
     props.artifactBucket.grantRead(instanceRole, 'releases/*');
     applicationLogGroup.grantWrite(instanceRole);
     for (const queue of notificationPushQueues.values()) {
@@ -654,6 +669,7 @@ SYSTEMD_UNIT`,
 ARTIFACT_BUCKET='${props.artifactBucket.bucketName}'
 DATABASE_SECRET_ARN='${databaseSecret.secretArn}'
 DATABASE_NAME='${environment.databaseName}'
+WEBHOOK_SECRET_ARN='${webhookSecrets.get(environment.branch)!.secretArn}'
 NODE_ENV='${environment.nodeEnvironment}'
 PORT='${environment.port}'
 APP_NAME='GachiSallim Backend (${environment.branch})'
@@ -681,6 +697,7 @@ ENVIRONMENT_CONFIG`,
 ARTIFACT_BUCKET='${props.artifactBucket.bucketName}'
 DATABASE_SECRET_ARN='${databaseSecret.secretArn}'
 DATABASE_NAME='${environment.databaseName}'
+WEBHOOK_SECRET_ARN='${webhookSecrets.get(environment.branch)!.secretArn}'
 NODE_ENV='${environment.nodeEnvironment}'
 PORT='${environment.port}'
 APP_NAME='GachiSallim Backend (${environment.branch})'

@@ -21,8 +21,6 @@ import * as crypto from 'crypto';
 
 @Injectable()
 export class ExpensesService {
-  private readonly WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'gachisallim-webhook-secret-key';
-
   constructor(private readonly prisma: PrismaService) { }
 
   // DB User.id 조회
@@ -197,7 +195,7 @@ export class ExpensesService {
 
     if (groupId) {
       const isMember = await this.prisma.groupMember.findFirst({
-        where: { groupId: BigInt(groupId), userId: currentUserId },
+        where: { groupId: BigInt(groupId), userId: currentUserId, leftAt: null },
       });
       if (!isMember) {
         throw new ForbiddenException('해당 그룹의 정산 내역을 조회할 권한이 없습니다.');
@@ -232,7 +230,7 @@ export class ExpensesService {
     if (!expense) throw new ExpenseNotFoundException();
 
     const isMember = await this.prisma.groupMember.findFirst({
-      where: { groupId: expense.groupId, userId: currentUserId },
+      where: { groupId: expense.groupId, userId: currentUserId, leftAt: null },
     });
     if (!isMember) {
       throw new ForbiddenException('해당 정산의 상세 내역을 조회할 권한이 없습니다.');
@@ -488,7 +486,7 @@ export class ExpensesService {
 
   // 9. 결제 수신 웹훅 처리
   async handleWebhook(signature: string, timestamp: string, webhookDto: WebhookExpenseDto, webhookSecret?: string) {
-    const secret = webhookSecret || this.WEBHOOK_SECRET;
+    const secret = webhookSecret;
     if (!secret) {
       throw new InternalServerErrorException('웹훅 검증용 Secret Key가 서버에 설정되지 않았습니다.');
     }
@@ -540,7 +538,8 @@ export class ExpensesService {
     }
 
     const systemAuthContext: AuthContext = { cognitoSub: 'SYSTEM', accessToken: '' };
-    await this.settleSplit(systemAuthContext, Number(split.id), { isBulkComplete: true });
+    // 단건 결제 웹훅이므로 상위 정산은 전원 완료 시에만 자동으로 완료 처리한다(강제 완료 아님).
+    await this.settleSplit(systemAuthContext, Number(split.id));
 
     return { status: 'SUCCESS' };
   }
@@ -565,16 +564,16 @@ export class ExpensesService {
       }
     }
 
-    // 기본값을 false로 변경 (isBulkComplete가 explicit하게 true일 때만 DONE으로 전이)
-    const isBulkComplete = settleDto?.isBulkComplete ?? false;
-    const targetStatus = isBulkComplete ? 'DONE' : 'REQUESTED';
+    // isBulkComplete는 대상 split의 완료 처리와 무관하며, 미완료 인원이 남아있어도
+    // 상위 정산을 강제로 완료 처리할지 여부만 결정한다.
+    const forceParentComplete = settleDto?.isBulkComplete ?? false;
 
     return this.prisma.$transaction(async (tx) => {
       const updatedSplit = await tx.expenseSplit.update({
         where: { id: BigInt(splitId) },
         data: {
-          status: targetStatus,
-          ...(isBulkComplete && { completedAt: new Date() }),
+          status: 'DONE',
+          completedAt: new Date(),
         },
       });
 
@@ -582,7 +581,7 @@ export class ExpensesService {
       const allSplits = await tx.expenseSplit.findMany({ where: { expenseId } });
       const isAllSettled = allSplits.every((s) => s.status === 'DONE');
 
-      if (isAllSettled) {
+      if (isAllSettled || forceParentComplete) {
         await tx.expense.update({
           where: { id: BigInt(expenseId) },
           data: { status: 'DONE' },
@@ -592,7 +591,7 @@ export class ExpensesService {
       return {
         message: '정산 상태가 성공적으로 변경되었습니다.',
         isAllSettled,
-        status: targetStatus,
+        status: 'DONE',
       };
     });
   }

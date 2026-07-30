@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
-describe('ExpensesService - settleSplit 기본값(isBulkComplete: false) 및 상태 전이 검증', () => {
+describe('ExpensesService - settleSplit 대상 split DONE 전이 및 isBulkComplete(부모 강제 완료) 검증', () => {
   let service: ExpensesService;
   let prisma: {
     expenseSplit: {
@@ -80,50 +80,7 @@ describe('ExpensesService - settleSplit 기본값(isBulkComplete: false) 및 상
       },
     };
 
-    it('1. body 생략 시 (기본값 false 적용) -> status가 REQUESTED로 변경되어야 한다', async () => {
-      prisma.expenseSplit.findUnique.mockResolvedValue(mockSplitData);
-      prisma.expenseSplit.update.mockResolvedValue({
-        id: 1n,
-        expenseId: 10n,
-        status: 'REQUESTED',
-      });
-      prisma.expenseSplit.findMany.mockResolvedValue([
-        { id: 1n, status: 'REQUESTED' },
-      ]);
-
-      const result = await service.settleSplit(mockAuthContext, 1);
-
-      expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
-        where: { id: 1n },
-        data: { status: 'REQUESTED' },
-      });
-      expect(result.status).toBe('REQUESTED');
-      expect(result.isAllSettled).toBe(false);
-    });
-
-    it('2. { isBulkComplete: false } 명시적 전달 시 -> status가 REQUESTED로 변경되어야 한다', async () => {
-      prisma.expenseSplit.findUnique.mockResolvedValue(mockSplitData);
-      prisma.expenseSplit.update.mockResolvedValue({
-        id: 1n,
-        expenseId: 10n,
-        status: 'REQUESTED',
-      });
-      prisma.expenseSplit.findMany.mockResolvedValue([
-        { id: 1n, status: 'REQUESTED' },
-      ]);
-
-      const result = await service.settleSplit(mockAuthContext, 1, {
-        isBulkComplete: false,
-      });
-
-      expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
-        where: { id: 1n },
-        data: { status: 'REQUESTED' },
-      });
-      expect(result.status).toBe('REQUESTED');
-    });
-
-    it('3. { isBulkComplete: true } 전달 시 -> status가 DONE으로 전이되고 completedAt이 설정되어야 한다', async () => {
+    it('1. body 생략 시 -> 대상 split은 항상 DONE으로 전이되고 completedAt이 설정되어야 한다', async () => {
       prisma.expenseSplit.findUnique.mockResolvedValue(mockSplitData);
       prisma.expenseSplit.update.mockResolvedValue({
         id: 1n,
@@ -132,6 +89,60 @@ describe('ExpensesService - settleSplit 기본값(isBulkComplete: false) 및 상
       });
       prisma.expenseSplit.findMany.mockResolvedValue([
         { id: 1n, status: 'DONE' },
+      ]);
+      prisma.expense.update.mockResolvedValue({ id: 10n, status: 'DONE' });
+
+      const result = await service.settleSplit(mockAuthContext, 1);
+
+      expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
+        where: { id: 1n },
+        data: {
+          status: 'DONE',
+          completedAt: expect.any(Date) as Date,
+        },
+      });
+      expect(result.status).toBe('DONE');
+      expect(result.isAllSettled).toBe(true);
+    });
+
+    it('2. { isBulkComplete: false } 명시적 전달 시에도 -> 대상 split은 DONE으로 전이되어야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue(mockSplitData);
+      prisma.expenseSplit.update.mockResolvedValue({
+        id: 1n,
+        expenseId: 10n,
+        status: 'DONE',
+      });
+      prisma.expenseSplit.findMany.mockResolvedValue([
+        { id: 1n, status: 'DONE' },
+        { id: 2n, status: 'REQUESTED' },
+      ]);
+
+      const result = await service.settleSplit(mockAuthContext, 1, {
+        isBulkComplete: false,
+      });
+
+      expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
+        where: { id: 1n },
+        data: {
+          status: 'DONE',
+          completedAt: expect.any(Date) as Date,
+        },
+      });
+      expect(result.status).toBe('DONE');
+      expect(result.isAllSettled).toBe(false);
+      expect(prisma.expense.update).not.toHaveBeenCalled();
+    });
+
+    it('3. { isBulkComplete: true } 전달 시 -> 다른 분담자가 남아있어도 부모 Expense를 강제로 DONE 처리해야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue(mockSplitData);
+      prisma.expenseSplit.update.mockResolvedValue({
+        id: 1n,
+        expenseId: 10n,
+        status: 'DONE',
+      });
+      prisma.expenseSplit.findMany.mockResolvedValue([
+        { id: 1n, status: 'DONE' },
+        { id: 2n, status: 'REQUESTED' },
       ]);
       prisma.expense.update.mockResolvedValue({ id: 10n, status: 'DONE' });
 
@@ -147,7 +158,7 @@ describe('ExpensesService - settleSplit 기본값(isBulkComplete: false) 및 상
         },
       });
       expect(result.status).toBe('DONE');
-      expect(result.isAllSettled).toBe(true);
+      expect(result.isAllSettled).toBe(false);
       expect(prisma.expense.update).toHaveBeenCalledWith({
         where: { id: 10n },
         data: { status: 'DONE' },

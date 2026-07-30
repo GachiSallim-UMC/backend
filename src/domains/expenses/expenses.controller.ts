@@ -141,7 +141,9 @@ export class ExpensesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
     summary: '개별 송금 및 전체 정산 상태 동기화 완료 (EXP-SETTLE-01)', 
-    description: '대상자별 상태를 완료로 변경하고, 그룹 전체 완료 시 부모 정산 상태를 자동으로 완료 처리합니다.' 
+    description:
+      '대상자별 상태를 완료로 변경합니다. 그룹 전체가 완료되면 부모 정산 상태도 자동으로 완료 처리되며, ' +
+      'isBulkComplete=true로 호출하면 다른 분담자가 남아있어도 부모 정산을 즉시 강제로 완료 처리합니다.',
   })
   @ApiParam({ name: 'splitId', description: '정산 완료할 분담 내역(Split) ID', example: 2 })
   async settleSplit(
