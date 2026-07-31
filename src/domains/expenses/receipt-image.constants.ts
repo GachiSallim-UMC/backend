@@ -1,0 +1,1 @@
+export const RECEIPT_IMAGE_S3_CLIENT = Symbol('RECEIPT_IMAGE_S3_CLIENT');

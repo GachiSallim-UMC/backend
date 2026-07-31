@@ -12,7 +12,8 @@ import { CalculateExpenseDto } from './dto/calculate-expense.dto';
 import { WebhookExpenseDto } from './dto/webhook-expense.dto';
 import { GetExpenseQueryDto } from './dto/get-expense-query.dto';
 import { SettleSplitDto } from './dto/settle-split.dto';
-import { ExpenseNotFoundException } from './expenses.exception'; 
+import { ExpenseNotFoundException } from './expenses.exception';
+import { ReceiptImageService } from './receipt-image.service';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { ExpenseCategory, MessageType, ExpenseSplitStatus, SplitType  } from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
@@ -23,7 +24,10 @@ import * as crypto from 'crypto';
 export class ExpensesService {
   private readonly WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'gachisallim-webhook-secret-key';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly receiptImages: ReceiptImageService,
+  ) {}
 
   // DB User.id 조회
   private async getUserIdByAuth(auth: AuthContext): Promise<bigint> {
@@ -90,11 +94,17 @@ export class ExpensesService {
       where: {
         groupId: BigInt(targetGroupId),
         userId: { in: allRequiredUserIds.map((id) => BigInt(id)) },
+        leftAt: null,
       },
       select: { userId: true },
     });
     if (groupMemberships.length !== allRequiredUserIds.length) {
       throw new ForbiddenException('해당 그룹의 멤버가 아닌 사용자가 정산 대상에 포함되어 있습니다.');
+    }
+
+    if (receiptUrl) {
+      this.receiptImages.assertReceiptKeyBelongsToGroup(BigInt(targetGroupId), receiptUrl);
+      await this.receiptImages.assertObjectExists(receiptUrl);
     }
 
     // 정산 분담금 계산
@@ -166,7 +176,7 @@ export class ExpensesService {
 
     if (groupId) {
       const isMember = await this.prisma.groupMember.findFirst({
-        where: { groupId: BigInt(groupId), userId: currentUserId },
+        where: { groupId: BigInt(groupId), userId: currentUserId, leftAt: null },
       });
       if (!isMember) {
         throw new ForbiddenException('해당 그룹의 정산 내역을 조회할 권한이 없습니다.');
@@ -201,7 +211,7 @@ export class ExpensesService {
     if (!expense) throw new ExpenseNotFoundException();
 
     const isMember = await this.prisma.groupMember.findFirst({
-      where: { groupId: expense.groupId, userId: currentUserId },
+      where: { groupId: expense.groupId, userId: currentUserId, leftAt: null },
     });
     if (!isMember) {
       throw new ForbiddenException('해당 정산의 상세 내역을 조회할 권한이 없습니다.');
@@ -229,9 +239,14 @@ export class ExpensesService {
       throw new ForbiddenException('정산 수정 권한이 없습니다. (생성자 또는 선결제자만 가능)');
     }
 
-    const { title, totalAmount, category, splitType, targetMemberIds } = updateExpenseDto as UpdateExpenseDto & {
+    const { title, totalAmount, category, splitType, targetMemberIds, receiptUrl } = updateExpenseDto as UpdateExpenseDto & {
       category?: ExpenseCategory;
     };
+
+    if (receiptUrl) {
+      this.receiptImages.assertReceiptKeyBelongsToGroup(expense.groupId, receiptUrl);
+      await this.receiptImages.assertObjectExists(receiptUrl);
+    }
 
     // 변경될 핵심 값들 (전달되지 않았으면 기존 값 유지)
     const newTotalAmount = totalAmount ?? expense.totalAmount;
@@ -243,7 +258,7 @@ export class ExpensesService {
       (splitType !== undefined && splitType !== expense.splitType);
 
     // 3. 트랜잭션으로 지출 내역과 분담 내역 함께 업데이트
-    return this.prisma.$transaction(async (tx) => {
+    const updateResult = await this.prisma.$transaction(async (tx) => {
       // 3-1. Expense 테이블 기본 정보 업데이트
       const updatedExpense = await tx.expense.update({
         where: { id: numericExpenseId },
@@ -252,6 +267,7 @@ export class ExpensesService {
           ...(totalAmount !== undefined && { totalAmount }),
           ...(category && { category }),
           ...(splitType && { splitType }),
+          ...(receiptUrl !== undefined && { receiptUrl }),
         },
       });
 
@@ -323,6 +339,13 @@ export class ExpensesService {
 
       return updatedExpense;
     });
+
+    // 4. 영수증 이미지가 다른 값으로 교체된 경우, 더 이상 참조되지 않는 기존 오브젝트를 정리한다.
+    if (receiptUrl !== undefined && expense.receiptUrl && expense.receiptUrl !== receiptUrl) {
+      await this.receiptImages.deleteObject(expense.receiptUrl);
+    }
+
+    return updateResult;
   }
 
   // 5. 지출 내역 삭제
@@ -341,6 +364,10 @@ export class ExpensesService {
     await this.prisma.expense.delete({
       where: { id: BigInt(expenseId) },
     });
+
+    if (expense.receiptUrl) {
+      await this.receiptImages.deleteObject(expense.receiptUrl);
+    }
 
     return {
       message: '지출 내역이 성공적으로 삭제되었습니다.',

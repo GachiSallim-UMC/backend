@@ -10,6 +10,10 @@ import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { CalculateExpenseDto } from './dto/calculate-expense.dto';
 import { WebhookExpenseDto } from './dto/webhook-expense.dto';
 import { SettleSplitDto } from './dto/settle-split.dto';
+import { CreateReceiptImageUploadDto } from './dto/create-receipt-image-upload.dto';
+import { ReceiptImageUploadResponseDto } from './dto/receipt-image-upload-response.dto';
+import { ReceiptImageViewResponseDto } from './dto/receipt-image-view.dto';
+import { ReceiptImageService } from './receipt-image.service';
 
 // 인증 가드, 데코레이터 및 인터페이스
 import { CognitoAccessTokenGuard } from '../auth/common/cognito-access-token.guard';
@@ -20,11 +24,30 @@ import { AuthContext } from '../auth/common/auth-context.interface';
 @ApiBearerAuth('BearerAuth')
 @Controller('expenses') // 👈 auth 모듈 수정을 피하기 위해 클래스 레벨 @UseGuards 제거
 export class ExpensesController {
-  constructor(private readonly expensesService: ExpensesService) {}
+  constructor(
+    private readonly expensesService: ExpensesService,
+    private readonly receiptImages: ReceiptImageService,
+  ) {}
 
   // ==========================================
   // [1] 정적 라우트 & 생성/조회 API (우선순위 높음)
   // ==========================================
+
+  @Post('receipt-image/upload-url')
+  @UseGuards(CognitoAccessTokenGuard)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: '영수증 이미지 업로드 URL 발급',
+    description:
+      '요청자가 groupId 그룹의 멤버인 경우에만, 최대 10MB의 JPEG, PNG 또는 WebP 파일을 업로드할 수 있는 S3 Presigned POST를 발급합니다.',
+  })
+  @ApiBody({ type: CreateReceiptImageUploadDto })
+  async createReceiptImageUpload(
+    @CurrentAuth() auth: AuthContext,
+    @Body() dto: CreateReceiptImageUploadDto,
+  ): Promise<ReceiptImageUploadResponseDto> {
+    return this.receiptImages.createUpload(auth, dto);
+  }
 
   @Post()
   @UseGuards(CognitoAccessTokenGuard)
@@ -254,5 +277,21 @@ export class ExpensesController {
     @Param('expenseId', ParseIntPipe) expenseId: number,
   ) {
     return this.expensesService.shareExpenseCard(auth, expenseId);
+  }
+
+  @Get(':expenseId/receipt-image')
+  @UseGuards(CognitoAccessTokenGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '영수증 이미지 조회 URL 발급',
+    description:
+      '요청자가 해당 정산이 속한 그룹의 멤버인 경우에만, 5분간 유효한 영수증 이미지 조회용 서명 URL을 발급합니다.',
+  })
+  @ApiParam({ name: 'expenseId', description: '영수증을 조회할 정산 내역 ID', example: 123 })
+  async getReceiptImageViewUrl(
+    @CurrentAuth() auth: AuthContext,
+    @Param('expenseId', ParseIntPipe) expenseId: number,
+  ): Promise<ReceiptImageViewResponseDto> {
+    return this.receiptImages.createViewUrl(auth, BigInt(expenseId));
   }
 }

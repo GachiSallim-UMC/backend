@@ -246,6 +246,29 @@ export class BackendStack extends Stack {
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
     });
 
+    // 영수증 이미지는 인증 + 그룹 멤버십 검증을 거친 요청에만 짧은 유효시간의 S3
+    // presigned URL로 노출한다. CloudFront는 그 검증을 우회하는 상시 공개 경로가
+    // 되므로 의도적으로 두지 않는다.
+    const receiptImageBucket = new s3.Bucket(this, 'ReceiptImageBucket', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      removalPolicy: RemovalPolicy.RETAIN,
+      cors: [
+        {
+          allowedHeaders: ['*'],
+          allowedMethods: [s3.HttpMethods.POST, s3.HttpMethods.GET],
+          allowedOrigins: [
+            ...RUNTIME_ENVIRONMENTS.map(({ webAppUrl }) => webAppUrl),
+            'http://localhost:5173',
+          ],
+          exposedHeaders: ['ETag'],
+          maxAge: 300,
+        },
+      ],
+    });
+
     const applicationLogGroup = new logs.LogGroup(this, 'ApplicationLogGroup', {
       logGroupName: '/gachisallim/backend/application',
       retention: logs.RetentionDays.ONE_MONTH,
@@ -812,6 +835,13 @@ export class BackendStack extends Stack {
     props.artifactBucket.grantRead(instanceRole, 'releases/*');
     for (const environment of RUNTIME_ENVIRONMENTS) {
       profileImageBucket.grantPut(instanceRole, `${environment.branch}/profiles/*`);
+      // 업로드/조회/정리 권한을 하나의 statement로 묶어 InstanceRole 기본 정책의 크기를 절약한다.
+      instanceRole.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          actions: ['s3:PutObject', 's3:GetObject', 's3:DeleteObject'],
+          resources: [`${receiptImageBucket.bucketArn}/${environment.branch}/receipts/*`],
+        }),
+      );
     }
     applicationLogGroup.grantWrite(instanceRole);
     for (const queue of notificationPushQueues.values()) {
@@ -953,6 +983,8 @@ COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
 PROFILE_IMAGE_BUCKET='${profileImageBucket.bucketName}'
 PROFILE_IMAGE_OBJECT_PREFIX='${environment.branch}/profiles'
 PROFILE_IMAGE_PUBLIC_BASE_URL='https://${profileImageDistribution.distributionDomainName}'
+RECEIPT_IMAGE_BUCKET='${receiptImageBucket.bucketName}'
+RECEIPT_IMAGE_OBJECT_PREFIX='${environment.branch}/receipts'
 ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
@@ -983,6 +1015,8 @@ COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
 PROFILE_IMAGE_BUCKET='${profileImageBucket.bucketName}'
 PROFILE_IMAGE_OBJECT_PREFIX='${environment.branch}/profiles'
 PROFILE_IMAGE_PUBLIC_BASE_URL='https://${profileImageDistribution.distributionDomainName}'
+RECEIPT_IMAGE_BUCKET='${receiptImageBucket.bucketName}'
+RECEIPT_IMAGE_OBJECT_PREFIX='${environment.branch}/receipts'
 NOTIFICATION_PUSH_QUEUE_URL='${notificationPushQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_PUSH_RESULT_QUEUE_URL='${notificationPushResultQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_VAPID_PUBLIC_KEY='${notificationVapidPublicKeys.get(environment.branch)!}'
