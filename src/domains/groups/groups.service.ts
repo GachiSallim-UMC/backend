@@ -97,6 +97,7 @@ export class GroupsService {
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.groupImage !== undefined ? { groupImage: dto.groupImage } : {}),
         ...(dto.maxMembers !== undefined ? { maxMembers: dto.maxMembers } : {}),
       },
     });
