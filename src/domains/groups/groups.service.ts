@@ -255,16 +255,19 @@ export class GroupsService {
     return this.updateGroupInviteCode(groupId);
   }
 
+  async getInviteInfo(inviteCode: string) {
+    const group = await this.findGroupByValidInviteCodeOrThrow(inviteCode);
+
+    return {
+      name: group.name,
+      description: group.description,
+      currentMembers: group.currentMembers,
+      maxMembers: group.maxMembers,
+    };
+  }
+
   async joinGroup(dto: JoinGroupDto, currentUserId: bigint) {
-    const group = await this.prisma.group.findUnique({ where: { inviteCode: dto.inviteCode } });
-
-    if (!group || group.isDeleted) {
-      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_INVALID);
-    }
-
-    if (group.inviteExpiredAt.getTime() < Date.now()) {
-      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_EXPIRED);
-    }
+    const group = await this.findGroupByValidInviteCodeOrThrow(dto.inviteCode);
 
     const existingMember = await this.prisma.groupMember.findUnique({
       where: { userId_groupId: { userId: currentUserId, groupId: group.id } },
@@ -332,6 +335,20 @@ export class GroupsService {
 
     if (!group || group.isDeleted) {
       throw new BusinessException(ErrorCode.GROUP_NOT_FOUND);
+    }
+
+    return group;
+  }
+
+  private async findGroupByValidInviteCodeOrThrow(inviteCode: string) {
+    const group = await this.prisma.group.findUnique({ where: { inviteCode } });
+
+    if (!group || group.isDeleted) {
+      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_INVALID);
+    }
+
+    if (group.inviteExpiredAt.getTime() < Date.now()) {
+      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_EXPIRED);
     }
 
     return group;

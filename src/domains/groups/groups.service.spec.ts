@@ -442,6 +442,51 @@ describe('GroupsService', () => {
     await expect(service.reissueInviteCode(1n, 20n)).rejects.toBeInstanceOf(BusinessException);
   });
 
+  it('returns a group preview for a valid invite code without joining', async () => {
+    prisma.group.findUnique.mockResolvedValue({
+      id: 1n,
+      isDeleted: false,
+      inviteCode: 'ABCDEF',
+      inviteExpiredAt: new Date(Date.now() + 1000 * 60),
+      name: '우리집',
+      description: '강남구 역삼동 셰어하우스',
+      currentMembers: 2,
+      maxMembers: 4,
+    });
+
+    const result = await service.getInviteInfo('ABCDEF');
+
+    expect(result).toEqual({
+      name: '우리집',
+      description: '강남구 역삼동 셰어하우스',
+      currentMembers: 2,
+      maxMembers: 4,
+    });
+    expect(prisma.groupMember.findUnique).not.toHaveBeenCalled();
+    expect(prisma.group.update).not.toHaveBeenCalled();
+  });
+
+  it('throws when previewing with an invite code that does not match any group', async () => {
+    prisma.group.findUnique.mockResolvedValue(null);
+
+    await expect(service.getInviteInfo('INVALI1')).rejects.toMatchObject({
+      code: 'GROUP_INVITE_CODE_INVALID',
+    });
+  });
+
+  it('throws when previewing with an expired invite code', async () => {
+    prisma.group.findUnique.mockResolvedValue({
+      id: 1n,
+      isDeleted: false,
+      inviteCode: 'ABCDEF',
+      inviteExpiredAt: new Date(Date.now() - 1000),
+    });
+
+    await expect(service.getInviteInfo('ABCDEF')).rejects.toMatchObject({
+      code: 'GROUP_INVITE_CODE_EXPIRED',
+    });
+  });
+
   it('joins a group with a valid invite code', async () => {
     prisma.group.findUnique.mockResolvedValue({
       id: 1n,
