@@ -545,6 +545,7 @@
                     "id": 1,
                     "name": "우리집",
                     "description": "강남구 역삼동 셰어하우스",
+                    "groupImage": "https://example.com/group.png",
                     "inviteCode": "ABC123",
                     "inviteExpiredAt": "2026-07-08T10:00:00Z",
                     "currentMembers": 3,
@@ -681,6 +682,12 @@
                     "example": "새로운 설명",
                     "description": "그룹 설명 (100자 이내)"
                   },
+                  "groupImage": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "https://example.com/group.png",
+                    "description": "그룹 이미지 URL (null이면 기존 이미지 제거)"
+                  },
                   "maxMembers": {
                     "type": "integer",
                     "example": 5,
@@ -703,6 +710,7 @@
                     "name": "우리집 시즌2",
                     "type": "SHARE_HOUSE",
                     "description": "새로운 설명",
+                    "groupImage": "https://example.com/group.png",
                     "maxMembers": 5,
                     "updatedAt": "2026-07-01T11:00:00Z"
                   },
