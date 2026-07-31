@@ -313,7 +313,12 @@ export class ChatService {
   ): Promise<void> {
     try {
       const recipients = await this.prisma.chatRoomMember.findMany({
-        where: { chatRoomId, userId: { not: senderId }, notificationEnabled: true },
+        where: {
+          chatRoomId,
+          userId: { not: senderId },
+          notificationEnabled: true,
+          user: { groupMembers: { some: { groupId, leftAt: null } } },
+        },
         select: { userId: true },
       });
 

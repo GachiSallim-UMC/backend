@@ -472,7 +472,12 @@ describe('ChatService', () => {
       expect(result).toEqual(message);
       expect(chatBroadcastService.broadcastToRoom).toHaveBeenCalledWith(1n, 'message:new', message);
       expect(prisma.chatRoomMember.findMany).toHaveBeenCalledWith({
-        where: { chatRoomId: 1n, userId: { not: 1n }, notificationEnabled: true },
+        where: {
+          chatRoomId: 1n,
+          userId: { not: 1n },
+          notificationEnabled: true,
+          user: { groupMembers: { some: { groupId: 10n, leftAt: null } } },
+        },
         select: { userId: true },
       });
       expect(notificationDelivery.createNotification).toHaveBeenCalledTimes(2);
