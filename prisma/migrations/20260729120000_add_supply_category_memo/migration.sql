@@ -1,0 +1,6 @@
+-- CreateEnum
+CREATE TYPE "SupplyCategory" AS ENUM ('DAILY_NECESSITIES', 'BATHROOM', 'KITCHEN', 'LAUNDRY_CLEANING', 'FOOD', 'HEALTH_HYGIENE', 'PET_PLANT', 'TOOLS_ETC', 'ETC');
+
+-- AlterTable
+ALTER TABLE "supplies" ADD COLUMN     "category" "SupplyCategory" NOT NULL DEFAULT 'ETC',
+ADD COLUMN     "memo" VARCHAR(255);

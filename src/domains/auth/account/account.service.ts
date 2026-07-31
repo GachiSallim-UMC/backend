@@ -26,7 +26,7 @@ export class AuthAccountService {
   }
 
   async updateProfile(cognitoSub: string, dto: UpdateProfileDto): Promise<AuthAccountResponseDto> {
-    if (dto.nickname === undefined && dto.profileImage === undefined) {
+    if (dto.name === undefined && dto.nickname === undefined && dto.profileImage === undefined) {
       throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER);
     }
 
@@ -34,6 +34,7 @@ export class AuthAccountService {
     const user = await this.prisma.user.update({
       where: { id: account.user.id },
       data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.nickname !== undefined ? { nickname: dto.nickname } : {}),
         ...(dto.profileImage !== undefined ? { profileImage: dto.profileImage } : {}),
       },

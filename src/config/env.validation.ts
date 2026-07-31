@@ -13,6 +13,22 @@ export const ENV_VALIDATION_SCHEMA = joi.object({
   AWS_REGION: joi.string().min(1).required(),
   COGNITO_USER_POOL_ID: joi.string().min(1).required(),
   COGNITO_CLIENT_ID: joi.string().min(1).required(),
+  PROFILE_IMAGE_BUCKET: joi.string().min(3).required(),
+  PROFILE_IMAGE_OBJECT_PREFIX: joi
+    .string()
+    .pattern(/^[0-9A-Za-z][0-9A-Za-z/_-]*[0-9A-Za-z]$/)
+    .max(128)
+    .required(),
+  PROFILE_IMAGE_PUBLIC_BASE_URL: joi
+    .string()
+    .uri({ scheme: ['https'] })
+    .required(),
+  RECEIPT_IMAGE_BUCKET: joi.string().min(3).required(),
+  RECEIPT_IMAGE_OBJECT_PREFIX: joi
+    .string()
+    .pattern(/^[0-9A-Za-z][0-9A-Za-z/_-]*[0-9A-Za-z]$/)
+    .max(128)
+    .required(),
   NOTIFICATION_PUSH_QUEUE_URL: joi
     .string()
     .uri({ scheme: ['https'] })
@@ -54,4 +70,9 @@ export const ENV_VALIDATION_SCHEMA = joi.object({
     .default('09:00'),
   CHORE_DUE_TIME_ZONE: joi.string().min(1).default('Asia/Seoul'),
   NOTIFICATION_COMMAND_POLL_INTERVAL_MS: joi.number().integer().min(1000).default(5000),
+  CHAT_CONNECTIONS_TABLE_NAME: joi.string().min(1).required(),
+  CHAT_WEBSOCKET_CALLBACK_URL: joi
+    .string()
+    .uri({ scheme: ['https'] })
+    .required(),
 });

@@ -7,6 +7,7 @@ import { BadRequestException, ForbiddenException, UnauthorizedException } from '
 import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExpenseNotFoundException } from './expenses.exception';
+import { ReceiptImageService } from './receipt-image.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -70,6 +71,11 @@ const mockPrismaService = (): any => {
 describe('ExpensesService', () => {
   let service: ExpensesService;
   let prisma: any;
+  let receiptImages: {
+    assertReceiptKeyBelongsToGroup: jest.Mock;
+    assertObjectExists: jest.Mock;
+    deleteObject: jest.Mock;
+  };
 
   const mockAuthContext: AuthContext = {
     cognitoSub: 'test-cognito-sub-123',
@@ -77,12 +83,21 @@ describe('ExpensesService', () => {
   };
 
   beforeEach(async () => {
+    receiptImages = {
+      assertReceiptKeyBelongsToGroup: jest.fn(),
+      assertObjectExists: jest.fn().mockResolvedValue(undefined),
+      deleteObject: jest.fn().mockResolvedValue(undefined),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ExpensesService,
         {
           provide: PrismaService,
           useFactory: mockPrismaService,
+        },
+        {
+          provide: ReceiptImageService,
+          useValue: receiptImages,
         },
       ],
     }).compile();
@@ -147,6 +162,89 @@ describe('ExpensesService', () => {
       });
       expect(prisma.expense.create).toHaveBeenCalled();
       expect(prisma.expenseSplit.createMany).toHaveBeenCalled();
+      const groupMembershipCallArgs = prisma.groupMember.findMany.mock.calls[0][0] as {
+        where: { leftAt: null | Date };
+      };
+      expect(groupMembershipCallArgs.where.leftAt).toBeNull();
+    });
+
+    it('receiptUrl이 전달되면 지출이 속한 그룹 소속인지 검증해야 한다', async () => {
+      const dto: CreateExpenseDto = {
+        groupId: 1,
+        category: ExpenseCategory.FOOD,
+        payerId: '12',
+        date: '2026-07-23',
+        title: '점심 식대',
+        amount: 10000,
+        splitType: SplitType.EQUAL,
+        targetMemberIds: [{ userId: '12' }],
+        receiptUrl: 'develop/receipts/1/12/uuid.jpg',
+      };
+
+      prisma.user.findMany.mockResolvedValue([{ id: BigInt(12) }]);
+      prisma.groupMember.findMany.mockResolvedValue([{ userId: BigInt(12) }]);
+      prisma.expense.create.mockResolvedValue({ id: BigInt(100) });
+      prisma.expenseSplit.createMany.mockResolvedValue({ count: 1 });
+
+      await service.createExpense(mockAuthContext, dto);
+
+      expect(receiptImages.assertReceiptKeyBelongsToGroup).toHaveBeenCalledWith(
+        1n,
+        'develop/receipts/1/12/uuid.jpg',
+      );
+      expect(receiptImages.assertObjectExists).toHaveBeenCalledWith(
+        'develop/receipts/1/12/uuid.jpg',
+      );
+    });
+
+    it('receiptUrl이 다른 그룹 소속이면 검증 단계에서 예외가 전파되어야 한다', async () => {
+      const dto: CreateExpenseDto = {
+        groupId: 1,
+        category: ExpenseCategory.FOOD,
+        payerId: '12',
+        date: '2026-07-23',
+        title: '점심 식대',
+        amount: 10000,
+        splitType: SplitType.EQUAL,
+        targetMemberIds: [{ userId: '12' }],
+        receiptUrl: 'develop/receipts/2/12/uuid.jpg',
+      };
+
+      prisma.user.findMany.mockResolvedValue([{ id: BigInt(12) }]);
+      prisma.groupMember.findMany.mockResolvedValue([{ userId: BigInt(12) }]);
+      receiptImages.assertReceiptKeyBelongsToGroup.mockImplementationOnce(() => {
+        throw new BadRequestException('영수증 이미지가 해당 그룹에 속하지 않습니다.');
+      });
+
+      await expect(service.createExpense(mockAuthContext, dto)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+    });
+
+    it('receiptUrl에 해당하는 오브젝트가 실제로 업로드되지 않았으면 예외가 전파되어야 한다', async () => {
+      const dto: CreateExpenseDto = {
+        groupId: 1,
+        category: ExpenseCategory.FOOD,
+        payerId: '12',
+        date: '2026-07-23',
+        title: '점심 식대',
+        amount: 10000,
+        splitType: SplitType.EQUAL,
+        targetMemberIds: [{ userId: '12' }],
+        receiptUrl: 'develop/receipts/1/12/uuid.jpg',
+      };
+
+      prisma.user.findMany.mockResolvedValue([{ id: BigInt(12) }]);
+      prisma.groupMember.findMany.mockResolvedValue([{ userId: BigInt(12) }]);
+      receiptImages.assertObjectExists.mockRejectedValueOnce(
+        new BadRequestException('업로드가 완료되지 않은 영수증 이미지입니다.'),
+      );
+
+      await expect(service.createExpense(mockAuthContext, dto)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.expense.create).not.toHaveBeenCalled();
     });
 
     it('CUSTOM 분담 방식일 때 지정된 금액으로 정산 요청이 올바르게 생성되어야 한다', async () => {
@@ -243,6 +341,17 @@ describe('ExpensesService', () => {
 
       const result = await service.getExpenseDetail(mockAuthContext, 1);
       expect(result).toBeDefined();
+      expect(prisma.groupMember.findFirst).toHaveBeenCalledWith({
+        where: { groupId: BigInt(1), userId: BigInt(12), leftAt: null },
+      });
+    });
+
+    it('탈퇴한 멤버(leftAt이 존재)의 조회 요청은 ForbiddenException을 던져야 한다', async () => {
+      // leftAt 필터로 인해 findFirst가 탈퇴한 멤버십을 결과에서 제외한 것을 시뮬레이션한다.
+      prisma.expense.findUnique.mockResolvedValue({ id: BigInt(1), groupId: BigInt(1) });
+      prisma.groupMember.findFirst.mockResolvedValue(null);
+
+      await expect(service.getExpenseDetail(mockAuthContext, 1)).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -269,6 +378,93 @@ describe('updateExpense', () => {
       await expect(
         service.updateExpense(mockAuthContext, 1, { title: '수정 테스트' }),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('receiptUrl 수정 시 기존 지출이 속한 그룹 소속인지 검증해야 한다', async () => {
+      jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue({
+        id: 1n,
+        createdBy: 12n,
+        payerId: 12n,
+        groupId: 5n,
+        totalAmount: 30000,
+        splitType: SplitType.EQUAL,
+        splits: [],
+      } as any);
+      jest.spyOn(prisma.expense, 'update').mockResolvedValue({ id: 1n } as any);
+
+      await service.updateExpense(mockAuthContext, 1, {
+        receiptUrl: 'develop/receipts/5/12/uuid.jpg',
+      });
+
+      expect(receiptImages.assertReceiptKeyBelongsToGroup).toHaveBeenCalledWith(
+        5n,
+        'develop/receipts/5/12/uuid.jpg',
+      );
+      expect(receiptImages.assertObjectExists).toHaveBeenCalledWith(
+        'develop/receipts/5/12/uuid.jpg',
+      );
+    });
+
+    it('receiptUrl이 다른 그룹 소속이면 검증 단계에서 예외가 전파되어야 한다', async () => {
+      jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue({
+        id: 1n,
+        createdBy: 12n,
+        payerId: 12n,
+        groupId: 5n,
+        totalAmount: 30000,
+        splitType: SplitType.EQUAL,
+        splits: [],
+      } as any);
+      receiptImages.assertReceiptKeyBelongsToGroup.mockImplementationOnce(() => {
+        throw new BadRequestException('영수증 이미지가 해당 그룹에 속하지 않습니다.');
+      });
+
+      await expect(
+        service.updateExpense(mockAuthContext, 1, {
+          receiptUrl: 'develop/receipts/9/12/uuid.jpg',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.expense.update).not.toHaveBeenCalled();
+    });
+
+    it('receiptUrl이 새 값으로 교체되면 기존 영수증 오브젝트를 정리해야 한다', async () => {
+      jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue({
+        id: 1n,
+        createdBy: 12n,
+        payerId: 12n,
+        groupId: 5n,
+        totalAmount: 30000,
+        splitType: SplitType.EQUAL,
+        receiptUrl: 'develop/receipts/5/12/old-uuid.jpg',
+        splits: [],
+      } as any);
+      jest.spyOn(prisma.expense, 'update').mockResolvedValue({ id: 1n } as any);
+
+      await service.updateExpense(mockAuthContext, 1, {
+        receiptUrl: 'develop/receipts/5/12/new-uuid.jpg',
+      });
+
+      expect(receiptImages.deleteObject).toHaveBeenCalledWith(
+        'develop/receipts/5/12/old-uuid.jpg',
+      );
+    });
+
+    it('receiptUrl을 전달하지 않으면 기존 영수증 오브젝트를 정리하지 않아야 한다', async () => {
+      jest.spyOn(prisma.expense, 'findUnique').mockResolvedValue({
+        id: 1n,
+        createdBy: 12n,
+        payerId: 12n,
+        groupId: 5n,
+        totalAmount: 30000,
+        splitType: SplitType.EQUAL,
+        receiptUrl: 'develop/receipts/5/12/old-uuid.jpg',
+        splits: [],
+      } as any);
+      jest.spyOn(prisma.expense, 'update').mockResolvedValue({ id: 1n } as any);
+
+      await service.updateExpense(mockAuthContext, 1, { title: '제목만 수정' });
+
+      expect(receiptImages.deleteObject).not.toHaveBeenCalled();
     });
 
     it('지출 내역 수정 시 EQUAL 방식이면 변경된 총액에 맞게 ExpenseSplit이 N분의 1로 재계산되어야 한다', async () => {
@@ -516,6 +712,20 @@ describe('updateExpense', () => {
         message: '지출 내역이 성공적으로 삭제되었습니다.',
         deletedExpenseId: 1,
       });
+      expect(receiptImages.deleteObject).not.toHaveBeenCalled();
+    });
+
+    it('영수증 이미지가 첨부된 지출을 삭제하면 해당 S3 오브젝트도 정리해야 한다', async () => {
+      prisma.expense.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        createdBy: BigInt(12),
+        receiptUrl: 'develop/receipts/5/12/uuid.jpg',
+      });
+      prisma.expense.delete.mockResolvedValue({ id: BigInt(1) });
+
+      await service.deleteExpense(mockAuthContext, 1);
+
+      expect(receiptImages.deleteObject).toHaveBeenCalledWith('develop/receipts/5/12/uuid.jpg');
     });
   });
 

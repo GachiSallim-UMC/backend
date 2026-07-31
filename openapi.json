@@ -545,6 +545,7 @@
                     "id": 1,
                     "name": "우리집",
                     "description": "강남구 역삼동 셰어하우스",
+                    "groupImage": "https://example.com/group.png",
                     "inviteCode": "ABC123",
                     "inviteExpiredAt": "2026-07-08T10:00:00Z",
                     "currentMembers": 3,
@@ -681,6 +682,12 @@
                     "example": "새로운 설명",
                     "description": "그룹 설명 (100자 이내)"
                   },
+                  "groupImage": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "https://example.com/group.png",
+                    "description": "그룹 이미지 URL (null이면 기존 이미지 제거)"
+                  },
                   "maxMembers": {
                     "type": "integer",
                     "example": 5,
@@ -703,6 +710,7 @@
                     "name": "우리집 시즌2",
                     "type": "SHARE_HOUSE",
                     "description": "새로운 설명",
+                    "groupImage": "https://example.com/group.png",
                     "maxMembers": 5,
                     "updatedAt": "2026-07-01T11:00:00Z"
                   },
@@ -830,6 +838,262 @@
           }
         },
         "operationId": "deleteGroupsGroupId"
+      }
+    },
+    "/api/v1/groups/{groupId}/permissions": {
+      "get": {
+        "tags": [
+          "GROUP"
+        ],
+        "summary": "그룹 권한 설정 조회",
+        "description": "그룹의 멤버 권한 설정을 조회합니다.",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 1
+            },
+            "description": "그룹 ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "그룹 권한 설정 조회 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "groupId": 1,
+                    "allowChoreRegistration": true,
+                    "allowSettlementRegistration": true,
+                    "allowItemStatusChange": true,
+                    "autoApproveNewMembers": false,
+                    "updatedAt": "2026-07-01T11:00:00Z"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "COMMON_BAD_REQUEST | 요청 파라미터가 잘못된 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 400,
+                  "data": null,
+                  "error": {
+                    "code": "COMMON_BAD_REQUEST",
+                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "COMMON_UNAUTHORIZED | 인증이 필요한 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "COMMON_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "GROUP_MEMBER_NOT_FOUND | 그룹 구성원이 아닌 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "GROUP_NOT_FOUND | 그룹이 존재하지 않는 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_NOT_FOUND",
+                    "message": "존재하지 않는 그룹입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "operationId": "getGroupsGroupIdPermissions"
+      },
+      "patch": {
+        "tags": [
+          "GROUP"
+        ],
+        "summary": "그룹 권한 설정 수정",
+        "description": "그룹의 멤버 권한 설정을 수정합니다. 관리자만 가능합니다.",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 1
+            },
+            "description": "그룹 ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "allowChoreRegistration": {
+                    "type": "boolean",
+                    "example": true,
+                    "description": "멤버의 집안일 등록 허용"
+                  },
+                  "allowSettlementRegistration": {
+                    "type": "boolean",
+                    "example": true,
+                    "description": "멤버의 정산 등록 허용"
+                  },
+                  "allowItemStatusChange": {
+                    "type": "boolean",
+                    "example": true,
+                    "description": "멤버의 공용 물품 상태 변경 허용"
+                  },
+                  "autoApproveNewMembers": {
+                    "type": "boolean",
+                    "example": false,
+                    "description": "신규 멤버 자동 승인(관리자 승인 생략)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "그룹 권한 설정 수정 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "groupId": 1,
+                    "allowChoreRegistration": true,
+                    "allowSettlementRegistration": true,
+                    "allowItemStatusChange": true,
+                    "autoApproveNewMembers": true,
+                    "updatedAt": "2026-07-01T11:05:00Z"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "잘못된 요청 (COMMON_BAD_REQUEST) 또는 DTO 검증 실패 (COMMON_INVALID_PARAMETER)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 400,
+                  "data": null,
+                  "error": {
+                    "code": "COMMON_INVALID_PARAMETER",
+                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "errors": [
+                      {
+                        "field": "autoApproveNewMembers",
+                        "value": "true",
+                        "reason": "autoApproveNewMembers는 boolean 값이어야 합니다."
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "COMMON_UNAUTHORIZED | 인증이 필요한 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "COMMON_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "GROUP_FORBIDDEN | 관리자가 아닌 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_FORBIDDEN",
+                    "message": "그룹 관리자만 수행할 수 있는 작업입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "GROUP_NOT_FOUND | 그룹이 존재하지 않는 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_NOT_FOUND",
+                    "message": "존재하지 않는 그룹입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "operationId": "patchGroupsGroupIdPermissions"
       }
     },
     "/api/v1/chores/{choreId}": {
@@ -1039,6 +1303,22 @@
               }
             }
           },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
           "404": {
             "description": "집안일 없음",
             "content": {
@@ -1107,7 +1387,7 @@
             }
           },
           "403": {
-            "description": "등록자도 관리자도 아님",
+            "description": "그룹에 속하지 않은 사용자(GROUP_MEMBER_NOT_FOUND) 또는 등록자·관리자가 아님(CHORE_403)",
             "content": {
               "application/json": {
                 "example": {
@@ -1147,7 +1427,7 @@
           "집안일 관리 (CHORE)"
         ],
         "summary": "집안일 완료 처리 (CHORE-DONE-01)",
-        "description": "완료 상태(DONE)로 변경하고 완료자(completedBy)·완료시간(completedAt)을 저장합니다. 완료자는 Access Token에서 식별합니다. 반복 항목(repeatType ≠ NONE)이면 parentId로 원본을 참조하는 다음 일정을 자동 생성해 nextOccurrence로 반환합니다. 반복이 아니면 nextOccurrence는 null입니다. (우선순위: P0) 반복 집안일은 다음 회차를 생성하며, 종료일(dueDate)을 넘어서는 회차는 생성하지 않습니다. 종료일은 회차마다 이동하지 않고 고정됩니다.",
+        "description": "완료 상태(DONE)로 변경하고 완료자(completedBy)·완료시간(completedAt)을 저장합니다. 완료자는 Access Token에서 식별합니다. 반복 항목(repeatType ≠ NONE)이면 parentId로 원본을 참조하는 다음 일정을 자동 생성해 nextOccurrence로 반환합니다. 반복이 아니면 nextOccurrence는 null입니다. (우선순위: P0) 반복 집안일은 다음 회차를 생성하며, 종료일(dueDate)을 넘어서는 회차는 생성하지 않습니다. 종료일은 회차마다 이동하지 않고 고정됩니다. 다음 회차 시작일은 완료일(KST 달력 기준)을 기준으로 계산합니다. 예를 들어 매일 반복 집안일을 07-28에 완료하면 다음 회차는 07-29입니다. 단, 시작일보다 먼저 완료한 경우에는 시작일을 기준으로 계산합니다.",
         "parameters": [
           {
             "name": "choreId",
@@ -1204,6 +1484,22 @@
               }
             }
           },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
           "404": {
             "description": "집안일 없음",
             "content": {
@@ -1230,6 +1526,113 @@
                   "error": {
                     "code": "CHORE_409",
                     "message": "이미 완료된 집안일입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chores/{choreId}/incomplete": {
+      "patch": {
+        "tags": [
+          "집안일 관리 (CHORE)"
+        ],
+        "summary": "집안일 완료 취소 (CHORE-DONE-02)",
+        "description": "완료된 집안일을 미완료(PENDING)로 되돌리고 완료자(completedBy)·완료시간(completedAt)을 null로 초기화합니다. 완료 처리 시 자동 생성된 다음 회차가 있으면 함께 삭제하며, 삭제된 회차 ID 목록을 removedNextOccurrenceIds로 반환합니다. 다음 회차가 이미 완료된 경우에는 되돌릴 수 없으며 409를 반환합니다.",
+        "parameters": [
+          {
+            "name": "choreId",
+            "in": "path",
+            "required": true,
+            "description": "완료를 취소할 집안일 ID",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 11
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "완료 취소 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "choreId": 11,
+                    "status": "PENDING",
+                    "completedBy": null,
+                    "completedAt": null,
+                    "removedNextOccurrenceIds": [
+                      12
+                    ]
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 필요 (토큰 누락·만료·무효)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "집안일 없음",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "CHORE_404",
+                    "message": "존재하지 않는 집안일입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "완료 상태가 아니거나, 다음 회차가 이미 완료되어 되돌릴 수 없음",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 409,
+                  "data": null,
+                  "error": {
+                    "code": "CHORE_409_NOT_DONE",
+                    "message": "완료되지 않은 집안일입니다.",
                     "errors": []
                   }
                 }
@@ -1353,6 +1756,22 @@
                   "error": {
                     "code": "AUTH_UNAUTHORIZED",
                     "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
                     "errors": []
                   }
                 }
@@ -1606,6 +2025,22 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -1710,6 +2145,22 @@
                   "error": {
                     "code": "AUTH_UNAUTHORIZED",
                     "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "그룹에 속하지 않은 사용자",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "GROUP_MEMBER_NOT_FOUND",
+                    "message": "그룹에 속하지 않은 사용자입니다.",
                     "errors": []
                   }
                 }
@@ -2580,6 +3031,26 @@
                 "PURCHASED"
               ]
             }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "description": "물품 카테고리 필터",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DAILY_NECESSITIES",
+                "BATHROOM",
+                "KITCHEN",
+                "LAUNDRY_CLEANING",
+                "FOOD",
+                "HEALTH_HYGIENE",
+                "PET_PLANT",
+                "TOOLS_ETC",
+                "ETC"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2594,11 +3065,13 @@
                       "supplyId": 21,
                       "groupId": 1,
                       "name": "화장지",
+                      "category": "BATHROOM",
                       "assignee": {
                         "userId": 5,
                         "nickname": "홍길동"
                       },
                       "status": "LOW",
+                      "memo": "매달 구매, 마트에서 대용량으로 구입",
                       "linkedExpenseId": null,
                       "createdBy": {
                         "userId": 5,
@@ -2667,7 +3140,8 @@
                 "type": "object",
                 "required": [
                   "groupId",
-                  "name"
+                  "name",
+                  "category"
                 ],
                 "properties": {
                   "groupId": {
@@ -2680,6 +3154,22 @@
                     "maxLength": 100,
                     "description": "물품명 (그룹 내 고유)",
                     "example": "화장지"
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "DAILY_NECESSITIES",
+                      "BATHROOM",
+                      "KITCHEN",
+                      "LAUNDRY_CLEANING",
+                      "FOOD",
+                      "HEALTH_HYGIENE",
+                      "PET_PLANT",
+                      "TOOLS_ETC",
+                      "ETC"
+                    ],
+                    "description": "물품 카테고리 (생필품/욕실용품/주방용품/세탁·청소용품/식료품/의약·위생용품/반려동물·식물용품/공구·기타 생활용품/기타)",
+                    "example": "BATHROOM"
                   },
                   "status": {
                     "type": "string",
@@ -2696,6 +3186,13 @@
                     "type": "integer",
                     "description": "담당자 사용자 ID (선택, 해당 그룹 구성원이어야 함)",
                     "example": 5
+                  },
+                  "memo": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "nullable": true,
+                    "description": "메모 (선택)",
+                    "example": "매달 구매, 마트에서 대용량으로 구입"
                   }
                 }
               }
@@ -2713,11 +3210,13 @@
                     "supplyId": 21,
                     "groupId": 1,
                     "name": "화장지",
+                    "category": "BATHROOM",
                     "assignee": {
                       "userId": 5,
                       "nickname": "홍길동"
                     },
                     "status": "SUFFICIENT",
+                    "memo": null,
                     "linkedExpenseId": null,
                     "createdBy": {
                       "userId": 5,
@@ -2789,6 +3288,191 @@
       }
     },
     "/api/v1/supplies/{supplyId}": {
+      "patch": {
+        "tags": [
+          "물품"
+        ],
+        "summary": "물품 수정 (SUP-EDIT-01)",
+        "description": "물품명·카테고리·구매담당자·메모를 수정한다. 전달된 필드만 부분 수정되며, 최소 한 개 이상의 필드가 필요하다. 상태(status) 변경은 SUP-STATUS-01(PATCH /supplies/{supplyId}/status)에서 처리한다.",
+        "parameters": [
+          {
+            "name": "supplyId",
+            "in": "path",
+            "required": true,
+            "description": "수정할 물품 ID",
+            "schema": {
+              "type": "integer"
+            },
+            "example": 21
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "minProperties": 1,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "물품명 (그룹 내 고유)",
+                    "example": "두루마리 화장지"
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "DAILY_NECESSITIES",
+                      "BATHROOM",
+                      "KITCHEN",
+                      "LAUNDRY_CLEANING",
+                      "FOOD",
+                      "HEALTH_HYGIENE",
+                      "PET_PLANT",
+                      "TOOLS_ETC",
+                      "ETC"
+                    ],
+                    "description": "물품 카테고리",
+                    "example": "BATHROOM"
+                  },
+                  "assigneeId": {
+                    "type": "integer",
+                    "nullable": true,
+                    "description": "구매 담당자 사용자 ID (해당 그룹 구성원이어야 함). null을 보내면 담당자를 해제한다.",
+                    "example": 5
+                  },
+                  "memo": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "nullable": true,
+                    "description": "메모. null을 보내면 삭제한다.",
+                    "example": "매달 구매, 마트에서 대용량으로 구입"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "수정 성공",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "supplyId": 21,
+                    "groupId": 1,
+                    "name": "두루마리 화장지",
+                    "category": "BATHROOM",
+                    "assignee": {
+                      "userId": 5,
+                      "nickname": "홍길동"
+                    },
+                    "status": "LOW",
+                    "memo": "매달 구매, 마트에서 대용량으로 구입",
+                    "linkedExpenseId": null,
+                    "createdBy": {
+                      "userId": 5,
+                      "nickname": "홍길동"
+                    },
+                    "createdAt": "2026-07-03T09:00:00Z",
+                    "updatedAt": "2026-07-29T10:00:00Z"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "수정할 항목이 없거나 담당자가 그룹 구성원이 아님",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 400,
+                  "data": null,
+                  "error": {
+                    "code": "COMMON_INVALID_PARAMETER",
+                    "message": "요청 파라미터가 잘못되었습니다.",
+                    "errors": [
+                      {
+                        "field": "body",
+                        "value": null,
+                        "reason": "수정할 항목이 하나 이상 필요합니다."
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "인증 토큰이 없거나 올바르지 않음",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 401,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_UNAUTHORIZED",
+                    "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "해당 그룹의 활성 구성원이 아님",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_403",
+                    "message": "해당 공용물품에 접근할 권한이 없습니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "존재하지 않는 물품",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 404,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_404",
+                    "message": "공용물품을 찾을 수 없습니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "같은 그룹에 동일한 물품명이 이미 존재",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 409,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_409",
+                    "message": "이미 등록된 공용물품입니다. (그룹 내 동일 물품명)",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "tags": [
           "물품"
@@ -6435,7 +7119,7 @@
           "인증"
         ],
         "summary": "프로필 수정",
-        "description": "프로필 수정",
+        "description": "이름, 닉네임 또는 프로필 이미지를 수정합니다.",
         "operationId": "patchAuthProfile",
         "responses": {
           "200": {
@@ -6622,6 +7306,13 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "이름 (1~30자)",
+                    "minLength": 1,
+                    "maxLength": 30,
+                    "example": "홍길동"
+                  },
                   "nickname": {
                     "type": "string",
                     "description": "닉네임 (2~10자, 특수문자 불가)",
@@ -6642,10 +7333,102 @@
                 "minProperties": 1
               },
               "example": {
+                "name": "홍길동",
                 "nickname": "길동",
                 "profileImage": null
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/profile-image/upload-url": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "프로필 이미지 업로드 URL 발급",
+        "description": "최대 5MB의 JPEG, PNG 또는 WebP 파일을 업로드할 수 있는 5분 유효 S3 Presigned POST를 발급합니다.",
+        "operationId": "postAuthProfileImageUploadUrl",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProfileImageUpload"
+              },
+              "example": {
+                "contentType": "image/jpeg",
+                "fileSize": 824123
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "프로필 이미지 업로드 URL 발급 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 201
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ProfileImageUploadResponse"
+                    },
+                    "error": {
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 201,
+                  "data": {
+                    "uploadMethod": "POST",
+                    "uploadUrl": "https://profile-images.s3.ap-northeast-2.amazonaws.com",
+                    "fields": {
+                      "key": "develop/profiles/7/550e8400-e29b-41d4-a716-446655440000.jpg",
+                      "Content-Type": "image/jpeg",
+                      "policy": "base64-policy",
+                      "x-amz-signature": "signature"
+                    },
+                    "objectKey": "develop/profiles/7/550e8400-e29b-41d4-a716-446655440000.jpg",
+                    "profileImageUrl": "https://example.cloudfront.net/develop/profiles/7/550e8400-e29b-41d4-a716-446655440000.jpg",
+                    "expiresAt": "2026-07-28T12:05:00.000Z"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
@@ -6809,6 +7592,134 @@
               "example": {
                 "previousPassword": "CurrentPass1",
                 "newPassword": "NewPassword1"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/password/change-with-confirmation": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "비밀번호 변경(새 비밀번호 확인)",
+        "description": "Cognito access token으로 현재 비밀번호를 확인하고, 새 비밀번호와 확인값이 일치할 때 비밀번호를 변경합니다.",
+        "operationId": "postAuthPasswordChangeWithConfirmation",
+        "responses": {
+          "200": {
+            "description": "비밀번호 변경 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "changed"
+                      ],
+                      "properties": {
+                        "changed": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      }
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "changed": true
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "AUTH_CURRENT_PASSWORD_INVALID | AUTH_PASSWORD_CONFIRMATION_MISMATCH | AUTH_PASSWORD_POLICY_VIOLATION | COMMON_INVALID_PARAMETER",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "data": null,
+                  "error": {
+                    "code": "AUTH_PASSWORD_CONFIRMATION_MISMATCH",
+                    "message": "새 비밀번호와 새 비밀번호 확인이 일치하지 않습니다."
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "502": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "currentPassword",
+                  "newPassword",
+                  "newPasswordConfirmation"
+                ],
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "pattern": "^\\S+$",
+                    "description": "현재 사용 중인 비밀번호. 1~256자이며 공백은 사용할 수 없습니다.",
+                    "example": "CurrentPass1"
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 16,
+                    "pattern": "^\\S+$",
+                    "description": "새 비밀번호. 8~16자이며 영문 소문자·대문자·숫자를 각각 1개 이상 포함해야 합니다. 공백은 사용할 수 없고 현재 비밀번호와 달라야 합니다.",
+                    "example": "NewPassword1"
+                  },
+                  "newPasswordConfirmation": {
+                    "type": "string",
+                    "maxLength": 16,
+                    "description": "새 비밀번호 확인. newPassword와 일치해야 합니다.",
+                    "example": "NewPassword1"
+                  }
+                }
+              },
+              "example": {
+                "currentPassword": "CurrentPass1",
+                "newPassword": "NewPassword1",
+                "newPasswordConfirmation": "NewPassword1"
               }
             }
           }
@@ -7071,6 +7982,135 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/preferences": {
+      "get": {
+        "tags": [
+          "알림"
+        ],
+        "summary": "알림 설정 조회",
+        "description": "사용자별 알림 설정을 조회합니다. 저장된 설정이 없으면 모든 항목을 true로 반환합니다.",
+        "operationId": "getNotificationPreferences",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "알림 설정 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/NotificationPreferences"
+                    },
+                    "error": {
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "알림"
+        ],
+        "summary": "알림 설정 수정",
+        "description": "전달된 설정만 수정합니다. 비활성화한 유형도 앱 내 알림은 유지하고 웹 푸시만 중단합니다. groupActivity는 그룹에 속한 모든 알림의 상위 설정입니다.",
+        "operationId": "patchNotificationPreferences",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationPreferences"
+              },
+              "example": {
+                "choreDue": true,
+                "newMessage": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "알림 설정 수정 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/NotificationPreferences"
+                    },
+                    "error": {
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "401": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -7683,6 +8723,229 @@
           }
         }
       }
+    },
+    "/api/v1/auth/password/forgot": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "비밀번호 재설정 이메일 요청",
+        "description": "계정 존재 여부를 노출하지 않고 Cognito를 통해 비밀번호 재설정 링크 이메일을 요청합니다.",
+        "operationId": "postAuthPasswordForgot",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "비밀번호 재설정 이메일 요청 접수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "accepted"
+                      ],
+                      "properties": {
+                        "accepted": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      }
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "accepted": true
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "COMMON_INVALID_PARAMETER | 이메일 형식이 잘못된 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 100,
+                    "example": "member@example.com"
+                  }
+                }
+              },
+              "example": {
+                "email": "member@example.com"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/password/reset": {
+      "post": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "비밀번호 재설정",
+        "description": "이메일 링크의 Cognito 인증 코드와 새 비밀번호로 비밀번호를 재설정합니다.",
+        "operationId": "postAuthPasswordReset",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "비밀번호 재설정 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "reset"
+                      ],
+                      "properties": {
+                        "reset": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      }
+                    },
+                    "error": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "reset": true
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "AUTH_INVALID_CONFIRMATION_CODE | AUTH_EXPIRED_CONFIRMATION_CODE | AUTH_PASSWORD_POLICY_VIOLATION | COMMON_INVALID_PARAMETER",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "AUTH_TOO_MANY_REQUESTS | 인증 서비스 요청 제한을 초과한 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "AUTH_PROVIDER_ERROR | 인증 서비스 요청 처리에 실패한 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "confirmationCode",
+                  "newPassword"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 100,
+                    "example": "member@example.com"
+                  },
+                  "confirmationCode": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$",
+                    "example": "123456"
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 16,
+                    "pattern": "^\\S+$",
+                    "description": "새 비밀번호 (8~16자, 공백 없이 영문 대문자·소문자·숫자 포함)",
+                    "example": "NewPassword1"
+                  }
+                }
+              },
+              "example": {
+                "email": "member@example.com",
+                "confirmationCode": "123456",
+                "newPassword": "NewPassword1"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -7737,6 +9000,138 @@
                 }
               }
             }
+          }
+        }
+      },
+      "CreateProfileImageUpload": {
+        "type": "object",
+        "required": [
+          "contentType",
+          "fileSize"
+        ],
+        "properties": {
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "example": "image/jpeg"
+          },
+          "fileSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5242880,
+            "example": 824123
+          }
+        }
+      },
+      "ProfileImageUploadResponse": {
+        "type": "object",
+        "required": [
+          "uploadMethod",
+          "uploadUrl",
+          "fields",
+          "objectKey",
+          "profileImageUrl",
+          "expiresAt"
+        ],
+        "properties": {
+          "uploadMethod": {
+            "type": "string",
+            "enum": [
+              "POST"
+            ],
+            "example": "POST"
+          },
+          "uploadUrl": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://profile-images.s3.ap-northeast-2.amazonaws.com"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "objectKey": {
+            "type": "string",
+            "example": "develop/profiles/7/550e8400-e29b-41d4-a716-446655440000.jpg"
+          },
+          "profileImageUrl": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://example.cloudfront.net/develop/profiles/7/550e8400-e29b-41d4-a716-446655440000.jpg"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-07-28T12:05:00.000Z"
+          }
+        }
+      },
+      "NotificationPreferences": {
+        "type": "object",
+        "required": [
+          "choreDue",
+          "supplyStatusChanged",
+          "newMessage",
+          "expenseRequest",
+          "ruleAgreementRequest",
+          "groupActivity"
+        ],
+        "properties": {
+          "choreDue": {
+            "type": "boolean",
+            "example": true
+          },
+          "supplyStatusChanged": {
+            "type": "boolean",
+            "example": true
+          },
+          "newMessage": {
+            "type": "boolean",
+            "example": true
+          },
+          "expenseRequest": {
+            "type": "boolean",
+            "example": true
+          },
+          "ruleAgreementRequest": {
+            "type": "boolean",
+            "example": true
+          },
+          "groupActivity": {
+            "type": "boolean",
+            "description": "그룹에 속한 모든 알림의 웹 푸시 상위 설정",
+            "example": true
+          }
+        }
+      },
+      "UpdateNotificationPreferences": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "choreDue": {
+            "type": "boolean"
+          },
+          "supplyStatusChanged": {
+            "type": "boolean"
+          },
+          "newMessage": {
+            "type": "boolean"
+          },
+          "expenseRequest": {
+            "type": "boolean"
+          },
+          "ruleAgreementRequest": {
+            "type": "boolean"
+          },
+          "groupActivity": {
+            "type": "boolean",
+            "description": "그룹에 속한 모든 알림의 웹 푸시 상위 설정"
           }
         }
       },

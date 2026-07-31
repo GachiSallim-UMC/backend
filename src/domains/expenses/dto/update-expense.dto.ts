@@ -64,4 +64,12 @@ export class UpdateExpenseDto {
   @ValidateNested({ each: true })
   @Type(() => ExpenseParticipantDto)
   targetMemberIds?: ExpenseParticipantDto[];
+
+  @ApiPropertyOptional({
+    description: '수정할 영수증 이미지 URL',
+    example: 'https://s3.amazonaws.com/receipt/123.jpg',
+  })
+  @IsString()
+  @IsOptional()
+  receiptUrl?: string;
 }

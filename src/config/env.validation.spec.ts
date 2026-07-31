@@ -9,6 +9,11 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     AWS_REGION: 'ap-northeast-2',
     COGNITO_USER_POOL_ID: 'ap-northeast-2_example',
     COGNITO_CLIENT_ID: 'exampleclientid',
+    PROFILE_IMAGE_BUCKET: 'gachisallim-profile-images',
+    PROFILE_IMAGE_OBJECT_PREFIX: 'develop/profiles',
+    PROFILE_IMAGE_PUBLIC_BASE_URL: 'https://example.cloudfront.net',
+    RECEIPT_IMAGE_BUCKET: 'gachisallim-receipt-images',
+    RECEIPT_IMAGE_OBJECT_PREFIX: 'develop/receipts',
     NOTIFICATION_PUSH_QUEUE_URL: 'https://sqs.ap-northeast-2.amazonaws.com/123456789012/push',
     NOTIFICATION_PUSH_RESULT_QUEUE_URL:
       'https://sqs.ap-northeast-2.amazonaws.com/123456789012/push-result',
@@ -21,6 +26,8 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     CHORE_DUE_SCHEDULE_ROLE_ARN:
       'arn:aws:iam::123456789012:role/gachisallim-develop-chore-due-scheduler',
     CHORE_DUE_SCHEDULE_PREFIX: 'develop',
+    CHAT_CONNECTIONS_TABLE_NAME: 'gachisallim-develop-chat-connections',
+    CHAT_WEBSOCKET_CALLBACK_URL: 'https://example.execute-api.ap-northeast-2.amazonaws.com/develop',
   };
 
   it('accepts the Cognito runtime configuration', () => {
@@ -33,6 +40,11 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     'AWS_REGION',
     'COGNITO_USER_POOL_ID',
     'COGNITO_CLIENT_ID',
+    'PROFILE_IMAGE_BUCKET',
+    'PROFILE_IMAGE_OBJECT_PREFIX',
+    'PROFILE_IMAGE_PUBLIC_BASE_URL',
+    'RECEIPT_IMAGE_BUCKET',
+    'RECEIPT_IMAGE_OBJECT_PREFIX',
     'NOTIFICATION_PUSH_QUEUE_URL',
     'NOTIFICATION_PUSH_RESULT_QUEUE_URL',
     'NOTIFICATION_VAPID_PUBLIC_KEY',
@@ -42,6 +54,8 @@ describe('ENV_VALIDATION_SCHEMA', () => {
     'CHORE_DUE_SCHEDULE_GROUP',
     'CHORE_DUE_SCHEDULE_ROLE_ARN',
     'CHORE_DUE_SCHEDULE_PREFIX',
+    'CHAT_CONNECTIONS_TABLE_NAME',
+    'CHAT_WEBSOCKET_CALLBACK_URL',
   ])('requires %s', (key) => {
     const environment = { ...validEnvironment };
     delete environment[key as keyof typeof environment];

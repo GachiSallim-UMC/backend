@@ -4,7 +4,13 @@ import { join } from 'node:path';
 
 import { Aws, CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigatewayv2Authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
+import * as apigatewayv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
@@ -85,6 +91,11 @@ const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
 export class BackendStack extends Stack {
   constructor(scope: Construct, id: string, props: BackendStackProps) {
     super(scope, id, props);
+
+    const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
+      hostedZoneId: HOSTED_ZONE_ID,
+      zoneName: ROOT_DOMAIN,
+    });
 
     const natProvider = ec2.NatProvider.instanceV2({
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
@@ -204,6 +215,58 @@ export class BackendStack extends Stack {
     vpc.addGatewayEndpoint('S3Endpoint', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
       subnets: [applicationSubnet],
+    });
+
+    const profileImageBucket = new s3.Bucket(this, 'ProfileImageBucket', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      removalPolicy: RemovalPolicy.RETAIN,
+      cors: [
+        {
+          allowedHeaders: ['*'],
+          allowedMethods: [s3.HttpMethods.POST],
+          allowedOrigins: [
+            ...RUNTIME_ENVIRONMENTS.map(({ webAppUrl }) => webAppUrl),
+            'http://localhost:5173',
+          ],
+          exposedHeaders: ['ETag'],
+          maxAge: 300,
+        },
+      ],
+    });
+    const profileImageDistribution = new cloudfront.Distribution(this, 'ProfileImageDistribution', {
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(profileImageBucket),
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+      },
+      priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+    });
+
+    // 영수증 이미지는 인증 + 그룹 멤버십 검증을 거친 요청에만 짧은 유효시간의 S3
+    // presigned URL로 노출한다. CloudFront는 그 검증을 우회하는 상시 공개 경로가
+    // 되므로 의도적으로 두지 않는다.
+    const receiptImageBucket = new s3.Bucket(this, 'ReceiptImageBucket', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      removalPolicy: RemovalPolicy.RETAIN,
+      cors: [
+        {
+          allowedHeaders: ['*'],
+          allowedMethods: [s3.HttpMethods.POST, s3.HttpMethods.GET],
+          allowedOrigins: [
+            ...RUNTIME_ENVIRONMENTS.map(({ webAppUrl }) => webAppUrl),
+            'http://localhost:5173',
+          ],
+          exposedHeaders: ['ETag'],
+          maxAge: 300,
+        },
+      ],
     });
 
     const applicationLogGroup = new logs.LogGroup(this, 'ApplicationLogGroup', {
@@ -414,6 +477,200 @@ export class BackendStack extends Stack {
       },
     });
 
+    const chatConnectionsTables = new Map<string, dynamodb.Table>();
+    const chatWebSocketStages = new Map<string, apigatewayv2.WebSocketStage>();
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      const connectionsTable = new dynamodb.Table(this, `${environment.id}ChatConnectionsTable`, {
+        tableName: `gachisallim-${environment.branch}-chat-connections`,
+        partitionKey: { name: 'connectionId', type: dynamodb.AttributeType.STRING },
+        // Sort key lets one connection subscribe to several chat rooms at once: one item
+        // per (connectionId, chatRoomId) pair, plus a "#CONNECTION#" sentinel row written
+        // at $connect time to track the connection itself independent of any room join.
+        sortKey: { name: 'chatRoomId', type: dynamodb.AttributeType.STRING },
+        billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+        timeToLiveAttribute: 'expiresAt',
+        removalPolicy: RemovalPolicy.RETAIN,
+      });
+      connectionsTable.addGlobalSecondaryIndex({
+        indexName: 'chatRoomId-index',
+        partitionKey: { name: 'chatRoomId', type: dynamodb.AttributeType.STRING },
+      });
+      chatConnectionsTables.set(environment.branch, connectionsTable);
+
+      const connectFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}ChatWebSocketConnectFunction`,
+        {
+          functionName: `gachisallim-${environment.branch}-chat-ws-connect`,
+          entry: join(__dirname, '../lambda/chat-websocket-connect.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(10),
+          memorySize: 128,
+          logGroup: new logs.LogGroup(this, `${environment.id}ChatWebSocketConnectLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-chat-ws-connect`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          environment: {
+            CHAT_CONNECTIONS_TABLE_NAME: connectionsTable.tableName,
+          },
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+      connectionsTable.grantWriteData(connectFunction);
+
+      const disconnectFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}ChatWebSocketDisconnectFunction`,
+        {
+          functionName: `gachisallim-${environment.branch}-chat-ws-disconnect`,
+          entry: join(__dirname, '../lambda/chat-websocket-disconnect.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(10),
+          memorySize: 128,
+          logGroup: new logs.LogGroup(this, `${environment.id}ChatWebSocketDisconnectLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-chat-ws-disconnect`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          environment: {
+            CHAT_CONNECTIONS_TABLE_NAME: connectionsTable.tableName,
+          },
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+      // $disconnect queries every row for this connectionId (the metadata row plus any
+      // joined rooms) before deleting them, so it needs read access too.
+      connectionsTable.grantReadWriteData(disconnectFunction);
+
+      const authorizerFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}ChatWebSocketAuthorizerFunction`,
+        {
+          functionName: `gachisallim-${environment.branch}-chat-ws-authorizer`,
+          entry: join(__dirname, '../lambda/chat-websocket-authorizer.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(10),
+          memorySize: 128,
+          logGroup: new logs.LogGroup(this, `${environment.id}ChatWebSocketAuthorizerLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-chat-ws-authorizer`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+
+      const webSocketApi = new apigatewayv2.WebSocketApi(this, `${environment.id}ChatWebSocketApi`, {
+        apiName: `gachisallim-${environment.branch}-chat-ws`,
+        connectRouteOptions: {
+          integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+            `${environment.id}ChatWebSocketConnectIntegration`,
+            connectFunction,
+          ),
+          authorizer: new apigatewayv2Authorizers.WebSocketLambdaAuthorizer(
+            `${environment.id}ChatWebSocketAuthorizer`,
+            authorizerFunction,
+            { identitySource: ['route.request.querystring.token'] },
+          ),
+        },
+        disconnectRouteOptions: {
+          integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+            `${environment.id}ChatWebSocketDisconnectIntegration`,
+            disconnectFunction,
+          ),
+        },
+      });
+
+      // The callback URL is deterministic and computed ahead of the stage so the join
+      // function's environment does not depend on the stage created below.
+      const webSocketCallbackUrl = `https://${webSocketApi.apiId}.execute-api.${Aws.REGION}.amazonaws.com/${environment.branch}`;
+
+      const joinFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}ChatWebSocketJoinFunction`,
+        {
+          functionName: `gachisallim-${environment.branch}-chat-ws-join`,
+          entry: join(__dirname, '../lambda/chat-websocket-join.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(10),
+          memorySize: 128,
+          logGroup: new logs.LogGroup(this, `${environment.id}ChatWebSocketJoinLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-chat-ws-join`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          environment: {
+            CHAT_CONNECTIONS_TABLE_NAME: connectionsTable.tableName,
+            CHAT_API_BASE_URL: `https://${environment.domain}`,
+            CHAT_WEBSOCKET_CALLBACK_URL: webSocketCallbackUrl,
+          },
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+      connectionsTable.grantWriteData(joinFunction);
+      webSocketApi.grantManageConnections(joinFunction);
+
+      webSocketApi.addRoute('roomJoin', {
+        integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+          `${environment.id}ChatWebSocketJoinIntegration`,
+          joinFunction,
+        ),
+      });
+
+      const leaveFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}ChatWebSocketLeaveFunction`,
+        {
+          functionName: `gachisallim-${environment.branch}-chat-ws-leave`,
+          entry: join(__dirname, '../lambda/chat-websocket-leave.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          architecture: lambda.Architecture.ARM_64,
+          timeout: Duration.seconds(10),
+          memorySize: 128,
+          logGroup: new logs.LogGroup(this, `${environment.id}ChatWebSocketLeaveLogGroup`, {
+            logGroupName: `/aws/lambda/gachisallim-${environment.branch}-chat-ws-leave`,
+            retention: logs.RetentionDays.ONE_MONTH,
+            removalPolicy: RemovalPolicy.RETAIN,
+          }),
+          environment: {
+            CHAT_CONNECTIONS_TABLE_NAME: connectionsTable.tableName,
+            CHAT_WEBSOCKET_CALLBACK_URL: webSocketCallbackUrl,
+          },
+          bundling: { sourceMap: true, minify: true },
+        },
+      );
+      connectionsTable.grantWriteData(leaveFunction);
+      webSocketApi.grantManageConnections(leaveFunction);
+
+      webSocketApi.addRoute('roomLeave', {
+        integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+          `${environment.id}ChatWebSocketLeaveIntegration`,
+          leaveFunction,
+        ),
+      });
+
+      const webSocketStage = new apigatewayv2.WebSocketStage(
+        this,
+        `${environment.id}ChatWebSocketStage`,
+        {
+          webSocketApi,
+          stageName: environment.branch,
+          autoDeploy: true,
+        },
+      );
+      chatWebSocketStages.set(environment.branch, webSocketStage);
+    }
+
     const authentication = new Map<string, AuthenticationResources>();
     for (const environment of RUNTIME_ENVIRONMENTS) {
       const pool = new cognito.UserPool(this, `${environment.id}UserPool`, {
@@ -422,6 +679,12 @@ export class BackendStack extends Stack {
         signInAliases: { email: true },
         autoVerify: { email: true },
         accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+        email: cognito.UserPoolEmail.withSES({
+          fromEmail: `noreply@${ROOT_DOMAIN}`,
+          fromName: 'GachiSallim',
+          sesRegion: Aws.REGION,
+          sesVerifiedDomain: ROOT_DOMAIN,
+        }),
         passwordPolicy: {
           minLength: 8,
           requireLowercase: true,
@@ -433,6 +696,34 @@ export class BackendStack extends Stack {
         removalPolicy: RemovalPolicy.RETAIN,
       });
       pool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, preSignupLinkFunction);
+      const passwordResetMessageLogGroup = new logs.LogGroup(
+        this,
+        `${environment.id}PasswordResetMessageLogGroup`,
+        {
+          retention: logs.RetentionDays.ONE_MONTH,
+          removalPolicy: RemovalPolicy.RETAIN,
+        },
+      );
+      const passwordResetMessageFunction = new lambdaNodejs.NodejsFunction(
+        this,
+        `${environment.id}PasswordResetMessageFunction`,
+        {
+          entry: join(__dirname, '../lambda/password-reset-message.ts'),
+          handler: 'handler',
+          runtime: lambda.Runtime.NODEJS_22_X,
+          memorySize: 128,
+          timeout: Duration.seconds(10),
+          logGroup: passwordResetMessageLogGroup,
+          environment: {
+            PASSWORD_RESET_URL: `${environment.webAppUrl}/reset-password`,
+          },
+          bundling: {
+            minify: true,
+            sourceMap: true,
+          },
+        },
+      );
+      pool.addTrigger(cognito.UserPoolOperation.CUSTOM_MESSAGE, passwordResetMessageFunction);
       const domain = pool.addDomain(`${environment.id}UserPoolDomain`, {
         cognitoDomain: { domainPrefix: environment.authDomainPrefix },
       });
@@ -542,6 +833,16 @@ export class BackendStack extends Stack {
     const databaseSecret = database.secret!;
     databaseSecret.grantRead(instanceRole);
     props.artifactBucket.grantRead(instanceRole, 'releases/*');
+    for (const environment of RUNTIME_ENVIRONMENTS) {
+      profileImageBucket.grantPut(instanceRole, `${environment.branch}/profiles/*`);
+      // 업로드/조회/정리 권한을 하나의 statement로 묶어 InstanceRole 기본 정책의 크기를 절약한다.
+      instanceRole.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          actions: ['s3:PutObject', 's3:GetObject', 's3:DeleteObject'],
+          resources: [`${receiptImageBucket.bucketArn}/${environment.branch}/receipts/*`],
+        }),
+      );
+    }
     applicationLogGroup.grantWrite(instanceRole);
     for (const queue of notificationPushQueues.values()) {
       queue.grantSendMessages(instanceRole);
@@ -552,6 +853,23 @@ export class BackendStack extends Stack {
     for (const queue of notificationCommandQueues.values()) {
       queue.grantSendMessages(instanceRole);
       queue.grantConsumeMessages(instanceRole);
+    }
+    for (const table of chatConnectionsTables.values()) {
+      table.grantReadWriteData(instanceRole);
+    }
+    for (const stage of chatWebSocketStages.values()) {
+      instanceRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['execute-api:ManageConnections'],
+          resources: [
+            this.formatArn({
+              service: 'execute-api',
+              resource: stage.api.apiId,
+              resourceName: `${stage.stageName}/POST/@connections/*`,
+            }),
+          ],
+        }),
+      );
     }
     for (const environment of RUNTIME_ENVIRONMENTS) {
       const scheduleGroup = choreDueScheduleGroups.get(environment.branch)!;
@@ -662,6 +980,11 @@ CORS_ORIGIN='${environment.corsOrigin}'
 AWS_REGION='${Aws.REGION}'
 COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
 COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
+PROFILE_IMAGE_BUCKET='${profileImageBucket.bucketName}'
+PROFILE_IMAGE_OBJECT_PREFIX='${environment.branch}/profiles'
+PROFILE_IMAGE_PUBLIC_BASE_URL='https://${profileImageDistribution.distributionDomainName}'
+RECEIPT_IMAGE_BUCKET='${receiptImageBucket.bucketName}'
+RECEIPT_IMAGE_OBJECT_PREFIX='${environment.branch}/receipts'
 ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
@@ -689,6 +1012,11 @@ CORS_ORIGIN='${environment.corsOrigin}'
 AWS_REGION='${Aws.REGION}'
 COGNITO_USER_POOL_ID='${auth.pool.userPoolId}'
 COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
+PROFILE_IMAGE_BUCKET='${profileImageBucket.bucketName}'
+PROFILE_IMAGE_OBJECT_PREFIX='${environment.branch}/profiles'
+PROFILE_IMAGE_PUBLIC_BASE_URL='https://${profileImageDistribution.distributionDomainName}'
+RECEIPT_IMAGE_BUCKET='${receiptImageBucket.bucketName}'
+RECEIPT_IMAGE_OBJECT_PREFIX='${environment.branch}/receipts'
 NOTIFICATION_PUSH_QUEUE_URL='${notificationPushQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_PUSH_RESULT_QUEUE_URL='${notificationPushResultQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_VAPID_PUBLIC_KEY='${notificationVapidPublicKeys.get(environment.branch)!}'
@@ -698,6 +1026,9 @@ NOTIFICATION_COMMAND_DLQ_ARN='${notificationCommandDeadLetterQueues.get(environm
 CHORE_DUE_SCHEDULE_GROUP='${choreDueScheduleGroups.get(environment.branch)!.name}'
 CHORE_DUE_SCHEDULE_ROLE_ARN='${choreDueScheduleRoles.get(environment.branch)!.roleArn}'
 CHORE_DUE_SCHEDULE_PREFIX='${environment.branch}'
+CHAT_CONNECTIONS_TABLE_NAME='${chatConnectionsTables.get(environment.branch)!.tableName}'
+CHAT_WEBSOCKET_URL='${chatWebSocketStages.get(environment.branch)!.url}'
+CHAT_WEBSOCKET_CALLBACK_URL='${chatWebSocketStages.get(environment.branch)!.callbackUrl}'
 ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
@@ -788,10 +1119,6 @@ done`,
       targetPort: 443,
     });
 
-    const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
-      hostedZoneId: HOSTED_ZONE_ID,
-      zoneName: ROOT_DOMAIN,
-    });
     const certificate = new acm.Certificate(this, 'Certificate', {
       domainName: PRODUCTION_DOMAIN,
       subjectAlternativeNames: [DEVELOPMENT_DOMAIN],
@@ -833,6 +1160,18 @@ done`,
           elbv2.ListenerCondition.pathPatterns([
             '/api/v1/auth/login',
             '/api/v1/auth/token/refresh',
+          ]),
+          elbv2.ListenerCondition.httpRequestMethods(['POST']),
+        ],
+        action: elbv2.ListenerAction.forward([targetGroup]),
+      });
+      httpsListener.addAction(`${environment.id}PublicPasswordResetRoutes`, {
+        priority: priorityOffset + 12,
+        conditions: [
+          hostCondition,
+          elbv2.ListenerCondition.pathPatterns([
+            '/api/v1/auth/password/forgot',
+            '/api/v1/auth/password/reset',
           ]),
           elbv2.ListenerCondition.httpRequestMethods(['POST']),
         ],
@@ -931,6 +1270,12 @@ done`,
       });
       new CfnOutput(this, `${environment.id}ChoreDueScheduleGroupName`, {
         value: choreDueScheduleGroups.get(environment.branch)!.name!,
+      });
+      new CfnOutput(this, `${environment.id}ChatWebSocketUrl`, {
+        value: chatWebSocketStages.get(environment.branch)!.url,
+      });
+      new CfnOutput(this, `${environment.id}ChatConnectionsTableName`, {
+        value: chatConnectionsTables.get(environment.branch)!.tableName,
       });
     }
 

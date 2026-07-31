@@ -13,10 +13,10 @@ export class CreateGroupDto {
   @Length(0, 255)
   description?: string;
 
-  @ApiProperty({ description: '최대 인원', example: 4, minimum: 2, maximum: 10, required: false })
+  @ApiProperty({ description: '최대 인원', example: 4, minimum: 2, maximum: 12, required: false })
   @IsOptional()
   @IsInt()
   @Min(2)
-  @Max(10)
+  @Max(12)
   maxMembers?: number;
 }

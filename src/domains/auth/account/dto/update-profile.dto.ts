@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsNotEmpty,
   IsString,
@@ -10,6 +11,18 @@ import {
 } from 'class-validator';
 
 export class UpdateProfileDto {
+  @ApiPropertyOptional({
+    example: '홍길동',
+    description: '이름 (1~30자)',
+    minLength: 1,
+    maxLength: 30,
+  })
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @IsString()
+  @Length(1, 30)
+  name?: string;
+
   @ApiPropertyOptional({ example: '길동', description: '닉네임 (2~10자, 특수문자 불가)' })
   @ValidateIf((_object, value: unknown) => value !== undefined)
   @IsString()

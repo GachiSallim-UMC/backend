@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
+import { UpdateGroupPermissionDto } from './dto/update-group-permission.dto';
 import { UpdateMemberRoleDto } from './dto/update-member-role.dto';
 
 const INVITE_CODE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -48,18 +49,36 @@ export class GroupsService {
   }
 
   async createGroup(dto: CreateGroupDto, createdBy: bigint) {
-    return this.prisma.group.create({
-      data: {
-        name: dto.name,
-        description: dto.description,
-        maxMembers: dto.maxMembers,
-        inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
-        createdBy,
-        members: {
-          create: { userId: createdBy, role: GroupRole.ADMIN },
-        },
-      },
-    });
+    for (let attempt = 0; attempt < INVITE_CODE_GENERATION_ATTEMPTS; attempt++) {
+      const candidate = generateInviteCode();
+
+      try {
+        return await this.prisma.group.create({
+          data: {
+            name: dto.name,
+            description: dto.description,
+            maxMembers: dto.maxMembers,
+            inviteCode: candidate,
+            inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
+            createdBy,
+            members: {
+              create: { userId: createdBy, role: GroupRole.ADMIN },
+            },
+            permission: {
+              create: {},
+            },
+          },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw new BusinessException(ErrorCode.COMMON_INTERNAL_SERVER_ERROR);
   }
 
   async getGroupDetail(groupId: bigint, currentUserId: bigint) {
@@ -78,8 +97,42 @@ export class GroupsService {
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.groupImage !== undefined ? { groupImage: dto.groupImage } : {}),
         ...(dto.maxMembers !== undefined ? { maxMembers: dto.maxMembers } : {}),
       },
+    });
+  }
+
+  async getGroupPermission(groupId: bigint, currentUserId: bigint) {
+    await this.findGroupOrThrow(groupId);
+    await this.requireActiveMemberOrThrow(groupId, currentUserId);
+
+    // Self-heals groups created without a permission row (e.g. by a rolled-back
+    // pre-permission release) instead of throwing P2025.
+    return this.prisma.groupPermission.upsert({
+      where: { groupId },
+      create: { groupId },
+      update: {},
+    });
+  }
+
+  async updateGroupPermission(groupId: bigint, dto: UpdateGroupPermissionDto, currentUserId: bigint) {
+    await this.findGroupOrThrow(groupId);
+    await this.requireAdminOrThrow(groupId, currentUserId);
+
+    const data = {
+      ...(dto.allowChoreRegistration !== undefined ? { allowChoreRegistration: dto.allowChoreRegistration } : {}),
+      ...(dto.allowSettlementRegistration !== undefined
+        ? { allowSettlementRegistration: dto.allowSettlementRegistration }
+        : {}),
+      ...(dto.allowItemStatusChange !== undefined ? { allowItemStatusChange: dto.allowItemStatusChange } : {}),
+      ...(dto.autoApproveNewMembers !== undefined ? { autoApproveNewMembers: dto.autoApproveNewMembers } : {}),
+    };
+
+    return this.prisma.groupPermission.upsert({
+      where: { groupId },
+      create: { groupId, ...data },
+      update: data,
     });
   }
 
@@ -202,16 +255,19 @@ export class GroupsService {
     return this.updateGroupInviteCode(groupId);
   }
 
+  async getInviteInfo(inviteCode: string) {
+    const group = await this.findGroupByValidInviteCodeOrThrow(inviteCode);
+
+    return {
+      name: group.name,
+      description: group.description,
+      currentMembers: group.currentMembers,
+      maxMembers: group.maxMembers,
+    };
+  }
+
   async joinGroup(dto: JoinGroupDto, currentUserId: bigint) {
-    const group = await this.prisma.group.findUnique({ where: { inviteCode: dto.inviteCode } });
-
-    if (!group || group.isDeleted) {
-      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_INVALID);
-    }
-
-    if (group.inviteExpiredAt.getTime() < Date.now()) {
-      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_EXPIRED);
-    }
+    const group = await this.findGroupByValidInviteCodeOrThrow(dto.inviteCode);
 
     const existingMember = await this.prisma.groupMember.findUnique({
       where: { userId_groupId: { userId: currentUserId, groupId: group.id } },
@@ -279,6 +335,20 @@ export class GroupsService {
 
     if (!group || group.isDeleted) {
       throw new BusinessException(ErrorCode.GROUP_NOT_FOUND);
+    }
+
+    return group;
+  }
+
+  private async findGroupByValidInviteCodeOrThrow(inviteCode: string) {
+    const group = await this.prisma.group.findUnique({ where: { inviteCode } });
+
+    if (!group || group.isDeleted) {
+      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_INVALID);
+    }
+
+    if (group.inviteExpiredAt.getTime() < Date.now()) {
+      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_EXPIRED);
     }
 
     return group;
