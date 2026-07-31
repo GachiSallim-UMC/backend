@@ -1,0 +1,1 @@
+ALTER TYPE "RuleAction" ADD VALUE 'PENDING';

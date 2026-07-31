@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { MessageType } from '@prisma/client';
+import { MessageType, RuleAction } from '@prisma/client';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -135,6 +135,7 @@ export class RulesService {
       UPDATED: '님이 규칙을 수정했습니다.',
       AGREED: '님이 동의했습니다.',
       DISAGREED: '님이 반대했습니다.',
+      PENDING: '님이 동의 상태를 대기로 변경했습니다.',
     };
 
     return {
@@ -228,6 +229,18 @@ export class RulesService {
             })),
           },
         },
+        logs: {
+          create: {
+            userId: currentUserId,
+            action: RuleAction.CREATED,
+            snapshot: JSON.stringify({
+              categoryId: dto.categoryId,
+              title: dto.title,
+              description: dto.description,
+              status: 'ACTIVE',
+            }),
+          },
+        },
       },
     });
 
@@ -289,6 +302,18 @@ export class RulesService {
             },
           })),
         },
+        logs: {
+          create: {
+            userId: currentUserId,
+            action: RuleAction.UPDATED,
+            snapshot: JSON.stringify({
+              categoryId: dto.categoryId,
+              title: dto.title,
+              description: dto.description,
+              status: dto.status,
+            }),
+          },
+        },
       },
     });
 
@@ -318,24 +343,39 @@ export class RulesService {
     }
 
     const confirmedAt = dto.status === RuleAgreementStatusValue.PENDING ? null : new Date();
-    const agreement = await this.prisma.ruleAgreement.upsert({
-      where: {
-        ruleId_userId: {
+    const actionByStatus = {
+      [RuleAgreementStatusValue.AGREED]: RuleAction.AGREED,
+      [RuleAgreementStatusValue.DISAGREED]: RuleAction.DISAGREED,
+      [RuleAgreementStatusValue.PENDING]: RuleAction.PENDING,
+    };
+    const [agreement] = await this.prisma.$transaction([
+      this.prisma.ruleAgreement.upsert({
+        where: {
+          ruleId_userId: {
+            ruleId,
+            userId: currentUserId,
+          },
+        },
+        create: {
           ruleId,
           userId: currentUserId,
+          status: dto.status,
+          confirmedAt,
         },
-      },
-      create: {
-        ruleId,
-        userId: currentUserId,
-        status: dto.status,
-        confirmedAt,
-      },
-      update: {
-        status: dto.status,
-        confirmedAt,
-      },
-    });
+        update: {
+          status: dto.status,
+          confirmedAt,
+        },
+      }),
+      this.prisma.ruleLog.create({
+        data: {
+          ruleId,
+          userId: currentUserId,
+          action: actionByStatus[dto.status],
+          snapshot: JSON.stringify({ status: dto.status }),
+        },
+      }),
+    ]);
 
     return {
       agreementId: Number(agreement.id),

@@ -644,6 +644,7 @@ enum RuleAction {
   UPDATED
   AGREED
   DISAGREED
+  PENDING
 }
 
 enum ChatRoomType {
