@@ -56,6 +56,20 @@ describe('GroupsController', () => {
     });
   });
 
+  it('resolves the authenticated user and requests the invite preview without joining', async () => {
+    const getInviteInfo = jest
+      .fn<GroupsService['getInviteInfo']>()
+      .mockResolvedValue({ name: '우리집', description: null, currentMembers: 2, maxMembers: 4 });
+    const groupsService = { getInviteInfo } as unknown as GroupsService;
+    const controller = new GroupsController(groupsService, authenticatedUsers);
+
+    const result = await controller.getInviteInfo(auth, { code: 'ABCDEF' });
+
+    expect(resolveActiveUserId).toHaveBeenCalledWith('cognito-sub');
+    expect(getInviteInfo).toHaveBeenCalledWith('ABCDEF');
+    expect(result).toEqual({ name: '우리집', description: null, currentMembers: 2, maxMembers: 4 });
+  });
+
   it('rejects an authenticated Cognito identity without an active local user', async () => {
     resolveActiveUserId.mockRejectedValue(new BusinessException(ErrorCode.AUTH_ACCOUNT_NOT_FOUND));
     const getGroupDetail = jest.fn<GroupsService['getGroupDetail']>();

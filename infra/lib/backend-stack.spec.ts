@@ -583,7 +583,7 @@ describe('BackendStack', () => {
     expect(instancePolicies).toContain('dynamodb:GetItem');
   });
 
-  it('protects the chat WebSocket $connect route with a Lambda authorizer and adds a room:join route', () => {
+  it('protects the chat WebSocket $connect route with a Lambda authorizer and adds a roomJoin route', () => {
     template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 2);
     template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
       AuthorizerType: 'REQUEST',
@@ -591,7 +591,8 @@ describe('BackendStack', () => {
     });
 
     const routes = JSON.stringify(template.findResources('AWS::ApiGatewayV2::Route'));
-    expect(routes).toContain('room:join');
+    expect(routes).toContain('roomJoin');
+    expect(routes).not.toContain('room:join');
     expect(routes).toContain('$connect');
     expect(routes).toContain('$disconnect');
 
@@ -621,9 +622,10 @@ describe('BackendStack', () => {
     expect(joinPolicies).toContain('dynamodb:UpdateItem');
   });
 
-  it('adds a room:leave route with its own Lambda and lets $disconnect query and delete every row for a connection', () => {
+  it('adds a roomLeave route with its own Lambda and lets $disconnect query and delete every row for a connection', () => {
     const routes = JSON.stringify(template.findResources('AWS::ApiGatewayV2::Route'));
-    expect(routes).toContain('room:leave');
+    expect(routes).toContain('roomLeave');
+    expect(routes).not.toContain('room:leave');
 
     const lambdaFunctions = JSON.stringify(template.findResources('AWS::Lambda::Function'));
     expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-leave');

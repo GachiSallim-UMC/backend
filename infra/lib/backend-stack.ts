@@ -619,7 +619,7 @@ export class BackendStack extends Stack {
       connectionsTable.grantWriteData(joinFunction);
       webSocketApi.grantManageConnections(joinFunction);
 
-      webSocketApi.addRoute('room:join', {
+      webSocketApi.addRoute('roomJoin', {
         integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
           `${environment.id}ChatWebSocketJoinIntegration`,
           joinFunction,
@@ -652,7 +652,7 @@ export class BackendStack extends Stack {
       connectionsTable.grantWriteData(leaveFunction);
       webSocketApi.grantManageConnections(leaveFunction);
 
-      webSocketApi.addRoute('room:leave', {
+      webSocketApi.addRoute('roomLeave', {
         integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
           `${environment.id}ChatWebSocketLeaveIntegration`,
           leaveFunction,

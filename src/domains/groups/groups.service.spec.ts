@@ -146,6 +146,34 @@ describe('GroupsService', () => {
     expect(prisma.group.update).toHaveBeenCalledWith({ where: { id: 1n }, data: { name: '우리집 시즌2' } });
   });
 
+  it('updates the group image when the requester is an ADMIN', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
+    prisma.group.update.mockResolvedValue({ id: 1n, groupImage: 'https://example.com/group.png' });
+
+    const result = await service.updateGroup(1n, { groupImage: 'https://example.com/group.png' }, 10n);
+
+    expect(result).toEqual({ id: 1n, groupImage: 'https://example.com/group.png' });
+    expect(prisma.group.update).toHaveBeenCalledWith({
+      where: { id: 1n },
+      data: { groupImage: 'https://example.com/group.png' },
+    });
+  });
+
+  it('clears the group image when groupImage is sent as null', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
+    prisma.group.update.mockResolvedValue({ id: 1n, groupImage: null });
+
+    const result = await service.updateGroup(1n, { groupImage: null }, 10n);
+
+    expect(result).toEqual({ id: 1n, groupImage: null });
+    expect(prisma.group.update).toHaveBeenCalledWith({
+      where: { id: 1n },
+      data: { groupImage: null },
+    });
+  });
+
   it('throws when a non-ADMIN member tries to update the group', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
     prisma.groupMember.findUnique.mockResolvedValue({ userId: 20n, groupId: 1n, role: 'MEMBER', leftAt: null });
@@ -412,6 +440,51 @@ describe('GroupsService', () => {
     prisma.groupMember.findUnique.mockResolvedValue({ userId: 20n, groupId: 1n, role: 'MEMBER', leftAt: null });
 
     await expect(service.reissueInviteCode(1n, 20n)).rejects.toBeInstanceOf(BusinessException);
+  });
+
+  it('returns a group preview for a valid invite code without joining', async () => {
+    prisma.group.findUnique.mockResolvedValue({
+      id: 1n,
+      isDeleted: false,
+      inviteCode: 'ABCDEF',
+      inviteExpiredAt: new Date(Date.now() + 1000 * 60),
+      name: '우리집',
+      description: '강남구 역삼동 셰어하우스',
+      currentMembers: 2,
+      maxMembers: 4,
+    });
+
+    const result = await service.getInviteInfo('ABCDEF');
+
+    expect(result).toEqual({
+      name: '우리집',
+      description: '강남구 역삼동 셰어하우스',
+      currentMembers: 2,
+      maxMembers: 4,
+    });
+    expect(prisma.groupMember.findUnique).not.toHaveBeenCalled();
+    expect(prisma.group.update).not.toHaveBeenCalled();
+  });
+
+  it('throws when previewing with an invite code that does not match any group', async () => {
+    prisma.group.findUnique.mockResolvedValue(null);
+
+    await expect(service.getInviteInfo('INVALI1')).rejects.toMatchObject({
+      code: 'GROUP_INVITE_CODE_INVALID',
+    });
+  });
+
+  it('throws when previewing with an expired invite code', async () => {
+    prisma.group.findUnique.mockResolvedValue({
+      id: 1n,
+      isDeleted: false,
+      inviteCode: 'ABCDEF',
+      inviteExpiredAt: new Date(Date.now() - 1000),
+    });
+
+    await expect(service.getInviteInfo('ABCDEF')).rejects.toMatchObject({
+      code: 'GROUP_INVITE_CODE_EXPIRED',
+    });
   });
 
   it('joins a group with a valid invite code', async () => {
