@@ -43,7 +43,7 @@ export class ChatBroadcastService {
       .map((item) => item.connectionId as unknown)
       .filter((connectionId): connectionId is string => typeof connectionId === 'string');
 
-    const data = Buffer.from(JSON.stringify({ event, ...payload }));
+    const data = Buffer.from(JSON.stringify({ event, data: payload }));
 
     await Promise.all(
       connectionIds.map((connectionId) =>

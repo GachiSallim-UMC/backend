@@ -40,9 +40,9 @@ describe('ChatBroadcastService', () => {
     expect(firstPost.input.ConnectionId).toBe('conn-1');
     const payload = JSON.parse(Buffer.from(firstPost.input.Data as Uint8Array).toString('utf8')) as {
       event: string;
-      messageId: number;
+      data: { messageId: number };
     };
-    expect(payload).toEqual({ event: 'message:new', messageId: 1 });
+    expect(payload).toEqual({ event: 'message:new', data: { messageId: 1 } });
   });
 
   it('removes a connection from the table when it is gone', async () => {
