@@ -110,9 +110,9 @@ export class AuthAccountService {
     const rows: CsvValue[][] = [
       ...chores.map((chore) => [
         'CHORE',
-        Number(chore.id),
+        chore.id.toString(),
         null,
-        Number(chore.groupId),
+        chore.groupId.toString(),
         chore.group.name,
         chore.title,
         chore.category,
@@ -136,9 +136,9 @@ export class AuthAccountService {
 
         return [
           'EXPENSE',
-          Number(expense.id),
+          expense.id.toString(),
           null,
-          Number(expense.groupId),
+          expense.groupId.toString(),
           expense.group.name,
           expense.title,
           expense.category,
@@ -160,9 +160,9 @@ export class AuthAccountService {
       }),
       ...activities.map((activity) => [
         'ACTIVITY',
-        Number(activity.id),
-        activity.refId === null ? null : Number(activity.refId),
-        Number(activity.groupId),
+        activity.id.toString(),
+        activity.refId?.toString() ?? null,
+        activity.groupId.toString(),
         activity.group.name,
         null,
         activity.type,

@@ -202,11 +202,15 @@ describe('AuthAccountService', () => {
   });
 
   it('exports only the authenticated user related chore, expense, and activity records', async () => {
+    const groupId = 9007199254740993n;
+    const choreId = 9007199254740995n;
+    const expenseId = 9007199254740997n;
+    const activityId = 9007199254740999n;
     prisma.userAuthIdentity.findUnique.mockResolvedValue(ACTIVE_ACCOUNT);
     prisma.chore.findMany.mockResolvedValue([
       {
-        id: 10n,
-        groupId: 2n,
+        id: choreId,
+        groupId,
         group: { name: '우리 "집"' },
         title: '=SUM(1,2)',
         category: 'CLEANING',
@@ -222,8 +226,8 @@ describe('AuthAccountService', () => {
     ]);
     prisma.expense.findMany.mockResolvedValue([
       {
-        id: 20n,
-        groupId: 2n,
+        id: expenseId,
+        groupId,
         group: { name: '우리 "집"' },
         title: '장보기',
         category: 'GROCERY',
@@ -237,9 +241,9 @@ describe('AuthAccountService', () => {
     ]);
     prisma.activityLog.findMany.mockResolvedValue([
       {
-        id: 30n,
-        refId: 10n,
-        groupId: 2n,
+        id: activityId,
+        refId: choreId,
+        groupId,
         group: { name: '우리 "집"' },
         type: 'CHORE_DONE',
         description: '청소를 완료했습니다.\n고생했어요.',
@@ -253,13 +257,13 @@ describe('AuthAccountService', () => {
     expect(result.filename).toMatch(/^gachisallim-my-data-\d{4}-\d{2}-\d{2}\.csv$/);
     expect(csv.startsWith('\uFEFFrecordType,recordId')).toBe(true);
     expect(csv).toContain(
-      'CHORE,10,,2,"우리 ""집""","\'=SUM(1,2)",CLEANING,DONE,,,,ASSIGNEE|COMPLETER',
+      'CHORE,9007199254740995,,9007199254740993,"우리 ""집""","\'=SUM(1,2)",CLEANING,DONE,,,,ASSIGNEE|COMPLETER',
     );
     expect(csv).toContain(
-      'EXPENSE,20,,2,"우리 ""집""",장보기,GROCERY,PARTIAL,REQUESTED,30000,15000,CREATOR|PARTICIPANT',
+      'EXPENSE,9007199254740997,,9007199254740993,"우리 ""집""",장보기,GROCERY,PARTIAL,REQUESTED,30000,15000,CREATOR|PARTICIPANT',
     );
     expect(csv).toContain(
-      'ACTIVITY,30,10,2,"우리 ""집""",,CHORE_DONE,,,,,ACTOR,,,,2026-07-02T01:00:00.000Z,"청소를 완료했습니다.\n고생했어요."',
+      'ACTIVITY,9007199254740999,9007199254740995,9007199254740993,"우리 ""집""",,CHORE_DONE,,,,,ACTOR,,,,2026-07-02T01:00:00.000Z,"청소를 완료했습니다.\n고생했어요."',
     );
     expect(prisma.chore.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
