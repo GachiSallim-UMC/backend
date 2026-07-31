@@ -146,6 +146,34 @@ describe('GroupsService', () => {
     expect(prisma.group.update).toHaveBeenCalledWith({ where: { id: 1n }, data: { name: '우리집 시즌2' } });
   });
 
+  it('updates the group image when the requester is an ADMIN', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
+    prisma.group.update.mockResolvedValue({ id: 1n, groupImage: 'https://example.com/group.png' });
+
+    const result = await service.updateGroup(1n, { groupImage: 'https://example.com/group.png' }, 10n);
+
+    expect(result).toEqual({ id: 1n, groupImage: 'https://example.com/group.png' });
+    expect(prisma.group.update).toHaveBeenCalledWith({
+      where: { id: 1n },
+      data: { groupImage: 'https://example.com/group.png' },
+    });
+  });
+
+  it('clears the group image when groupImage is sent as null', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
+    prisma.group.update.mockResolvedValue({ id: 1n, groupImage: null });
+
+    const result = await service.updateGroup(1n, { groupImage: null }, 10n);
+
+    expect(result).toEqual({ id: 1n, groupImage: null });
+    expect(prisma.group.update).toHaveBeenCalledWith({
+      where: { id: 1n },
+      data: { groupImage: null },
+    });
+  });
+
   it('throws when a non-ADMIN member tries to update the group', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
     prisma.groupMember.findUnique.mockResolvedValue({ userId: 20n, groupId: 1n, role: 'MEMBER', leftAt: null });
