@@ -96,7 +96,7 @@ describe('BackendStack', () => {
       }),
       ProviderDetails: Match.objectLike({
         oidc_issuer: 'https://kauth.kakao.com',
-        authorize_scopes: 'account_email',
+        authorize_scopes: 'openid account_email',
       }),
     });
 

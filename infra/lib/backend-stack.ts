@@ -757,7 +757,7 @@ export class BackendStack extends Stack {
           clientId: socialAuthSecret.secretValueFromJson('kakaoClientId').unsafeUnwrap(),
           clientSecret: socialAuthSecret.secretValueFromJson('kakaoClientSecret').unsafeUnwrap(),
           issuerUrl: 'https://kauth.kakao.com',
-          scopes: ['account_email'],
+          scopes: ['openid', 'account_email'],
           attributeMapping: {
             email: cognito.ProviderAttribute.other('email'),
             emailVerified: cognito.ProviderAttribute.other('email_verified'),
