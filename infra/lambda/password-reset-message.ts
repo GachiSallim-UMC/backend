@@ -33,11 +33,11 @@ export function createPasswordResetMessageHandler(passwordResetUrl: string) {
   };
 }
 
-export function handler(event: PasswordResetMessageEvent): PasswordResetMessageEvent {
+export function handler(event: PasswordResetMessageEvent): Promise<PasswordResetMessageEvent> {
   const passwordResetUrl = process.env.PASSWORD_RESET_URL;
   if (!passwordResetUrl) {
     throw new Error('PASSWORD_RESET_URL is required');
   }
 
-  return createPasswordResetMessageHandler(passwordResetUrl)(event);
+  return Promise.resolve(createPasswordResetMessageHandler(passwordResetUrl)(event));
 }
