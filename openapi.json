@@ -7113,6 +7113,49 @@
         }
       }
     },
+    "/api/v1/auth/me/data-export": {
+      "get": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "내 데이터 CSV 내보내기",
+        "description": "인증된 사용자가 담당·생성·완료한 집안일, 생성·결제·분담에 참여한 정산, 본인이 주체인 활동 내역을 UTF-8 BOM이 포함된 CSV 파일로 내려받습니다.",
+        "operationId": "getAuthMeDataExport",
+        "responses": {
+          "200": {
+            "description": "UTF-8 BOM이 포함된 CSV 파일",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\"gachisallim-my-data-YYYY-MM-DD.csv\"",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/auth/profile": {
       "patch": {
         "tags": [
