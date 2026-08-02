@@ -40,9 +40,165 @@
     },
     {
       "name": "알림"
+    },
+    {
+      "name": "앱",
+      "description": "애플리케이션 메타데이터 API"
+    },
+    {
+      "name": "헬스체크",
+      "description": "서비스와 데이터베이스 상태 확인 API"
     }
   ],
   "paths": {
+    "/api/v1": {
+      "get": {
+        "tags": [
+          "앱"
+        ],
+        "summary": "애플리케이션 메타데이터 조회",
+        "description": "애플리케이션 이름과 버전을 조회합니다.",
+        "operationId": "getAppMetadata",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "애플리케이션 메타데이터 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "version"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "example": "GachiSallim Backend"
+                        },
+                        "version": {
+                          "type": "string",
+                          "example": "0.1.0"
+                        }
+                      }
+                    },
+                    "error": {
+                      "type": "object",
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "헬스체크"
+        ],
+        "summary": "서비스 및 데이터베이스 상태 조회",
+        "description": "서비스와 PostgreSQL 연결 상태를 확인합니다.",
+        "operationId": "getHealth",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "서비스와 데이터베이스가 정상인 경우",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "details"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "ok"
+                          ],
+                          "example": "ok"
+                        },
+                        "info": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "error": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                            "database": {
+                              "type": "object",
+                              "required": [
+                                "status"
+                              ],
+                              "properties": {
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "up"
+                                  ],
+                                  "example": "up"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "error": {
+                      "type": "object",
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/users": {
       "get": {
         "tags": [
@@ -513,6 +669,245 @@
           }
         },
         "operationId": "postGroups"
+      }
+    },
+    "/api/v1/groups/join": {
+      "post": {
+        "tags": [
+          "그룹"
+        ],
+        "summary": "초대 코드로 그룹 가입",
+        "description": "유효한 초대 코드를 사용해 그룹에 가입합니다.",
+        "operationId": "joinGroup",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "inviteCode"
+                ],
+                "properties": {
+                  "inviteCode": {
+                    "type": "string",
+                    "minLength": 6,
+                    "maxLength": 6,
+                    "pattern": "^[A-HJ-NP-Z2-9]{6}$",
+                    "description": "그룹 초대 코드",
+                    "example": "AB2CDE"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "그룹 가입 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                "example": {
+                  "statusCode": 201,
+                  "data": {
+                    "id": 1,
+                    "name": "우리집",
+                    "currentMembers": 3,
+                    "maxMembers": 4
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/groups/invite-info": {
+      "get": {
+        "tags": [
+          "그룹"
+        ],
+        "summary": "초대 코드 미리보기 조회",
+        "description": "가입 처리 없이 초대 코드로 그룹 정보를 미리 조회합니다.",
+        "operationId": "getGroupInviteInfo",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": true,
+            "description": "그룹 초대 코드",
+            "schema": {
+              "type": "string",
+              "minLength": 6,
+              "maxLength": 6,
+              "pattern": "^[A-HJ-NP-Z2-9]{6}$",
+              "example": "AB2CDE"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "초대 코드 미리보기 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "description",
+                        "groupImage",
+                        "residenceType",
+                        "currentMembers",
+                        "maxMembers"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "example": "자취방 메이트"
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true,
+                          "example": "2인 자취 공유 그룹"
+                        },
+                        "groupImage": {
+                          "type": "string",
+                          "format": "uri",
+                          "nullable": true,
+                          "example": "https://example.com/group.png"
+                        },
+                        "residenceType": {
+                          "type": "string",
+                          "enum": [
+                            "ROOMMATE",
+                            "SHARE",
+                            "BOARDING",
+                            "FAMILY",
+                            "ETC"
+                          ],
+                          "nullable": true,
+                          "example": "ROOMMATE"
+                        },
+                        "currentMembers": {
+                          "type": "integer",
+                          "example": 3
+                        },
+                        "maxMembers": {
+                          "type": "integer",
+                          "example": 4
+                        }
+                      }
+                    },
+                    "error": {
+                      "type": "object",
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/invite-code": {
+      "post": {
+        "tags": [
+          "그룹"
+        ],
+        "summary": "그룹 초대 코드 재발급",
+        "description": "그룹 관리자가 7일간 유효한 새 초대 코드를 발급합니다.",
+        "operationId": "reissueGroupInviteCode",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "description": "그룹 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "초대 코드 재발급 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                "example": {
+                  "statusCode": 201,
+                  "data": {
+                    "id": 1,
+                    "inviteCode": "FG3HJK",
+                    "inviteExpiredAt": "2026-08-09T12:00:00.000Z"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
       }
     },
     "/api/v1/groups/{groupId}": {
@@ -1094,6 +1489,289 @@
           }
         },
         "operationId": "patchGroupsGroupIdPermissions"
+      }
+    },
+    "/api/v1/groups/{groupId}/members": {
+      "get": {
+        "tags": [
+          "그룹"
+        ],
+        "summary": "그룹 구성원 목록 조회",
+        "description": "그룹에 현재 참여 중인 구성원을 가입 순서로 조회합니다.",
+        "operationId": "getGroupMembers",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "description": "그룹 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "그룹 구성원 목록 조회 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "userId",
+                          "groupId",
+                          "role",
+                          "joinedAt",
+                          "leftAt",
+                          "user"
+                        ],
+                        "properties": {
+                          "userId": {
+                            "type": "integer",
+                            "example": 2
+                          },
+                          "groupId": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "ADMIN",
+                              "MEMBER"
+                            ],
+                            "example": "MEMBER"
+                          },
+                          "joinedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "leftAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true,
+                            "example": null
+                          },
+                          "user": {
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "name",
+                              "nickname",
+                              "profileImage"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer",
+                                "example": 2
+                              },
+                              "name": {
+                                "type": "string",
+                                "example": "김영희"
+                              },
+                              "nickname": {
+                                "type": "string",
+                                "example": "영희"
+                              },
+                              "profileImage": {
+                                "type": "string",
+                                "nullable": true,
+                                "example": "https://example.com/profile.png"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "error": {
+                      "type": "object",
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/members/{userId}/role": {
+      "patch": {
+        "tags": [
+          "그룹"
+        ],
+        "summary": "그룹 구성원 역할 변경",
+        "description": "그룹 관리자가 구성원의 역할을 변경합니다. 마지막 관리자는 일반 구성원으로 변경할 수 없습니다.",
+        "operationId": "updateGroupMemberRole",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "description": "그룹 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "description": "역할을 변경할 사용자 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 2
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "role"
+                ],
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "ADMIN",
+                      "MEMBER"
+                    ],
+                    "example": "ADMIN"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "구성원 역할 변경 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "userId": 2,
+                    "groupId": 1,
+                    "role": "ADMIN"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{groupId}/members/{userId}": {
+      "delete": {
+        "tags": [
+          "그룹"
+        ],
+        "summary": "그룹 구성원 탈퇴 또는 내보내기",
+        "description": "본인은 그룹에서 탈퇴할 수 있고, 관리자는 다른 구성원을 내보낼 수 있습니다. 마지막 관리자는 탈퇴할 수 없습니다.",
+        "operationId": "removeGroupMember",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "description": "그룹 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "description": "탈퇴 또는 내보낼 사용자 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 2
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "구성원 탈퇴 또는 내보내기 성공"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
       }
     },
     "/api/v1/chores/{choreId}": {
@@ -2215,6 +2893,138 @@
         }
       }
     },
+    "/api/v1/expenses/receipt-image/upload-url": {
+      "post": {
+        "tags": [
+          "정산"
+        ],
+        "summary": "영수증 이미지 업로드 URL 발급",
+        "description": "그룹 구성원에게 최대 10MB의 JPEG, PNG 또는 WebP 영수증 이미지를 업로드할 S3 Presigned POST를 발급합니다.",
+        "operationId": "createReceiptImageUpload",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "groupId",
+                  "contentType",
+                  "fileSize"
+                ],
+                "properties": {
+                  "groupId": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "영수증을 첨부할 지출이 속한 그룹 ID",
+                    "example": 1
+                  },
+                  "contentType": {
+                    "type": "string",
+                    "enum": [
+                      "image/jpeg",
+                      "image/png",
+                      "image/webp"
+                    ],
+                    "example": "image/jpeg"
+                  },
+                  "fileSize": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10485760,
+                    "description": "업로드할 파일 크기(byte)",
+                    "example": 1824123
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "영수증 이미지 업로드 URL 발급 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 201
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "uploadMethod",
+                        "uploadUrl",
+                        "fields",
+                        "objectKey",
+                        "expiresAt"
+                      ],
+                      "properties": {
+                        "uploadMethod": {
+                          "type": "string",
+                          "enum": [
+                            "POST"
+                          ],
+                          "example": "POST"
+                        },
+                        "uploadUrl": {
+                          "type": "string",
+                          "format": "uri",
+                          "example": "https://bucket.s3.ap-northeast-2.amazonaws.com"
+                        },
+                        "fields": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "objectKey": {
+                          "type": "string",
+                          "description": "비용 등록 또는 수정 API의 receiptUrl로 전달할 S3 오브젝트 키",
+                          "example": "development/receipts/1/7/550e8400-e29b-41d4-a716-446655440000.jpg"
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "example": "2026-08-02T12:05:00.000Z"
+                        }
+                      }
+                    },
+                    "error": {
+                      "type": "object",
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/expenses": {
       "post": {
         "tags": [
@@ -2633,6 +3443,176 @@
         },
         "operationId": "getExpensesExpenseId"
       },
+      "patch": {
+        "tags": [
+          "정산"
+        ],
+        "summary": "지출 내역 수정 (EXP-EDIT-01)",
+        "description": "지출 제목, 금액, 카테고리, 분담 방식, 참여자별 분담 정보와 영수증 이미지 오브젝트 키를 수정합니다.",
+        "operationId": "updateExpense",
+        "parameters": [
+          {
+            "name": "expenseId",
+            "in": "path",
+            "required": true,
+            "description": "수정할 정산 내역 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 123
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "example": "5월 관리비 수정"
+                  },
+                  "totalAmount": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "example": 95000
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "FINANCE",
+                      "FOOD",
+                      "SHOPPING",
+                      "EDUCATION",
+                      "GROCERY",
+                      "TRANSPORT",
+                      "LEISURE",
+                      "CAFE",
+                      "UTILITIES",
+                      "ETC"
+                    ],
+                    "example": "FOOD"
+                  },
+                  "splitType": {
+                    "type": "string",
+                    "enum": [
+                      "EQUAL",
+                      "RATIO",
+                      "CUSTOM"
+                    ],
+                    "example": "EQUAL"
+                  },
+                  "targetMemberIds": {
+                    "type": "array",
+                    "description": "CUSTOM, RATIO 또는 참여자 변경 시 사용할 정산 참여자 목록",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "userId"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "string",
+                          "pattern": "^[0-9]+$",
+                          "example": "12"
+                        },
+                        "amount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "CUSTOM 방식의 직접 입력 금액",
+                          "example": 50000
+                        },
+                        "percentage": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "RATIO 방식의 분담 비율(%)",
+                          "example": 60
+                        }
+                      }
+                    }
+                  },
+                  "receiptUrl": {
+                    "type": "string",
+                    "description": "영수증 이미지 업로드 URL 발급 응답의 objectKey",
+                    "example": "development/receipts/1/7/550e8400-e29b-41d4-a716-446655440000.jpg"
+                  }
+                }
+              },
+              "examples": {
+                "equal": {
+                  "summary": "총액 변경 후 균등 분담 재계산",
+                  "value": {
+                    "title": "5월 관리비 수정",
+                    "totalAmount": 95000,
+                    "category": "FOOD",
+                    "splitType": "EQUAL"
+                  }
+                },
+                "ratio": {
+                  "summary": "참여자별 분담 비율 변경",
+                  "value": {
+                    "totalAmount": 200000,
+                    "splitType": "RATIO",
+                    "targetMemberIds": [
+                      {
+                        "userId": "12",
+                        "percentage": 70
+                      },
+                      {
+                        "userId": "2",
+                        "percentage": 30
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "지출 내역 수정 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "id": 123,
+                    "title": "5월 관리비 수정",
+                    "totalAmount": 95000,
+                    "category": "FOOD",
+                    "splitType": "EQUAL"
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "생활비 정산 (EXP)"
@@ -2997,6 +3977,89 @@
           }
         },
         "operationId": "postExpensesExpenseIdShare"
+      }
+    },
+    "/api/v1/expenses/{expenseId}/receipt-image": {
+      "get": {
+        "tags": [
+          "정산"
+        ],
+        "summary": "영수증 이미지 조회 URL 발급",
+        "description": "정산이 속한 그룹의 구성원에게 5분간 유효한 영수증 이미지 조회용 서명 URL을 발급합니다.",
+        "operationId": "getReceiptImageViewUrl",
+        "parameters": [
+          {
+            "name": "expenseId",
+            "in": "path",
+            "required": true,
+            "description": "영수증을 조회할 정산 내역 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 123
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "영수증 이미지 조회 URL 발급 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ],
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "viewUrl",
+                        "expiresAt"
+                      ],
+                      "properties": {
+                        "viewUrl": {
+                          "type": "string",
+                          "format": "uri",
+                          "description": "5분간 유효한 영수증 이미지 조회용 서명 URL",
+                          "example": "https://bucket.s3.ap-northeast-2.amazonaws.com/development/receipts/1/7/receipt.jpg?X-Amz-Signature=example"
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "example": "2026-08-02T12:05:00.000Z"
+                        }
+                      }
+                    },
+                    "error": {
+                      "type": "object",
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
       }
     },
     "/api/v1/supplies": {
@@ -5275,6 +6338,85 @@
         "operationId": "deleteChatRoomsRoomId"
       }
     },
+    "/api/v1/chat-rooms/{roomId}/owner": {
+      "patch": {
+        "tags": [
+          "채팅"
+        ],
+        "summary": "채팅방 방장 위임",
+        "description": "현재 방장이 채팅방에 참여 중인 다른 구성원에게 방장 권한을 위임합니다.",
+        "operationId": "transferChatRoomOwnership",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "description": "채팅방 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "userId"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9]+$",
+                    "description": "새로운 방장으로 지정할 사용자 ID",
+                    "example": "2"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "방장 위임 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "id": 1,
+                    "ownerId": 2
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/chat-rooms/{roomId}/members": {
       "post": {
         "tags": [
@@ -5384,6 +6526,85 @@
           }
         },
         "operationId": "postChatRoomsRoomIdMembers"
+      }
+    },
+    "/api/v1/chat-rooms/{roomId}/members/me": {
+      "patch": {
+        "tags": [
+          "채팅"
+        ],
+        "summary": "내 채팅방 설정 변경",
+        "description": "현재 사용자의 채팅방 알림 수신 여부와 상단 고정 여부를 변경합니다.",
+        "operationId": "updateMyChatRoomSettings",
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "description": "채팅방 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "notificationEnabled": {
+                    "type": "boolean",
+                    "description": "알림 수신 여부",
+                    "example": false
+                  },
+                  "isPinned": {
+                    "type": "boolean",
+                    "description": "상단 고정 여부",
+                    "example": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "내 채팅방 설정 변경 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                },
+                "example": {
+                  "statusCode": 200,
+                  "data": {
+                    "chatRoomId": 1,
+                    "userId": 2,
+                    "notificationEnabled": false,
+                    "isPinned": true
+                  },
+                  "error": null
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
       }
     },
     "/api/v1/chat-rooms/{roomId}/members/{userId}": {
@@ -9014,6 +10235,7 @@
           },
           "data": {},
           "error": {
+            "type": "object",
             "nullable": true
           }
         }
