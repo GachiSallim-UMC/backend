@@ -58,6 +58,7 @@ export class GroupsService {
             name: dto.name,
             description: dto.description,
             maxMembers: dto.maxMembers,
+            residenceType: dto.residenceType,
             inviteCode: candidate,
             inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
             createdBy,
@@ -261,6 +262,8 @@ export class GroupsService {
     return {
       name: group.name,
       description: group.description,
+      groupImage: group.groupImage,
+      residenceType: group.residenceType,
       currentMembers: group.currentMembers,
       maxMembers: group.maxMembers,
     };
