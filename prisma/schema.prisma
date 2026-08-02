@@ -121,18 +121,19 @@ model UserNotificationPreference {
 // =====================================================
 
 model Group {
-  id              BigInt   @id @default(autoincrement())
-  name            String   @db.VarChar(40)
-  description     String?  @db.VarChar(255)
-  groupImage      String?  @map("group_image") @db.VarChar(512)
-  inviteCode      String?  @unique @map("invite_code") @db.VarChar(10)
-  inviteExpiredAt DateTime @map("invite_expired_at")
-  currentMembers  Int      @default(1) @map("current_members")
-  maxMembers      Int      @default(2) @map("max_members")
-  createdBy       BigInt   @map("created_by")
-  isDeleted       Boolean  @default(false) @map("is_deleted")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id              BigInt         @id @default(autoincrement())
+  name            String         @db.VarChar(40)
+  description     String?        @db.VarChar(255)
+  groupImage      String?        @map("group_image") @db.VarChar(512)
+  residenceType   ResidenceType? @map("residence_type")
+  inviteCode      String?        @unique @map("invite_code") @db.VarChar(10)
+  inviteExpiredAt DateTime       @map("invite_expired_at")
+  currentMembers  Int            @default(1) @map("current_members")
+  maxMembers      Int            @default(2) @map("max_members")
+  createdBy       BigInt         @map("created_by")
+  isDeleted       Boolean        @default(false) @map("is_deleted")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
 
   creator       User             @relation("GroupCreator", fields: [createdBy], references: [id])
   members       GroupMember[]
@@ -519,6 +520,14 @@ enum AuthProvider {
 enum GroupRole {
   ADMIN
   MEMBER
+}
+
+enum ResidenceType {
+  ROOMMATE
+  SHARE
+  BOARDING
+  FAMILY
+  ETC
 }
 
 enum RepeatType {
