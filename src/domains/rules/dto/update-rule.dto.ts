@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsNotEmpty, IsString, Length, Min } from 'class-validator';
+import { IsEmpty, IsInt, IsNotEmpty, IsOptional, IsString, Length, Min } from 'class-validator';
 
 export enum RuleStatusValue {
   ACTIVE = 'ACTIVE',
@@ -23,7 +23,14 @@ export class UpdateRuleDto {
   @IsNotEmpty()
   description!: string;
 
-  @ApiProperty({ enum: RuleStatusValue, example: RuleStatusValue.ACTIVE, description: '규칙 활성 상태' })
-  @IsEnum(RuleStatusValue)
-  status!: RuleStatusValue;
+  @ApiProperty({
+    enum: RuleStatusValue,
+    example: RuleStatusValue.INACTIVE,
+    description: '동의 현황에 따라 서버에서 결정되는 읽기 전용 상태',
+    readOnly: true,
+    required: false,
+  })
+  @IsOptional()
+  @IsEmpty({ message: 'status는 동의 현황에 따라 자동으로 결정됩니다.' })
+  status?: RuleStatusValue;
 }

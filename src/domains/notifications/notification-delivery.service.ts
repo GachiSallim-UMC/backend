@@ -18,41 +18,9 @@ export class NotificationDeliveryService {
 
   async createNotification(input: CreateNotificationInput): Promise<Notification> {
     try {
-      return await this.prisma.$transaction(async (transaction) => {
-        if (input.dedupeKey) {
-          const existing = await transaction.notification.findUnique({
-            where: { dedupeKey: input.dedupeKey },
-          });
-          if (existing) {
-            return existing;
-          }
-        }
-
-        const preference = await transaction.userNotificationPreference.findUnique({
-          where: { userId: input.userId },
-          select: NOTIFICATION_DELIVERY_PREFERENCE_SELECT,
-        });
-        const subscriptions = this.isPushEnabled(input, preference)
-          ? await transaction.notificationPushSubscription.findMany({
-              where: { userId: input.userId, isActive: true },
-              select: { id: true },
-            })
-          : [];
-
-        return transaction.notification.create({
-          data: {
-            userId: input.userId,
-            groupId: input.groupId,
-            type: input.type,
-            refId: input.refId,
-            message: input.message,
-            ...(input.dedupeKey ? { dedupeKey: input.dedupeKey } : {}),
-            pushDeliveries: {
-              create: subscriptions.map(({ id }) => ({ subscriptionId: id })),
-            },
-          },
-        });
-      });
+      return await this.prisma.$transaction((transaction) =>
+        this.createNotificationInTransaction(transaction, input),
+      );
     } catch (error) {
       if (input.dedupeKey && this.isUniqueConstraintViolation(error)) {
         return this.prisma.notification.findUniqueOrThrow({
@@ -61,6 +29,43 @@ export class NotificationDeliveryService {
       }
       throw error;
     }
+  }
+
+  async createNotificationInTransaction(
+    transaction: Prisma.TransactionClient,
+    input: CreateNotificationInput,
+  ): Promise<Notification> {
+    if (input.dedupeKey) {
+      const existing = await transaction.notification.findUnique({
+        where: { dedupeKey: input.dedupeKey },
+      });
+      if (existing) return existing;
+    }
+
+    const preference = await transaction.userNotificationPreference.findUnique({
+      where: { userId: input.userId },
+      select: NOTIFICATION_DELIVERY_PREFERENCE_SELECT,
+    });
+    const subscriptions = this.isPushEnabled(input, preference)
+      ? await transaction.notificationPushSubscription.findMany({
+          where: { userId: input.userId, isActive: true },
+          select: { id: true },
+        })
+      : [];
+
+    return transaction.notification.create({
+      data: {
+        userId: input.userId,
+        groupId: input.groupId,
+        type: input.type,
+        refId: input.refId,
+        message: input.message,
+        ...(input.dedupeKey ? { dedupeKey: input.dedupeKey } : {}),
+        pushDeliveries: {
+          create: subscriptions.map(({ id }) => ({ subscriptionId: id })),
+        },
+      },
+    });
   }
 
   private isUniqueConstraintViolation(error: unknown): boolean {

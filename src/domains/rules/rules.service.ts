@@ -13,10 +13,14 @@ import { RuleResponseDto } from './dto/rule-response.dto';
 import { ShareRuleResponseDto } from './dto/share-rule-response.dto';
 import { RuleAgreementStatusValue, UpdateRuleAgreementDto } from './dto/update-rule-agreement.dto';
 import { UpdateRuleDto } from './dto/update-rule.dto';
+import { RuleStatusService } from './rule-status.service';
 
 @Injectable()
 export class RulesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ruleStatusService: RuleStatusService,
+  ) {}
 
   async getRules(query: ListRulesQueryDto): Promise<RuleListResponseDto> {
     const where = {
@@ -219,7 +223,7 @@ export class RulesService {
         userId: currentUserId,
         title: dto.title,
         description: dto.description,
-        status: 'ACTIVE',
+        status: 'INACTIVE',
         agreements: {
           createMany: {
             data: groupMembers.map(({ userId }) => ({
@@ -237,7 +241,7 @@ export class RulesService {
               categoryId: dto.categoryId,
               title: dto.title,
               description: dto.description,
-              status: 'ACTIVE',
+              status: 'INACTIVE',
             }),
           },
         },
@@ -282,7 +286,7 @@ export class RulesService {
         categoryId: BigInt(dto.categoryId),
         title: dto.title,
         description: dto.description,
-        status: dto.status,
+        status: 'INACTIVE',
         agreements: {
           upsert: groupMembers.map(({ userId }) => ({
             where: {
@@ -310,7 +314,7 @@ export class RulesService {
               categoryId: dto.categoryId,
               title: dto.title,
               description: dto.description,
-              status: dto.status,
+              status: 'INACTIVE',
             }),
           },
         },
@@ -348,8 +352,8 @@ export class RulesService {
       [RuleAgreementStatusValue.DISAGREED]: RuleAction.DISAGREED,
       [RuleAgreementStatusValue.PENDING]: RuleAction.PENDING,
     };
-    const [agreement] = await this.prisma.$transaction([
-      this.prisma.ruleAgreement.upsert({
+    const agreement = await this.ruleStatusService.runWithRecalculation(ruleId, async (tx) => {
+      const updatedAgreement = await tx.ruleAgreement.upsert({
         where: {
           ruleId_userId: {
             ruleId,
@@ -366,16 +370,17 @@ export class RulesService {
           status: dto.status,
           confirmedAt,
         },
-      }),
-      this.prisma.ruleLog.create({
+      });
+      await tx.ruleLog.create({
         data: {
           ruleId,
           userId: currentUserId,
           action: actionByStatus[dto.status],
           snapshot: JSON.stringify({ status: dto.status }),
         },
-      }),
-    ]);
+      });
+      return updatedAgreement;
+    });
 
     return {
       agreementId: Number(agreement.id),

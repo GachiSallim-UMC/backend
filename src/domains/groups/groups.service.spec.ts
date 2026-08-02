@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RuleStatusService } from '../rules/rule-status.service';
 import { GroupsService } from './groups.service';
 
 type MockedPrisma = {
@@ -56,7 +57,9 @@ describe('GroupsService', () => {
     };
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(prisma));
 
-    service = new GroupsService(prisma as unknown as PrismaService);
+    service = new GroupsService(prisma as unknown as PrismaService, {
+      recalculateGroup: jest.fn().mockResolvedValue(undefined),
+    } as unknown as RuleStatusService);
   });
 
   it('creates a group with the creator as an active ADMIN member', async () => {

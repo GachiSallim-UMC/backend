@@ -5,6 +5,7 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RuleAgreementStatusValue } from './dto/update-rule-agreement.dto';
 import { RuleStatusValue } from './dto/update-rule.dto';
+import { RuleStatusService } from './rule-status.service';
 import { RulesService } from './rules.service';
 
 type MockedPrisma = {
@@ -80,7 +81,15 @@ describe('RulesService', () => {
       },
     };
 
-    service = new RulesService(prisma as unknown as PrismaService);
+    service = new RulesService(
+      prisma as unknown as PrismaService,
+      {
+        runWithRecalculation: jest.fn(
+          async (_ruleId: bigint, operation: (tx: unknown) => Promise<unknown>) =>
+            operation(prisma),
+        ),
+      } as unknown as RuleStatusService,
+    );
   });
 
   it('creates a rule and returns its id', async () => {
@@ -115,7 +124,7 @@ describe('RulesService', () => {
         userId: 10n,
         title: '밤 11시 이후 조용히 하기',
         description: '늦은 시간에는 소음을 줄여주세요.',
-        status: 'ACTIVE',
+        status: 'INACTIVE',
         agreements: {
           createMany: {
             data: [
@@ -132,7 +141,7 @@ describe('RulesService', () => {
               categoryId: 1,
               title: '밤 11시 이후 조용히 하기',
               description: '늦은 시간에는 소음을 줄여주세요.',
-              status: 'ACTIVE',
+              status: 'INACTIVE',
             }),
           },
         },
