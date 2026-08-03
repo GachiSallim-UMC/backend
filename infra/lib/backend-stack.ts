@@ -24,6 +24,7 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -244,6 +245,15 @@ export class BackendStack extends Stack {
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       },
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+    });
+    new s3deploy.BucketDeployment(this, 'DefaultAvatarDeployment', {
+      sources: [s3deploy.Source.asset(join(__dirname, '../assets/default-avatars'))],
+      destinationBucket: profileImageBucket,
+      destinationKeyPrefix: 'default-avatars',
+      cacheControl: [s3deploy.CacheControl.fromString('public, max-age=86400')],
+      contentType: 'image/png',
+      distribution: profileImageDistribution,
+      distributionPaths: ['/default-avatars/*'],
     });
 
     // 영수증 이미지는 인증 + 그룹 멤버십 검증을 거친 요청에만 짧은 유효시간의 S3
@@ -1293,6 +1303,9 @@ done`,
     });
     new CfnOutput(this, 'ApplicationLogGroupName', {
       value: applicationLogGroup.logGroupName,
+    });
+    new CfnOutput(this, 'DefaultAvatarBaseUrl', {
+      value: `https://${profileImageDistribution.distributionDomainName}/default-avatars`,
     });
   }
 }

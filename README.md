@@ -114,6 +114,21 @@ AWS_PROFILE=gachisallim AWS_REGION=ap-northeast-2 \
   --region ap-northeast-2
 ```
 
+### 기본 프로필 아바타
+
+CDK는 기본 아바타 10종을 프로필 이미지 버킷의 `default-avatars/` 경로에 배포합니다. 공개
+기본 URL은 `DefaultAvatarBaseUrl` CloudFormation 출력에서 확인하며, 파일 URL은 다음 규칙을
+사용합니다.
+
+```text
+{DefaultAvatarBaseUrl}/avatar-1.png
+...
+{DefaultAvatarBaseUrl}/avatar-10.png
+```
+
+프론트엔드는 프로필 수정 시 `avatar-1` 같은 식별자가 아니라 해당 파일의 전체 URL을
+`profileImage`로 전송합니다. 고정 파일명이므로 변경 사항은 최대 24시간 캐시될 수 있습니다.
+
 ### 비밀번호 재설정 이메일
 
 런타임 스택은 `ap-northeast-2` SES에서 사전에 검증된 `gachisallim.com` 도메인 ID와 DKIM
