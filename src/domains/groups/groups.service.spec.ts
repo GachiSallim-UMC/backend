@@ -1,6 +1,6 @@
 /// <reference types="jest" />
 import { jest } from '@jest/globals';
-import { Prisma } from '@prisma/client';
+import { Prisma, ResidenceType } from '@prisma/client';
 
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -103,6 +103,15 @@ describe('GroupsService', () => {
     );
     expect(typeof createArgs.data.inviteCode).toBe('string');
     expect(createArgs.data.inviteCode.length).toBeGreaterThan(0);
+  });
+
+  it('passes the requested residence type through to group creation', async () => {
+    prisma.group.create.mockResolvedValue({ id: 1n, name: '우리집', residenceType: 'ROOMMATE', createdBy: 10n });
+
+    await service.createGroup({ name: '우리집', maxMembers: 4, residenceType: ResidenceType.ROOMMATE }, 10n);
+
+    const createArgs = prisma.group.create.mock.calls[0]?.[0] as { data: { residenceType?: string } };
+    expect(createArgs.data.residenceType).toBe('ROOMMATE');
   });
 
   it('retries with a new invite code candidate when creating a group collides with an existing invite code', async () => {
@@ -453,6 +462,8 @@ describe('GroupsService', () => {
       inviteExpiredAt: new Date(Date.now() + 1000 * 60),
       name: '우리집',
       description: '강남구 역삼동 셰어하우스',
+      groupImage: 'https://example.com/group.png',
+      residenceType: 'ROOMMATE',
       currentMembers: 2,
       maxMembers: 4,
     });
@@ -462,6 +473,8 @@ describe('GroupsService', () => {
     expect(result).toEqual({
       name: '우리집',
       description: '강남구 역삼동 셰어하우스',
+      groupImage: 'https://example.com/group.png',
+      residenceType: 'ROOMMATE',
       currentMembers: 2,
       maxMembers: 4,
     });
