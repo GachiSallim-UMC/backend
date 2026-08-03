@@ -1,3 +1,6 @@
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -396,6 +399,27 @@ describe('BackendStack', () => {
     expect(runtimeConfiguration).toContain('RECEIPT_IMAGE_BUCKET');
     expect(runtimeConfiguration).toContain('RECEIPT_IMAGE_OBJECT_PREFIX');
     expect(runtimeConfiguration).not.toContain('RECEIPT_IMAGE_PUBLIC_BASE_URL');
+  });
+
+  it('deploys all default avatars to stable CloudFront paths', () => {
+    const avatarDirectory = join(__dirname, '../assets/default-avatars');
+    const avatarFiles = readdirSync(avatarDirectory).sort((left, right) =>
+      left.localeCompare(right, undefined, { numeric: true }),
+    );
+
+    expect(avatarFiles).toEqual(
+      Array.from({ length: 10 }, (_, index) => `avatar-${index + 1}.png`),
+    );
+    template.hasResourceProperties('Custom::CDKBucketDeployment', {
+      DestinationBucketKeyPrefix: 'default-avatars',
+      DistributionPaths: ['/default-avatars/*'],
+      SystemMetadata: {
+        'cache-control': 'public, max-age=86400',
+        'content-type': 'image/png',
+      },
+    });
+    expect(JSON.stringify(template.toJSON().Outputs)).toContain('DefaultAvatarBaseUrl');
+    expect(JSON.stringify(template.toJSON().Outputs)).toContain('/default-avatars');
   });
 
   it('creates encrypted notification push queues and dead-letter queues per environment', () => {
