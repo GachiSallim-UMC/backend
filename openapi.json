@@ -713,7 +713,7 @@
                 "example": {
                   "statusCode": 201,
                   "data": {
-                    "id": 1,
+                    "id": "1",
                     "name": "우리집",
                     "currentMembers": 3,
                     "maxMembers": 4
@@ -886,7 +886,7 @@
                 "example": {
                   "statusCode": 201,
                   "data": {
-                    "id": 1,
+                    "id": "1",
                     "inviteCode": "FG3HJK",
                     "inviteExpiredAt": "2026-08-09T12:00:00.000Z"
                   },
@@ -1543,12 +1543,14 @@
                         ],
                         "properties": {
                           "userId": {
-                            "type": "integer",
-                            "example": 2
+                            "type": "string",
+                            "pattern": "^[0-9]+$",
+                            "example": "2"
                           },
                           "groupId": {
-                            "type": "integer",
-                            "example": 1
+                            "type": "string",
+                            "pattern": "^[0-9]+$",
+                            "example": "1"
                           },
                           "role": {
                             "type": "string",
@@ -1578,8 +1580,9 @@
                             ],
                             "properties": {
                               "id": {
-                                "type": "integer",
-                                "example": 2
+                                "type": "string",
+                                "pattern": "^[0-9]+$",
+                                "example": "2"
                               },
                               "name": {
                                 "type": "string",
@@ -1690,8 +1693,8 @@
                 "example": {
                   "statusCode": 200,
                   "data": {
-                    "userId": 2,
-                    "groupId": 1,
+                    "userId": "2",
+                    "groupId": "1",
                     "role": "ADMIN"
                   },
                   "error": null
@@ -3582,7 +3585,7 @@
                 "example": {
                   "statusCode": 200,
                   "data": {
-                    "id": 123,
+                    "id": "123",
                     "title": "5월 관리비 수정",
                     "totalAmount": 95000,
                     "category": "FOOD",
@@ -6391,8 +6394,8 @@
                 "example": {
                   "statusCode": 200,
                   "data": {
-                    "id": 1,
-                    "ownerId": 2
+                    "id": "1",
+                    "ownerId": "2"
                   },
                   "error": null
                 }
@@ -6582,8 +6585,8 @@
                 "example": {
                   "statusCode": 200,
                   "data": {
-                    "chatRoomId": 1,
-                    "userId": 2,
+                    "chatRoomId": "1",
+                    "userId": "2",
                     "notificationEnabled": false,
                     "isPinned": true
                   },
