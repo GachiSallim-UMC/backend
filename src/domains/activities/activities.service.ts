@@ -25,8 +25,9 @@ interface ChoreEntity extends BaseEntity {
   status?: string;
 }
 
-interface RuleEntity extends BaseEntity {
+interface RuleEntity extends Omit<BaseEntity, 'createdBy' | 'updatedBy'> {
   title: string;
+  userId: bigint;
 }
 
 interface SupplyEntity extends BaseEntity {
@@ -257,7 +258,7 @@ export class ActivitiesService {
           await this.prisma.activityLog.create({
             data: {
               groupId: rule.groupId,
-              userId: rule.createdBy,
+              userId: rule.userId,
               type: 'RULE_CREATED',
               refId: rule.id,
               description: `새로운 규칙 ${rule.title}이(가) 등록되었습니다.`,
@@ -275,7 +276,7 @@ export class ActivitiesService {
             await this.prisma.activityLog.create({
               data: {
                 groupId: rule.groupId,
-                userId: rule.updatedBy || rule.createdBy,
+                userId: rule.userId,
                 type: 'RULE_EDITED',
                 refId: rule.id,
                 description: `규칙 ${rule.title}이(가) 수정되었습니다.`,
