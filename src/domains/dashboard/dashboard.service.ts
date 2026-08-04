@@ -122,6 +122,7 @@ export class DashboardService {
       unsettledExpenses: unsettledExpenses.map((expense) => ({
         expenseId: Number(expense.id),
         title: expense.title,
+        category: expense.category,
         payerName: expense.payer.nickname,
         amountPerPerson: this.calculateAmountPerPerson(
           expense.totalAmount,
@@ -133,6 +134,7 @@ export class DashboardService {
       lowSupplies: lowSupplies.map((supply) => ({
         supplyId: Number(supply.id),
         name: supply.name,
+        category: supply.category,
         status: supply.status === SupplyStatus.EMPTY ? 'EMPTY' : 'LOW',
         assigneeName: supply.assignee?.nickname ?? null,
       })),
@@ -295,4 +297,3 @@ function getTodayKoreaRange(): [Date, Date] {
 
   return [todayStart, tomorrowStart];
 }
-

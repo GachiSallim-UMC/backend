@@ -1,3 +1,4 @@
+import { ExpenseCategory, SupplyCategory } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class DashboardSummaryDto {
@@ -44,6 +45,13 @@ export class UnsettledExpenseDto {
   @ApiProperty({ example: '마트 장보기', description: '생활비 제목' })
   title!: string;
 
+  @ApiProperty({
+    enum: ExpenseCategory,
+    example: ExpenseCategory.FOOD,
+    description: '정산 카테고리',
+  })
+  category!: ExpenseCategory;
+
   @ApiProperty({ example: '김영희', description: '선지불자 닉네임' })
   payerName!: string;
 
@@ -60,6 +68,13 @@ export class LowSupplyDto {
 
   @ApiProperty({ example: '세제', description: '공용 물품명' })
   name!: string;
+
+  @ApiProperty({
+    enum: SupplyCategory,
+    example: SupplyCategory.DAILY_NECESSITIES,
+    description: '공용 물품 카테고리',
+  })
+  category!: SupplyCategory;
 
   @ApiProperty({ enum: ['LOW', 'EMPTY'], example: 'LOW', description: '공용 물품 상태' })
   status!: 'LOW' | 'EMPTY';
@@ -114,4 +129,3 @@ export class DashboardResponseDto {
   @ApiProperty({ type: [RecentActivityDto], description: '최근 그룹 활동 목록(최대 5건)' })
   recentActivities!: RecentActivityDto[];
 }
-
