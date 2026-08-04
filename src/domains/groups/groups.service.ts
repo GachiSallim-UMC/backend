@@ -188,10 +188,20 @@ export class GroupsService {
         await this.requireNotLastAdminOrThrow(groupId, tx);
       }
 
-      return tx.groupMember.update({
+      const updatedTarget = await tx.groupMember.update({
         where: { userId_groupId: { userId: targetUserId, groupId } },
         data: { role: dto.role },
       });
+
+      // 관리자 위임: 다른 멤버를 ADMIN으로 지정하면 기존 관리자는 MEMBER로 강등된다.
+      if (dto.role === GroupRole.ADMIN && targetUserId !== currentUserId) {
+        await tx.groupMember.update({
+          where: { userId_groupId: { userId: currentUserId, groupId } },
+          data: { role: GroupRole.MEMBER },
+        });
+      }
+
+      return updatedTarget;
     });
   }
 

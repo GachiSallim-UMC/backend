@@ -327,7 +327,7 @@ describe('GroupsService', () => {
     await expect(service.listMembers(1n, 999n)).rejects.toBeInstanceOf(BusinessException);
   });
 
-  it('changes a member role when the requester is an ADMIN', async () => {
+  it('delegates admin to another member and demotes the requester to MEMBER', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
     prisma.groupMember.findUnique
       .mockResolvedValueOnce({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null })
@@ -341,6 +341,22 @@ describe('GroupsService', () => {
       where: { userId_groupId: { userId: 20n, groupId: 1n } },
       data: { role: 'ADMIN' },
     });
+    expect(prisma.groupMember.update).toHaveBeenCalledWith({
+      where: { userId_groupId: { userId: 10n, groupId: 1n } },
+      data: { role: 'MEMBER' },
+    });
+  });
+
+  it('does not demote the requester when re-affirming their own ADMIN role', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique
+      .mockResolvedValueOnce({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null })
+      .mockResolvedValueOnce({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
+    prisma.groupMember.update.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN' });
+
+    await service.updateMemberRole(1n, 10n, { role: 'ADMIN' as never }, 10n);
+
+    expect(prisma.groupMember.update).toHaveBeenCalledTimes(1);
   });
 
   it('throws when demoting the last remaining ADMIN', async () => {
