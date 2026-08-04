@@ -63,23 +63,23 @@ export class DashboardService {
       this.prisma.chore.count({
         where: {
           groupId: group.id,
-          dueDate: { gte: todayStart, lt: tomorrowStart },
+          startDate: { gte: todayStart, lt: tomorrowStart },
         },
       }),
       this.prisma.chore.count({
         where: {
           groupId: group.id,
-          dueDate: { gte: todayStart, lt: tomorrowStart },
+          startDate: { gte: todayStart, lt: tomorrowStart },
           status: ChoreStatus.PENDING,
         },
       }),
       this.prisma.chore.findMany({
         where: {
           groupId: group.id,
-          dueDate: { gte: todayStart, lt: tomorrowStart },
+          startDate: { gte: todayStart, lt: tomorrowStart },
         },
         include: { assignee: { select: USER_SELECT } },
-        orderBy: [{ dueDate: 'asc' }, { id: 'asc' }],
+        orderBy: [{ startDate: 'asc' }, { id: 'asc' }],
         take: 5,
       }),
       this.prisma.supply.count({

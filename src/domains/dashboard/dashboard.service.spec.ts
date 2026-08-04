@@ -202,7 +202,7 @@ describe('DashboardService', () => {
       expect.objectContaining({
         where: {
           groupId: 10n,
-          dueDate: {
+          startDate: {
             gte: new Date('2026-07-24T15:00:00.000Z'),
             lt: new Date('2026-07-25T15:00:00.000Z'),
           },
