@@ -1,5 +1,16 @@
 ALTER TABLE "rules" ALTER COLUMN "status" SET DEFAULT 'INACTIVE';
 
+DELETE FROM "rule_agreements" AS ra
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM "rules" AS r
+  JOIN "group_members" AS gm
+    ON gm."group_id" = r."group_id"
+    AND gm."user_id" = ra."user_id"
+    AND gm."left_at" IS NULL
+  WHERE r."id" = ra."rule_id"
+);
+
 UPDATE "rules" AS r
 SET "status" = CASE
   WHEN EXISTS (

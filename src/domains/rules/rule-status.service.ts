@@ -30,38 +30,54 @@ export class RuleStatusService {
   }
 
   async recalculateGroup(groupId: bigint): Promise<void> {
-    await this.runSerializable(async (tx) => {
-      const activeMembers = await tx.groupMember.findMany({
-        where: { groupId, leftAt: null },
-        select: { userId: true },
-      });
-      const activeUserIds = activeMembers.map(({ userId }) => userId);
-      const rules = await tx.rule.findMany({ where: { groupId }, select: { id: true } });
+    await this.runSerializable((tx) => this.recalculateGroupInTransaction(tx, groupId));
+  }
 
-      await tx.ruleAgreement.deleteMany({
-        where: {
-          rule: { groupId },
-          ...(activeUserIds.length > 0 ? { userId: { notIn: activeUserIds } } : {}),
-        },
-      });
-
-      if (activeUserIds.length > 0 && rules.length > 0) {
-        await tx.ruleAgreement.createMany({
-          data: rules.flatMap(({ id: ruleId }) =>
-            activeUserIds.map((userId) => ({
-              ruleId,
-              userId,
-              status: RuleAgreementStatus.PENDING,
-            })),
-          ),
-          skipDuplicates: true,
-        });
-      }
-
-      for (const { id } of rules) {
-        await this.recalculateOne(tx, id);
-      }
+  async runWithGroupRecalculation<T>(
+    groupId: bigint,
+    operation: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return this.runSerializable(async (tx) => {
+      const result = await operation(tx);
+      await this.recalculateGroupInTransaction(tx, groupId);
+      return result;
     });
+  }
+
+  private async recalculateGroupInTransaction(
+    tx: Prisma.TransactionClient,
+    groupId: bigint,
+  ): Promise<void> {
+    const activeMembers = await tx.groupMember.findMany({
+      where: { groupId, leftAt: null },
+      select: { userId: true },
+    });
+    const activeUserIds = activeMembers.map(({ userId }) => userId);
+    const rules = await tx.rule.findMany({ where: { groupId }, select: { id: true } });
+
+    await tx.ruleAgreement.deleteMany({
+      where: {
+        rule: { groupId },
+        ...(activeUserIds.length > 0 ? { userId: { notIn: activeUserIds } } : {}),
+      },
+    });
+
+    if (activeUserIds.length > 0 && rules.length > 0) {
+      await tx.ruleAgreement.createMany({
+        data: rules.flatMap(({ id: ruleId }) =>
+          activeUserIds.map((userId) => ({
+            ruleId,
+            userId,
+            status: RuleAgreementStatus.PENDING,
+          })),
+        ),
+        skipDuplicates: true,
+      });
+    }
+
+    for (const { id } of rules) {
+      await this.recalculateOne(tx, id);
+    }
   }
 
   private async recalculateOne(tx: Prisma.TransactionClient, ruleId: bigint): Promise<void> {

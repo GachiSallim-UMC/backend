@@ -204,7 +204,7 @@ export class GroupsService {
       await this.requireAdminOrThrow(groupId, currentUserId);
     }
 
-    await this.runSerializable(async (tx) => {
+    await this.ruleStatusService.runWithGroupRecalculation(groupId, async (tx) => {
       const targetMember = await this.requireActiveTargetMemberOrThrow(groupId, targetUserId, tx);
 
       if (targetMember.role === GroupRole.ADMIN) {
@@ -223,8 +223,6 @@ export class GroupsService {
         });
       }
     });
-
-    await this.ruleStatusService.recalculateGroup(groupId);
   }
 
   private async runSerializable<T>(fn: (tx: PrismaTransactionClient) => Promise<T>): Promise<T> {
@@ -307,7 +305,7 @@ export class GroupsService {
       throw new BusinessException(ErrorCode.GROUP_ALREADY_MEMBER);
     }
 
-    const updatedGroup = await this.prisma.$transaction(async (tx) => {
+    return this.ruleStatusService.runWithGroupRecalculation(group.id, async (tx) => {
       let updatedGroup;
 
       try {
@@ -334,9 +332,6 @@ export class GroupsService {
 
       return updatedGroup;
     });
-
-    await this.ruleStatusService.recalculateGroup(group.id);
-    return updatedGroup;
   }
 
   private async updateGroupInviteCode(groupId: bigint) {
