@@ -344,7 +344,7 @@ model Rule {
   userId      BigInt     @map("user_id")
   title       String     @db.VarChar(100)
   description String?    @db.VarChar(512)
-  status      RuleStatus @default(ACTIVE)
+  status      RuleStatus @default(INACTIVE)
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 

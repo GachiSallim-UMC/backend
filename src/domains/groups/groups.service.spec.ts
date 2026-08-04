@@ -4,6 +4,7 @@ import { Prisma, ResidenceType } from '@prisma/client';
 
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RuleStatusService } from '../rules/rule-status.service';
 import { GroupsService } from './groups.service';
 
 type MockedPrisma = {
@@ -33,6 +34,12 @@ function prismaKnownError(code: string): Prisma.PrismaClientKnownRequestError {
 describe('GroupsService', () => {
   let service: GroupsService;
   let prisma: MockedPrisma;
+  let runWithGroupRecalculation: jest.MockedFunction<
+    (
+      groupId: bigint,
+      operation: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    ) => Promise<unknown>
+  >;
 
   beforeEach(() => {
     prisma = {
@@ -56,7 +63,13 @@ describe('GroupsService', () => {
     };
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(prisma));
 
-    service = new GroupsService(prisma as unknown as PrismaService);
+    runWithGroupRecalculation = jest.fn(
+      async (_groupId: bigint, operation: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+        operation(prisma as unknown as Prisma.TransactionClient),
+    );
+    service = new GroupsService(prisma as unknown as PrismaService, {
+      runWithGroupRecalculation,
+    } as unknown as RuleStatusService);
   });
 
   it('creates a group with the creator as an active ADMIN member', async () => {
@@ -362,7 +375,7 @@ describe('GroupsService', () => {
 
     await service.removeMember(1n, 20n, 20n);
 
-    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(runWithGroupRecalculation).toHaveBeenCalledWith(1n, expect.any(Function));
     expect(prisma.groupMember.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: 20n, groupId: 1n, leftAt: null } }),
     );
@@ -380,7 +393,7 @@ describe('GroupsService', () => {
 
     await service.removeMember(1n, 20n, 10n);
 
-    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(runWithGroupRecalculation).toHaveBeenCalledWith(1n, expect.any(Function));
   });
 
   it('does not double-decrement currentMembers when the member was already removed concurrently', async () => {
@@ -523,6 +536,7 @@ describe('GroupsService', () => {
     expect(prisma.groupMember.create).toHaveBeenCalledWith({
       data: { userId: 30n, groupId: 1n, role: 'MEMBER' },
     });
+    expect(runWithGroupRecalculation).toHaveBeenCalledWith(1n, expect.any(Function));
   });
 
   it('throws when the invite code does not match any group', async () => {

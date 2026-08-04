@@ -5,6 +5,7 @@ import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { generateInviteCode } from '../../common/utils/invite-code.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RuleStatusService } from '../rules/rule-status.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
@@ -36,7 +37,10 @@ type PrismaTransactionClient = Prisma.TransactionClient;
 
 @Injectable()
 export class GroupsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ruleStatusService: RuleStatusService,
+  ) {}
 
   async listGroups(userId: bigint) {
     const memberships = await this.prisma.groupMember.findMany({
@@ -117,17 +121,27 @@ export class GroupsService {
     });
   }
 
-  async updateGroupPermission(groupId: bigint, dto: UpdateGroupPermissionDto, currentUserId: bigint) {
+  async updateGroupPermission(
+    groupId: bigint,
+    dto: UpdateGroupPermissionDto,
+    currentUserId: bigint,
+  ) {
     await this.findGroupOrThrow(groupId);
     await this.requireAdminOrThrow(groupId, currentUserId);
 
     const data = {
-      ...(dto.allowChoreRegistration !== undefined ? { allowChoreRegistration: dto.allowChoreRegistration } : {}),
+      ...(dto.allowChoreRegistration !== undefined
+        ? { allowChoreRegistration: dto.allowChoreRegistration }
+        : {}),
       ...(dto.allowSettlementRegistration !== undefined
         ? { allowSettlementRegistration: dto.allowSettlementRegistration }
         : {}),
-      ...(dto.allowItemStatusChange !== undefined ? { allowItemStatusChange: dto.allowItemStatusChange } : {}),
-      ...(dto.autoApproveNewMembers !== undefined ? { autoApproveNewMembers: dto.autoApproveNewMembers } : {}),
+      ...(dto.allowItemStatusChange !== undefined
+        ? { allowItemStatusChange: dto.allowItemStatusChange }
+        : {}),
+      ...(dto.autoApproveNewMembers !== undefined
+        ? { autoApproveNewMembers: dto.autoApproveNewMembers }
+        : {}),
     };
 
     return this.prisma.groupPermission.upsert({
@@ -158,7 +172,12 @@ export class GroupsService {
     });
   }
 
-  async updateMemberRole(groupId: bigint, targetUserId: bigint, dto: UpdateMemberRoleDto, currentUserId: bigint) {
+  async updateMemberRole(
+    groupId: bigint,
+    targetUserId: bigint,
+    dto: UpdateMemberRoleDto,
+    currentUserId: bigint,
+  ) {
     await this.findGroupOrThrow(groupId);
     await this.requireAdminOrThrow(groupId, currentUserId);
 
@@ -185,7 +204,7 @@ export class GroupsService {
       await this.requireAdminOrThrow(groupId, currentUserId);
     }
 
-    await this.runSerializable(async (tx) => {
+    await this.ruleStatusService.runWithGroupRecalculation(groupId, async (tx) => {
       const targetMember = await this.requireActiveTargetMemberOrThrow(groupId, targetUserId, tx);
 
       if (targetMember.role === GroupRole.ADMIN) {
@@ -209,10 +228,13 @@ export class GroupsService {
   private async runSerializable<T>(fn: (tx: PrismaTransactionClient) => Promise<T>): Promise<T> {
     for (let attempt = 1; attempt <= MAX_SERIALIZABLE_RETRIES; attempt += 1) {
       try {
-        return await this.prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        return await this.prisma.$transaction(fn, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
       } catch (error) {
         const isWriteConflict =
-          error instanceof Prisma.PrismaClientKnownRequestError && error.code === WRITE_CONFLICT_ERROR_CODE;
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === WRITE_CONFLICT_ERROR_CODE;
 
         if (!isWriteConflict || attempt === MAX_SERIALIZABLE_RETRIES) {
           throw error;
@@ -239,7 +261,10 @@ export class GroupsService {
     return member;
   }
 
-  private async requireNotLastAdminOrThrow(groupId: bigint, client: PrismaTransactionClient | PrismaService) {
+  private async requireNotLastAdminOrThrow(
+    groupId: bigint,
+    client: PrismaTransactionClient | PrismaService,
+  ) {
     const adminCount = await client.groupMember.count({
       where: { groupId, role: GroupRole.ADMIN, leftAt: null },
     });
@@ -280,7 +305,7 @@ export class GroupsService {
       throw new BusinessException(ErrorCode.GROUP_ALREADY_MEMBER);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.ruleStatusService.runWithGroupRecalculation(group.id, async (tx) => {
       let updatedGroup;
 
       try {
