@@ -236,6 +236,7 @@
                       {
                         "expenseId": 21,
                         "title": "마트 장보기",
+                        "category": "FOOD",
                         "payerName": "김영희",
                         "amountPerPerson": 10666,
                         "status": "UNSETTLED"
@@ -245,6 +246,7 @@
                       {
                         "supplyId": 31,
                         "name": "세제",
+                        "category": "DAILY_NECESSITIES",
                         "status": "LOW",
                         "assigneeName": "이철수"
                       }
