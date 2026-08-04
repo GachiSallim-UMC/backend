@@ -193,6 +193,9 @@ export class ExpensesService {
         ...(category && { category }),
         ...(userId && { payerId: BigInt(userId) }),
       },
+      include: {
+        splits: { include: { user: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }

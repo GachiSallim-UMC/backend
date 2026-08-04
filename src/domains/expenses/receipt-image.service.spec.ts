@@ -127,7 +127,7 @@ describe('ReceiptImageService', () => {
       });
       expect(options).toEqual({ expiresIn: 300 });
       expect(result.viewUrl).toBe('https://receipt-bucket.s3.ap-northeast-2.amazonaws.com/signed-get');
-      expect(Date.parse(result.expiresAt)).toBeGreaterThan(Date.now());
+      expect(Date.parse(result.expiresAt as string)).toBeGreaterThan(Date.now());
     });
 
     it('throws when the expense does not exist', async () => {
@@ -136,10 +136,23 @@ describe('ReceiptImageService', () => {
       await expect(service.createViewUrl(auth, 999n)).rejects.toThrow(ExpenseNotFoundException);
     });
 
-    it('throws when the expense has no receipt image attached', async () => {
+    it('returns a null viewUrl instead of throwing when the expense has no receipt image attached', async () => {
       findUniqueExpense.mockResolvedValue({ groupId: 1n, receiptUrl: null });
 
-      await expect(service.createViewUrl(auth, 123n)).rejects.toThrow(BadRequestException);
+      const result = await service.createViewUrl(auth, 123n);
+
+      expect(result).toEqual({ viewUrl: null, expiresAt: null });
+      expect(findFirstGroupMember).toHaveBeenCalledWith({
+        where: { groupId: 1n, userId: 7n, leftAt: null },
+      });
+      expect(signGet).not.toHaveBeenCalled();
+    });
+
+    it('throws before revealing whether a receipt exists when the requester is not a group member', async () => {
+      findUniqueExpense.mockResolvedValue({ groupId: 1n, receiptUrl: null });
+      findFirstGroupMember.mockResolvedValueOnce(null);
+
+      await expect(service.createViewUrl(auth, 123n)).rejects.toThrow(ForbiddenException);
     });
 
     it('throws when the requester is not a member of the expense group', async () => {

@@ -319,6 +319,23 @@ describe('ExpensesService', () => {
   });
 
   // =========================================================================
+  // 1-1. getExpensesByGroup 검증
+  // =========================================================================
+  describe('getExpensesByGroup', () => {
+    it('목록 조회 시 각 지출의 splits(참여자 포함)를 함께 반환해야 한다', async () => {
+      prisma.expense.findMany.mockResolvedValue([]);
+
+      await service.getExpensesByGroup(1, undefined, undefined);
+
+      expect(prisma.expense.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: { splits: { include: { user: true } } },
+        }),
+      );
+    });
+  });
+
+  // =========================================================================
   // 2. getExpenseDetail 검증
   // =========================================================================
   describe('getExpenseDetail', () => {

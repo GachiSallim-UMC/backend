@@ -285,7 +285,8 @@ export class ExpensesController {
   @ApiOperation({
     summary: '영수증 이미지 조회 URL 발급',
     description:
-      '요청자가 해당 정산이 속한 그룹의 멤버인 경우에만, 5분간 유효한 영수증 이미지 조회용 서명 URL을 발급합니다.',
+      '요청자가 해당 정산이 속한 그룹의 멤버인 경우에만, 5분간 유효한 영수증 이미지 조회용 서명 URL을 발급합니다. ' +
+      '등록된 영수증 이미지가 없는 경우 에러 대신 viewUrl: null로 응답합니다.',
   })
   @ApiParam({ name: 'expenseId', description: '영수증을 조회할 정산 내역 ID', example: 123 })
   async getReceiptImageViewUrl(

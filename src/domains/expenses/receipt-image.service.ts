@@ -165,11 +165,12 @@ export class ReceiptImageService {
     if (!expense) {
       throw new ExpenseNotFoundException();
     }
-    if (!expense.receiptUrl) {
-      throw new BadRequestException('등록된 영수증 이미지가 없습니다.');
-    }
 
     await this.assertGroupMember(userId, expense.groupId);
+
+    if (!expense.receiptUrl) {
+      return { viewUrl: null, expiresAt: null };
+    }
 
     const bucket = this.config.getOrThrow<string>('RECEIPT_IMAGE_BUCKET');
     const expiresAt = new Date(Date.now() + RECEIPT_IMAGE_VIEW_EXPIRES_SECONDS * 1000);
