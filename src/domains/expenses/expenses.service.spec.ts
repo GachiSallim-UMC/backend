@@ -911,6 +911,29 @@ describe('updateExpense', () => {
         data: { status: 'DONE' },
       });
     });
+
+    it('선지불자(PRE_PAID)가 포함된 경우에도 나머지가 DONE이면 부모 Expense 상태를 DONE으로 갱신해야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        expenseId: BigInt(10),
+        expense: { payerId: BigInt(12), createdBy: BigInt(12) },
+      });
+      prisma.expenseSplit.update.mockResolvedValue({ id: BigInt(1), expenseId: BigInt(10), status: 'DONE' });
+      prisma.expenseSplit.findMany.mockResolvedValue([
+        { id: BigInt(1), status: 'DONE' },
+        { id: BigInt(2), status: 'PRE_PAID' },
+      ]);
+      prisma.expense.update = jest.fn().mockResolvedValue({ id: BigInt(10), status: 'DONE' });
+
+      const result = await service.settleSplit(mockAuthContext, 1, { isBulkComplete: true });
+
+      expect(result.isAllSettled).toBe(true);
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: BigInt(10) },
+        data: { status: 'DONE' },
+      });
+    });
   });
 
   // =========================================================================
