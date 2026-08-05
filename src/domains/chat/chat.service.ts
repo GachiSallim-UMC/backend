@@ -50,7 +50,7 @@ export class ChatService {
         },
         members: {
           where: { userId: currentUserId },
-          select: { lastReadAt: true, joinedAt: true },
+          select: { lastReadAt: true, joinedAt: true, isPinned: true },
         },
       },
     });
@@ -73,6 +73,7 @@ export class ChatService {
           memberCount: _count.members,
           lastMessage: messages[0] ?? null,
           unreadCount,
+          isPinned: membership?.isPinned ?? false,
         };
       }),
     );
