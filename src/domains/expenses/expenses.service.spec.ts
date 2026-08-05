@@ -934,6 +934,30 @@ describe('updateExpense', () => {
         data: { status: 'DONE' },
       });
     });
+
+    it('완료 처리를 철회(isBulkComplete: false)하면 부모 Expense 상태도 PARTIAL로 되돌아가야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        expenseId: BigInt(10),
+        expense: { payerId: BigInt(12), createdBy: BigInt(12) },
+      });
+      prisma.expenseSplit.update.mockResolvedValue({ id: BigInt(1), expenseId: BigInt(10), status: 'REQUESTED' });
+      prisma.expenseSplit.findMany.mockResolvedValue([
+        { id: BigInt(1), status: 'REQUESTED' },
+        { id: BigInt(2), status: 'PRE_PAID' },
+      ]);
+      prisma.expense.update = jest.fn().mockResolvedValue({ id: BigInt(10), status: 'PARTIAL' });
+
+      const result = await service.settleSplit(mockAuthContext, 1, { isBulkComplete: false });
+
+      expect(result.isAllSettled).toBe(false);
+      expect(result.status).toBe('REQUESTED');
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: BigInt(10) },
+        data: { status: 'PARTIAL' },
+      });
+    });
   });
 
   // =========================================================================
