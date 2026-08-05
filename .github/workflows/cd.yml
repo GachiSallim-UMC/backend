@@ -95,7 +95,7 @@ jobs:
             --zip-file fileb://release-output/notification-web-push.zip \
             --no-publish \
             >/dev/null
-          aws lambda wait function-updated-v2 \
+          aws lambda wait function-updated \
             --function-name "${function_name}"
           aws lambda get-function-configuration \
             --function-name "${function_name}" \
