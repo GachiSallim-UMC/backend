@@ -18,20 +18,26 @@ export class NotificationsService {
     private readonly notificationUsers: NotificationUsersService,
   ) {}
 
-  async listNotifications(cognitoSub: string): Promise<NotificationListResponseDto> {
+  async listNotifications(
+    cognitoSub: string,
+    groupId: number,
+  ): Promise<NotificationListResponseDto> {
     const userId = await this.notificationUsers.resolveActiveUserId(cognitoSub);
     const notifications = await this.prisma.notification.findMany({
-      where: { userId, hiddenAt: null },
+      where: { userId, groupId: BigInt(groupId), hiddenAt: null },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
 
     return { notifications: notifications.map((notification) => this.toResponse(notification)) };
   }
 
-  async getUnreadCount(cognitoSub: string): Promise<UnreadNotificationCountResponseDto> {
+  async getUnreadCount(
+    cognitoSub: string,
+    groupId: number,
+  ): Promise<UnreadNotificationCountResponseDto> {
     const userId = await this.notificationUsers.resolveActiveUserId(cognitoSub);
     const unreadCount = await this.prisma.notification.count({
-      where: { userId, isRead: false, hiddenAt: null },
+      where: { userId, groupId: BigInt(groupId), isRead: false, hiddenAt: null },
     });
 
     return { unreadCount };
@@ -52,10 +58,13 @@ export class NotificationsService {
     return { notificationId: Number(notificationId), isRead: true };
   }
 
-  async readAllNotifications(cognitoSub: string): Promise<ReadAllNotificationsResponseDto> {
+  async readAllNotifications(
+    cognitoSub: string,
+    groupId: number,
+  ): Promise<ReadAllNotificationsResponseDto> {
     const userId = await this.notificationUsers.resolveActiveUserId(cognitoSub);
     const result = await this.prisma.notification.updateMany({
-      where: { userId, isRead: false, hiddenAt: null },
+      where: { userId, groupId: BigInt(groupId), isRead: false, hiddenAt: null },
       data: { isRead: true },
     });
 
