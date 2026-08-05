@@ -555,14 +555,14 @@ export class ExpensesService {
 
       const expenseId = updatedSplit.expenseId;
       const allSplits = await tx.expenseSplit.findMany({ where: { expenseId } });
-      const isAllSettled = allSplits.every((s) => s.status === 'DONE' || s.status === 'PRE_PAID');
+      const settledCount = allSplits.filter((s) => s.status === 'DONE' || s.status === 'PRE_PAID').length;
+      const isAllSettled = settledCount === allSplits.length;
+      const expenseStatus = isAllSettled ? 'DONE' : settledCount > 0 ? 'PARTIAL' : 'PENDING';
 
-      if (isAllSettled) {
-        await tx.expense.update({
-          where: { id: BigInt(expenseId) },
-          data: { status: 'DONE' },
-        });
-      }
+      await tx.expense.update({
+        where: { id: BigInt(expenseId) },
+        data: { status: expenseStatus },
+      });
 
       return {
         message: isBulkComplete
