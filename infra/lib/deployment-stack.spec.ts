@@ -59,4 +59,33 @@ describe('DeploymentStack', () => {
     template.hasOutput('MainDeployRoleArn', { Value: Match.anyValue() });
     template.hasOutput('DevelopDeployRoleArn', { Value: Match.anyValue() });
   });
+
+  it('allows each deployment role to update only its notification worker', () => {
+    for (const [branch, id] of [
+      ['main', 'Main'],
+      ['develop', 'Develop'],
+    ] as const) {
+      template.hasResourceProperties('AWS::IAM::Policy', {
+        PolicyDocument: {
+          Statement: Match.arrayWith([
+            {
+              Action: ['lambda:GetFunctionConfiguration', 'lambda:UpdateFunctionCode'],
+              Effect: 'Allow',
+              Resource: {
+                'Fn::Join': [
+                  '',
+                  Match.arrayWith([
+                    `:lambda:ap-northeast-2:585384908164:function:gachisallim-${branch}-notification-web-push`,
+                  ]),
+                ],
+              },
+            },
+          ]),
+        },
+        Roles: Match.arrayWith([
+          { Ref: Match.stringLikeRegexp(`^${id}GitHubDeployRole`) },
+        ]),
+      });
+    }
+  });
 });

@@ -36,6 +36,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Build notification web push worker
+        run: bash scripts/build-notification-web-push.sh notification-worker-output
+
       - name: Test
         run: npm test
 

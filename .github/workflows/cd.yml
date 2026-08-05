@@ -84,6 +84,23 @@ jobs:
             "s3://${ARTIFACT_BUCKET}/releases/${BRANCH}/${COMMIT_SHA}.tar.gz.sha256" \
             --sse AES256
 
+      - name: Deploy notification web push worker
+        if: steps.freshness.outputs.should_deploy == 'true'
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          function_name="gachisallim-${BRANCH}-notification-web-push"
+          aws lambda update-function-code \
+            --function-name "${function_name}" \
+            --zip-file fileb://release-output/notification-web-push.zip \
+            --no-publish \
+            >/dev/null
+          aws lambda wait function-updated-v2 \
+            --function-name "${function_name}"
+          aws lambda get-function-configuration \
+            --function-name "${function_name}" \
+            --query '{FunctionName:FunctionName,CodeSha256:CodeSha256,LastUpdateStatus:LastUpdateStatus}'
+
       - name: Deploy through Systems Manager
         if: steps.freshness.outputs.should_deploy == 'true'
         env:

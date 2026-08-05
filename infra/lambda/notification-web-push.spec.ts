@@ -29,7 +29,7 @@ describe('notification web push Lambda', () => {
         notificationId: '101',
         type: 'CHORE_DUE',
         message: '할 일 시간이 되었습니다.',
-        url: '/notifications/101',
+        url: '/notifications/101?groupId=3',
       }),
       expect.objectContaining({ TTL: 300, urgency: 'normal' }),
     );
@@ -39,6 +39,23 @@ describe('notification web push Lambda', () => {
       subscriptionId: '11',
       outcome: 'SENT',
     });
+  });
+
+  it('keeps the existing URL for a global notification without a group', async () => {
+    await expect(handler({ Records: [record('message-1', null)] })).resolves.toEqual({
+      batchItemFailures: [],
+    });
+
+    expect(sendPush).toHaveBeenCalledWith(
+      expect.anything(),
+      JSON.stringify({
+        notificationId: '101',
+        type: 'CHORE_DUE',
+        message: '할 일 시간이 되었습니다.',
+        url: '/notifications/101',
+      }),
+      expect.anything(),
+    );
   });
 
   it.each([404, 410])('expires a subscription for push status %i', async (statusCode) => {
@@ -114,6 +131,21 @@ describe('notification web push Lambda', () => {
     });
   });
 
+  it('records a permanent failure for an invalid notification group ID', async () => {
+    await expect(handler({ Records: [record('message-1', 'group-3')] })).resolves.toEqual({
+      batchItemFailures: [],
+    });
+
+    expect(sendPush).not.toHaveBeenCalled();
+    expect(sendResult).toHaveBeenCalledWith({
+      version: 1,
+      deliveryId: '31',
+      subscriptionId: '11',
+      outcome: 'FAILED',
+      errorCode: 'PUSH_JOB_INVALID',
+    });
+  });
+
   it('retries an invalid job without delivery identity so it reaches the DLQ', async () => {
     const invalidRecord = record();
     invalidRecord.body = '{"version":1,"type":"unknown"}';
@@ -129,7 +161,7 @@ describe('notification web push Lambda', () => {
     return { Records: [record()] };
   }
 
-  function record(messageId = 'message-1'): SQSRecord {
+  function record(messageId = 'message-1', groupId: string | null = '3'): SQSRecord {
     return {
       messageId,
       receiptHandle: 'receipt',
@@ -139,7 +171,7 @@ describe('notification web push Lambda', () => {
         notification: {
           notificationId: '101',
           userId: '8',
-          groupId: '3',
+          groupId,
           type: 'CHORE_DUE',
           refId: '42',
           message: '할 일 시간이 되었습니다.',
