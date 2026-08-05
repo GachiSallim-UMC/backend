@@ -22,7 +22,7 @@ describe('NotificationsService', () => {
     resolveActiveUserId.mockResolvedValue(7n);
   });
 
-  it('lists only notifications selected for the authenticated user in newest-first order', async () => {
+  it('lists only notifications selected for the authenticated user and group in newest-first order', async () => {
     findMany.mockResolvedValue([
       {
         id: 11n,
@@ -36,7 +36,7 @@ describe('NotificationsService', () => {
       },
     ]);
 
-    await expect(service.listNotifications('cognito-sub')).resolves.toEqual({
+    await expect(service.listNotifications('cognito-sub', 3)).resolves.toEqual({
       notifications: [
         {
           notificationId: 11,
@@ -50,17 +50,17 @@ describe('NotificationsService', () => {
       ],
     });
     expect(findMany).toHaveBeenCalledWith({
-      where: { userId: 7n, hiddenAt: null },
+      where: { userId: 7n, groupId: 3n, hiddenAt: null },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
   });
 
-  it('counts unread notifications for the authenticated user', async () => {
+  it('counts unread notifications for the authenticated user and group', async () => {
     count.mockResolvedValue(4);
 
-    await expect(service.getUnreadCount('cognito-sub')).resolves.toEqual({ unreadCount: 4 });
+    await expect(service.getUnreadCount('cognito-sub', 3)).resolves.toEqual({ unreadCount: 4 });
     expect(count).toHaveBeenCalledWith({
-      where: { userId: 7n, isRead: false, hiddenAt: null },
+      where: { userId: 7n, groupId: 3n, isRead: false, hiddenAt: null },
     });
   });
 
@@ -85,14 +85,14 @@ describe('NotificationsService', () => {
     });
   });
 
-  it('marks all visible unread notifications as read', async () => {
+  it('marks all visible unread notifications for the authenticated user and group as read', async () => {
     updateMany.mockResolvedValue({ count: 3 });
 
-    await expect(service.readAllNotifications('cognito-sub')).resolves.toEqual({
+    await expect(service.readAllNotifications('cognito-sub', 3)).resolves.toEqual({
       updatedCount: 3,
     });
     expect(updateMany).toHaveBeenCalledWith({
-      where: { userId: 7n, isRead: false, hiddenAt: null },
+      where: { userId: 7n, groupId: 3n, isRead: false, hiddenAt: null },
       data: { isRead: true },
     });
   });
