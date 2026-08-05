@@ -331,7 +331,7 @@ describe('ChatService', () => {
           createdAt: new Date('2026-01-01'),
           _count: { members: 3 },
           messages: [{ id: 5n, content: '안녕', senderId: 2n, createdAt: new Date('2026-01-02') }],
-          members: [{ lastReadAt: new Date('2026-01-01'), joinedAt: new Date('2025-12-01') }],
+          members: [{ lastReadAt: new Date('2026-01-01'), joinedAt: new Date('2025-12-01'), isPinned: true }],
         },
       ]);
       prisma.message.count.mockResolvedValue(4);
@@ -351,6 +351,7 @@ describe('ChatService', () => {
           memberCount: 3,
           unreadCount: 4,
           lastMessage: { id: 5n, content: '안녕', senderId: 2n, createdAt: new Date('2026-01-02') },
+          isPinned: true,
         }),
       ]);
     });
@@ -402,7 +403,7 @@ describe('ChatService', () => {
       const result = await service.listChatRooms(10n, 1n);
 
       expect(prisma.message.count).not.toHaveBeenCalled();
-      expect(result).toEqual([expect.objectContaining({ unreadCount: 0 })]);
+      expect(result).toEqual([expect.objectContaining({ unreadCount: 0, isPinned: false })]);
     });
   });
 
