@@ -555,7 +555,7 @@ export class ExpensesService {
 
       const expenseId = updatedSplit.expenseId;
       const allSplits = await tx.expenseSplit.findMany({ where: { expenseId } });
-      const isAllSettled = allSplits.every((s) => s.status === 'DONE');
+      const isAllSettled = allSplits.every((s) => s.status === 'DONE' || s.status === 'PRE_PAID');
 
       if (isAllSettled) {
         await tx.expense.update({
