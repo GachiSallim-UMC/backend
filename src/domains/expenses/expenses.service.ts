@@ -565,7 +565,9 @@ export class ExpensesService {
       }
 
       return {
-        message: '정산 완료 처리가 성공적으로 동기화되었습니다.',
+        message: isBulkComplete
+          ? '정산 완료 처리가 성공적으로 동기화되었습니다.'
+          : '정산 완료 처리가 철회되어 요청 상태로 되돌아갔습니다.',
         isAllSettled,
         status: targetStatus,
       };
