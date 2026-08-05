@@ -65,6 +65,9 @@ async function processRecord(record: SQSRecord, dependencies: WorkerDependencies
 
   const vapid = await dependencies.getVapidSecret();
   dependencies.configureVapid(vapid);
+  const notificationUrl = `/notifications/${job.notification.notificationId}${
+    job.notification.groupId === null ? '' : `?groupId=${job.notification.groupId}`
+  }`;
 
   try {
     await dependencies.sendPush(
@@ -76,7 +79,7 @@ async function processRecord(record: SQSRecord, dependencies: WorkerDependencies
         notificationId: job.notification.notificationId,
         type: job.notification.type,
         message: job.notification.message,
-        url: `/notifications/${job.notification.notificationId}`,
+        url: notificationUrl,
       }),
       { TTL: 300, urgency: 'normal', topic: `notification-${job.notification.notificationId}` },
     );
@@ -109,6 +112,7 @@ function parseJob(body: string): NotificationPushJobV1 {
     job.version !== 1 ||
     !positiveInteger(job.deliveryId) ||
     !positiveInteger(job.notification?.notificationId) ||
+    (job.notification?.groupId !== null && !positiveInteger(job.notification?.groupId)) ||
     !positiveInteger(job.subscription?.subscriptionId) ||
     typeof job.notification?.type !== 'string' ||
     typeof job.notification.message !== 'string' ||
