@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ReceiptImageService } from './receipt-image.service';
 import { SplitType, ExpenseCategory } from '@prisma/client';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { CreateExpenseDto } from './dto/create-expense.dto';
@@ -54,6 +55,10 @@ describe('ExpensesService - createExpense Validation Tests', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: ReceiptImageService,
+          useValue: {},
         },
       ],
     }).compile();

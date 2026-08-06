@@ -63,6 +63,6 @@ import { VapidPublicKeyService } from './vapid-public-key.service';
         }),
     },
   ],
-  exports: [ChoreDueSchedulerService],
+  exports: [ChoreDueSchedulerService, NotificationDeliveryService],
 })
 export class NotificationsModule {}

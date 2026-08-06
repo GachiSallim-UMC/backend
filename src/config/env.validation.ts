@@ -23,6 +23,12 @@ export const ENV_VALIDATION_SCHEMA = joi.object({
     .string()
     .uri({ scheme: ['https'] })
     .required(),
+  RECEIPT_IMAGE_BUCKET: joi.string().min(3).required(),
+  RECEIPT_IMAGE_OBJECT_PREFIX: joi
+    .string()
+    .pattern(/^[0-9A-Za-z][0-9A-Za-z/_-]*[0-9A-Za-z]$/)
+    .max(128)
+    .required(),
   NOTIFICATION_PUSH_QUEUE_URL: joi
     .string()
     .uri({ scheme: ['https'] })

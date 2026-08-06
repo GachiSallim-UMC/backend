@@ -1,9 +1,10 @@
 /// <reference types="jest" />
 import { jest } from '@jest/globals';
-import { Prisma } from '@prisma/client';
+import { Prisma, ResidenceType } from '@prisma/client';
 
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RuleStatusService } from '../rules/rule-status.service';
 import { GroupsService } from './groups.service';
 
 type MockedPrisma = {
@@ -33,6 +34,12 @@ function prismaKnownError(code: string): Prisma.PrismaClientKnownRequestError {
 describe('GroupsService', () => {
   let service: GroupsService;
   let prisma: MockedPrisma;
+  let runWithGroupRecalculation: jest.MockedFunction<
+    (
+      groupId: bigint,
+      operation: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    ) => Promise<unknown>
+  >;
 
   beforeEach(() => {
     prisma = {
@@ -56,7 +63,13 @@ describe('GroupsService', () => {
     };
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn(prisma));
 
-    service = new GroupsService(prisma as unknown as PrismaService);
+    runWithGroupRecalculation = jest.fn(
+      async (_groupId: bigint, operation: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+        operation(prisma as unknown as Prisma.TransactionClient),
+    );
+    service = new GroupsService(prisma as unknown as PrismaService, {
+      runWithGroupRecalculation,
+    } as unknown as RuleStatusService);
   });
 
   it('creates a group with the creator as an active ADMIN member', async () => {
@@ -102,6 +115,15 @@ describe('GroupsService', () => {
     expect(createArgs.data.inviteCode.length).toBeGreaterThan(0);
   });
 
+  it('passes the requested residence type through to group creation', async () => {
+    prisma.group.create.mockResolvedValue({ id: 1n, name: '우리집', residenceType: 'ROOMMATE', createdBy: 10n });
+
+    await service.createGroup({ name: '우리집', maxMembers: 4, residenceType: ResidenceType.ROOMMATE }, 10n);
+
+    const createArgs = prisma.group.create.mock.calls[0]?.[0] as { data: { residenceType?: string } };
+    expect(createArgs.data.residenceType).toBe('ROOMMATE');
+  });
+
   it('retries with a new invite code candidate when creating a group collides with an existing invite code', async () => {
     prisma.group.create
       .mockRejectedValueOnce(prismaKnownError('P2002'))
@@ -144,6 +166,34 @@ describe('GroupsService', () => {
 
     expect(result).toEqual({ id: 1n, name: '우리집 시즌2' });
     expect(prisma.group.update).toHaveBeenCalledWith({ where: { id: 1n }, data: { name: '우리집 시즌2' } });
+  });
+
+  it('updates the group image when the requester is an ADMIN', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
+    prisma.group.update.mockResolvedValue({ id: 1n, groupImage: 'https://example.com/group.png' });
+
+    const result = await service.updateGroup(1n, { groupImage: 'https://example.com/group.png' }, 10n);
+
+    expect(result).toEqual({ id: 1n, groupImage: 'https://example.com/group.png' });
+    expect(prisma.group.update).toHaveBeenCalledWith({
+      where: { id: 1n },
+      data: { groupImage: 'https://example.com/group.png' },
+    });
+  });
+
+  it('clears the group image when groupImage is sent as null', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
+    prisma.group.update.mockResolvedValue({ id: 1n, groupImage: null });
+
+    const result = await service.updateGroup(1n, { groupImage: null }, 10n);
+
+    expect(result).toEqual({ id: 1n, groupImage: null });
+    expect(prisma.group.update).toHaveBeenCalledWith({
+      where: { id: 1n },
+      data: { groupImage: null },
+    });
   });
 
   it('throws when a non-ADMIN member tries to update the group', async () => {
@@ -277,7 +327,7 @@ describe('GroupsService', () => {
     await expect(service.listMembers(1n, 999n)).rejects.toBeInstanceOf(BusinessException);
   });
 
-  it('changes a member role when the requester is an ADMIN', async () => {
+  it('delegates admin to another member and demotes the requester to MEMBER', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
     prisma.groupMember.findUnique
       .mockResolvedValueOnce({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null })
@@ -291,6 +341,22 @@ describe('GroupsService', () => {
       where: { userId_groupId: { userId: 20n, groupId: 1n } },
       data: { role: 'ADMIN' },
     });
+    expect(prisma.groupMember.update).toHaveBeenCalledWith({
+      where: { userId_groupId: { userId: 10n, groupId: 1n } },
+      data: { role: 'MEMBER' },
+    });
+  });
+
+  it('does not demote the requester when re-affirming their own ADMIN role', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique
+      .mockResolvedValueOnce({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null })
+      .mockResolvedValueOnce({ userId: 10n, groupId: 1n, role: 'ADMIN', leftAt: null });
+    prisma.groupMember.update.mockResolvedValue({ userId: 10n, groupId: 1n, role: 'ADMIN' });
+
+    await service.updateMemberRole(1n, 10n, { role: 'ADMIN' as never }, 10n);
+
+    expect(prisma.groupMember.update).toHaveBeenCalledTimes(1);
   });
 
   it('throws when demoting the last remaining ADMIN', async () => {
@@ -325,7 +391,7 @@ describe('GroupsService', () => {
 
     await service.removeMember(1n, 20n, 20n);
 
-    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(runWithGroupRecalculation).toHaveBeenCalledWith(1n, expect.any(Function));
     expect(prisma.groupMember.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: 20n, groupId: 1n, leftAt: null } }),
     );
@@ -343,7 +409,7 @@ describe('GroupsService', () => {
 
     await service.removeMember(1n, 20n, 10n);
 
-    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(runWithGroupRecalculation).toHaveBeenCalledWith(1n, expect.any(Function));
   });
 
   it('does not double-decrement currentMembers when the member was already removed concurrently', async () => {
@@ -414,6 +480,55 @@ describe('GroupsService', () => {
     await expect(service.reissueInviteCode(1n, 20n)).rejects.toBeInstanceOf(BusinessException);
   });
 
+  it('returns a group preview for a valid invite code without joining', async () => {
+    prisma.group.findUnique.mockResolvedValue({
+      id: 1n,
+      isDeleted: false,
+      inviteCode: 'ABCDEF',
+      inviteExpiredAt: new Date(Date.now() + 1000 * 60),
+      name: '우리집',
+      description: '강남구 역삼동 셰어하우스',
+      groupImage: 'https://example.com/group.png',
+      residenceType: 'ROOMMATE',
+      currentMembers: 2,
+      maxMembers: 4,
+    });
+
+    const result = await service.getInviteInfo('ABCDEF');
+
+    expect(result).toEqual({
+      name: '우리집',
+      description: '강남구 역삼동 셰어하우스',
+      groupImage: 'https://example.com/group.png',
+      residenceType: 'ROOMMATE',
+      currentMembers: 2,
+      maxMembers: 4,
+    });
+    expect(prisma.groupMember.findUnique).not.toHaveBeenCalled();
+    expect(prisma.group.update).not.toHaveBeenCalled();
+  });
+
+  it('throws when previewing with an invite code that does not match any group', async () => {
+    prisma.group.findUnique.mockResolvedValue(null);
+
+    await expect(service.getInviteInfo('INVALI1')).rejects.toMatchObject({
+      code: 'GROUP_INVITE_CODE_INVALID',
+    });
+  });
+
+  it('throws when previewing with an expired invite code', async () => {
+    prisma.group.findUnique.mockResolvedValue({
+      id: 1n,
+      isDeleted: false,
+      inviteCode: 'ABCDEF',
+      inviteExpiredAt: new Date(Date.now() - 1000),
+    });
+
+    await expect(service.getInviteInfo('ABCDEF')).rejects.toMatchObject({
+      code: 'GROUP_INVITE_CODE_EXPIRED',
+    });
+  });
+
   it('joins a group with a valid invite code', async () => {
     prisma.group.findUnique.mockResolvedValue({
       id: 1n,
@@ -437,6 +552,7 @@ describe('GroupsService', () => {
     expect(prisma.groupMember.create).toHaveBeenCalledWith({
       data: { userId: 30n, groupId: 1n, role: 'MEMBER' },
     });
+    expect(runWithGroupRecalculation).toHaveBeenCalledWith(1n, expect.any(Function));
   });
 
   it('throws when the invite code does not match any group', async () => {

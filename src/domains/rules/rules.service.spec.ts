@@ -5,6 +5,7 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RuleAgreementStatusValue } from './dto/update-rule-agreement.dto';
 import { RuleStatusValue } from './dto/update-rule.dto';
+import { RuleStatusService } from './rule-status.service';
 import { RulesService } from './rules.service';
 
 type MockedPrisma = {
@@ -24,6 +25,10 @@ type MockedPrisma = {
   ruleAgreement: {
     upsert: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
+  ruleLog: {
+    create: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+  };
+  $transaction: jest.MockedFunction<(args: Promise<unknown>[]) => Promise<unknown[]>>;
   groupMember: {
     findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     findMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
@@ -57,6 +62,10 @@ describe('RulesService', () => {
       ruleAgreement: {
         upsert: jest.fn<() => Promise<unknown>>(),
       },
+      ruleLog: {
+        create: jest.fn<() => Promise<unknown>>(),
+      },
+      $transaction: jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations)),
       groupMember: {
         findUnique: jest.fn<() => Promise<unknown>>(),
         findMany: jest.fn<() => Promise<unknown>>(),
@@ -72,7 +81,15 @@ describe('RulesService', () => {
       },
     };
 
-    service = new RulesService(prisma as unknown as PrismaService);
+    service = new RulesService(
+      prisma as unknown as PrismaService,
+      {
+        runWithRecalculation: jest.fn(
+          async (_ruleId: bigint, operation: (tx: unknown) => Promise<unknown>) =>
+            operation(prisma),
+        ),
+      } as unknown as RuleStatusService,
+    );
   });
 
   it('creates a rule and returns its id', async () => {
@@ -107,13 +124,25 @@ describe('RulesService', () => {
         userId: 10n,
         title: '밤 11시 이후 조용히 하기',
         description: '늦은 시간에는 소음을 줄여주세요.',
-        status: 'ACTIVE',
+        status: 'INACTIVE',
         agreements: {
           createMany: {
             data: [
               { userId: 10n, status: 'PENDING', confirmedAt: null },
               { userId: 20n, status: 'PENDING', confirmedAt: null },
             ],
+          },
+        },
+        logs: {
+          create: {
+            userId: 10n,
+            action: 'CREATED',
+            snapshot: JSON.stringify({
+              categoryId: 1,
+              title: '밤 11시 이후 조용히 하기',
+              description: '늦은 시간에는 소음을 줄여주세요.',
+              status: 'INACTIVE',
+            }),
           },
         },
       },
@@ -199,6 +228,18 @@ describe('RulesService', () => {
               update: { status: 'PENDING', confirmedAt: null },
             },
           ],
+        },
+        logs: {
+          create: {
+            userId: 1n,
+            action: 'UPDATED',
+            snapshot: JSON.stringify({
+              categoryId: 2,
+              title: '수정된 규칙 제목',
+              description: '수정된 설명',
+              status: RuleStatusValue.INACTIVE,
+            }),
+          },
         },
       },
     });
@@ -467,6 +508,7 @@ describe('RulesService', () => {
       status: 'AGREED',
       confirmedAt,
     });
+    prisma.ruleLog.create.mockResolvedValue({ id: 1n });
 
     const result = await service.updateRuleAgreement(
       123n,
@@ -497,6 +539,14 @@ describe('RulesService', () => {
     expect(prisma.groupMember.findUnique).toHaveBeenCalledWith({
       where: { userId_groupId: { userId: 5n, groupId: 1n } },
     });
+    expect(prisma.ruleLog.create).toHaveBeenCalledWith({
+      data: {
+        ruleId: 123n,
+        userId: 5n,
+        action: 'AGREED',
+        snapshot: JSON.stringify({ status: RuleAgreementStatusValue.AGREED }),
+      },
+    });
   });
 
   it('clears the confirmation time when a rule agreement becomes pending', async () => {
@@ -509,6 +559,7 @@ describe('RulesService', () => {
       status: 'PENDING',
       confirmedAt: null,
     });
+    prisma.ruleLog.create.mockResolvedValue({ id: 1n });
 
     const result = await service.updateRuleAgreement(
       123n,
@@ -528,6 +579,14 @@ describe('RulesService', () => {
       update: {
         status: RuleAgreementStatusValue.PENDING,
         confirmedAt: null,
+      },
+    });
+    expect(prisma.ruleLog.create).toHaveBeenCalledWith({
+      data: {
+        ruleId: 123n,
+        userId: 5n,
+        action: 'PENDING',
+        snapshot: JSON.stringify({ status: RuleAgreementStatusValue.PENDING }),
       },
     });
   });

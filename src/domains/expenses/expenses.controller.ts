@@ -11,6 +11,10 @@ import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { CalculateExpenseDto } from './dto/calculate-expense.dto';
 import { WebhookExpenseDto } from './dto/webhook-expense.dto';
 import { SettleSplitDto } from './dto/settle-split.dto';
+import { CreateReceiptImageUploadDto } from './dto/create-receipt-image-upload.dto';
+import { ReceiptImageUploadResponseDto } from './dto/receipt-image-upload-response.dto';
+import { ReceiptImageViewResponseDto } from './dto/receipt-image-view.dto';
+import { ReceiptImageService } from './receipt-image.service';
 
 // 인증 가드, 데코레이터 및 인터페이스
 import { CognitoAccessTokenGuard } from '../auth/common/cognito-access-token.guard';
@@ -23,12 +27,29 @@ import { AuthContext } from '../auth/common/auth-context.interface';
 export class ExpensesController {
   constructor(
     private readonly expensesService: ExpensesService,
-    private readonly configService: ConfigService, 
+    private readonly configService: ConfigService,
+    private readonly receiptImages: ReceiptImageService,
   ) {}
 
   // ==========================================
   // [1] 정적 라우트 & 생성/조회 API (우선순위 높음)
   // ==========================================
+
+  @Post('receipt-image/upload-url')
+  @UseGuards(CognitoAccessTokenGuard)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: '영수증 이미지 업로드 URL 발급',
+    description:
+      '요청자가 groupId 그룹의 멤버인 경우에만, 최대 10MB의 JPEG, PNG 또는 WebP 파일을 업로드할 수 있는 S3 Presigned POST를 발급합니다.',
+  })
+  @ApiBody({ type: CreateReceiptImageUploadDto })
+  async createReceiptImageUpload(
+    @CurrentAuth() auth: AuthContext,
+    @Body() dto: CreateReceiptImageUploadDto,
+  ): Promise<ReceiptImageUploadResponseDto> {
+    return this.receiptImages.createUpload(auth, dto);
+  }
 
   @Post()
   @UseGuards(CognitoAccessTokenGuard)
@@ -142,8 +163,8 @@ export class ExpensesController {
   @ApiOperation({ 
     summary: '개별 송금 및 전체 정산 상태 동기화 완료 (EXP-SETTLE-01)', 
     description:
-      '대상자별 상태를 완료로 변경합니다. 그룹 전체가 완료되면 부모 정산 상태도 자동으로 완료 처리되며, ' +
-      'isBulkComplete=true로 호출하면 다른 분담자가 남아있어도 부모 정산을 즉시 강제로 완료 처리합니다.',
+      '대상자별 상태를 완료(DONE)로 변경합니다. isBulkComplete를 false로 명시하면 요청(REQUESTED) 상태로 되돌립니다(철회). ' +
+      '그룹 전체 상태는 매 호출마다 다시 계산되어 완료/부분완료/대기 상태로 자동 동기화됩니다.',
   })
   @ApiParam({ name: 'splitId', description: '정산 완료할 분담 내역(Split) ID', example: 2 })
   async settleSplit(
@@ -270,5 +291,22 @@ export class ExpensesController {
     @Param('expenseId', ParseIntPipe) expenseId: number,
   ) {
     return this.expensesService.shareExpenseCard(auth, expenseId);
+  }
+
+  @Get(':expenseId/receipt-image')
+  @UseGuards(CognitoAccessTokenGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '영수증 이미지 조회 URL 발급',
+    description:
+      '요청자가 해당 정산이 속한 그룹의 멤버인 경우에만, 5분간 유효한 영수증 이미지 조회용 서명 URL을 발급합니다. ' +
+      '등록된 영수증 이미지가 없는 경우 에러 대신 viewUrl: null로 응답합니다.',
+  })
+  @ApiParam({ name: 'expenseId', description: '영수증을 조회할 정산 내역 ID', example: 123 })
+  async getReceiptImageViewUrl(
+    @CurrentAuth() auth: AuthContext,
+    @Param('expenseId', ParseIntPipe) expenseId: number,
+  ): Promise<ReceiptImageViewResponseDto> {
+    return this.receiptImages.createViewUrl(auth, BigInt(expenseId));
   }
 }

@@ -1,10 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ReceiptImageService } from './receipt-image.service';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
-describe('ExpensesService - settleSplit 대상 split DONE 전이 및 isBulkComplete(부모 강제 완료) 검증', () => {
+describe('ExpensesService - settleSplit 완료/철회(isBulkComplete) 토글 검증', () => {
   let service: ExpensesService;
   let prisma: {
     expenseSplit: {
@@ -58,6 +59,10 @@ describe('ExpensesService - settleSplit 대상 split DONE 전이 및 isBulkCompl
           provide: PrismaService,
           useValue: prisma,
         },
+        {
+          provide: ReceiptImageService,
+          useValue: {},
+        },
       ],
     }).compile();
 
@@ -80,7 +85,7 @@ describe('ExpensesService - settleSplit 대상 split DONE 전이 및 isBulkCompl
       },
     };
 
-    it('1. body 생략 시 -> 대상 split은 항상 DONE으로 전이되고 completedAt이 설정되어야 한다', async () => {
+    it('1. body 생략 시 -> 대상 split은 DONE으로 전이되고 completedAt이 설정되어야 한다', async () => {
       prisma.expenseSplit.findUnique.mockResolvedValue(mockSplitData);
       prisma.expenseSplit.update.mockResolvedValue({
         id: 1n,
@@ -105,17 +110,18 @@ describe('ExpensesService - settleSplit 대상 split DONE 전이 및 isBulkCompl
       expect(result.isAllSettled).toBe(true);
     });
 
-    it('2. { isBulkComplete: false } 명시적 전달 시에도 -> 대상 split은 DONE으로 전이되어야 한다', async () => {
+    it('2. { isBulkComplete: false } 전달 시 -> 대상 split은 REQUESTED로 되돌아가고(철회) completedAt은 설정되지 않는다', async () => {
       prisma.expenseSplit.findUnique.mockResolvedValue(mockSplitData);
       prisma.expenseSplit.update.mockResolvedValue({
         id: 1n,
         expenseId: 10n,
-        status: 'DONE',
+        status: 'REQUESTED',
       });
       prisma.expenseSplit.findMany.mockResolvedValue([
-        { id: 1n, status: 'DONE' },
-        { id: 2n, status: 'REQUESTED' },
+        { id: 1n, status: 'REQUESTED' },
+        { id: 2n, status: 'DONE' },
       ]);
+      prisma.expense.update.mockResolvedValue({ id: 10n, status: 'PARTIAL' });
 
       const result = await service.settleSplit(mockAuthContext, 1, {
         isBulkComplete: false,
@@ -124,16 +130,18 @@ describe('ExpensesService - settleSplit 대상 split DONE 전이 및 isBulkCompl
       expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
         where: { id: 1n },
         data: {
-          status: 'DONE',
-          completedAt: expect.any(Date) as Date,
+          status: 'REQUESTED',
         },
       });
-      expect(result.status).toBe('DONE');
+      expect(result.status).toBe('REQUESTED');
       expect(result.isAllSettled).toBe(false);
-      expect(prisma.expense.update).not.toHaveBeenCalled();
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: 10n },
+        data: { status: 'PARTIAL' },
+      });
     });
 
-    it('3. { isBulkComplete: true } 전달 시 -> 다른 분담자가 남아있어도 부모 Expense를 강제로 DONE 처리해야 한다', async () => {
+    it('3. { isBulkComplete: true } 전달 시 -> 대상 split이 DONE으로 전이되고, 나머지가 남아있으면 부모 Expense는 PARTIAL로 갱신된다', async () => {
       prisma.expenseSplit.findUnique.mockResolvedValue(mockSplitData);
       prisma.expenseSplit.update.mockResolvedValue({
         id: 1n,
@@ -144,7 +152,7 @@ describe('ExpensesService - settleSplit 대상 split DONE 전이 및 isBulkCompl
         { id: 1n, status: 'DONE' },
         { id: 2n, status: 'REQUESTED' },
       ]);
-      prisma.expense.update.mockResolvedValue({ id: 10n, status: 'DONE' });
+      prisma.expense.update.mockResolvedValue({ id: 10n, status: 'PARTIAL' });
 
       const result = await service.settleSplit(mockAuthContext, 1, {
         isBulkComplete: true,
@@ -161,7 +169,7 @@ describe('ExpensesService - settleSplit 대상 split DONE 전이 및 isBulkCompl
       expect(result.isAllSettled).toBe(false);
       expect(prisma.expense.update).toHaveBeenCalledWith({
         where: { id: 10n },
-        data: { status: 'DONE' },
+        data: { status: 'PARTIAL' },
       });
     });
 

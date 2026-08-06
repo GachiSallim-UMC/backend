@@ -1,4 +1,4 @@
-import { Aws, CfnOutput, Duration, RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib';
+import { ArnFormat, Aws, CfnOutput, Duration, RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
@@ -130,6 +130,19 @@ export class DeploymentStack extends Stack {
         new iam.PolicyStatement({
           actions: ['ec2:DescribeInstances', 'ssm:GetCommandInvocation'],
           resources: ['*'],
+        }),
+      );
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['lambda:GetFunctionConfiguration', 'lambda:UpdateFunctionCode'],
+          resources: [
+            Stack.of(this).formatArn({
+              arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+              service: 'lambda',
+              resource: 'function',
+              resourceName: `gachisallim-${environment.branch}-notification-web-push`,
+            }),
+          ],
         }),
       );
 

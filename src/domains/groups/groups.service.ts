@@ -5,6 +5,7 @@ import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { generateInviteCode } from '../../common/utils/invite-code.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RuleStatusService } from '../rules/rule-status.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
@@ -36,7 +37,10 @@ type PrismaTransactionClient = Prisma.TransactionClient;
 
 @Injectable()
 export class GroupsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ruleStatusService: RuleStatusService,
+  ) {}
 
   async listGroups(userId: bigint) {
     const memberships = await this.prisma.groupMember.findMany({
@@ -58,6 +62,7 @@ export class GroupsService {
             name: dto.name,
             description: dto.description,
             maxMembers: dto.maxMembers,
+            residenceType: dto.residenceType,
             inviteCode: candidate,
             inviteExpiredAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
             createdBy,
@@ -97,6 +102,7 @@ export class GroupsService {
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.groupImage !== undefined ? { groupImage: dto.groupImage } : {}),
         ...(dto.maxMembers !== undefined ? { maxMembers: dto.maxMembers } : {}),
       },
     });
@@ -115,17 +121,27 @@ export class GroupsService {
     });
   }
 
-  async updateGroupPermission(groupId: bigint, dto: UpdateGroupPermissionDto, currentUserId: bigint) {
+  async updateGroupPermission(
+    groupId: bigint,
+    dto: UpdateGroupPermissionDto,
+    currentUserId: bigint,
+  ) {
     await this.findGroupOrThrow(groupId);
     await this.requireAdminOrThrow(groupId, currentUserId);
 
     const data = {
-      ...(dto.allowChoreRegistration !== undefined ? { allowChoreRegistration: dto.allowChoreRegistration } : {}),
+      ...(dto.allowChoreRegistration !== undefined
+        ? { allowChoreRegistration: dto.allowChoreRegistration }
+        : {}),
       ...(dto.allowSettlementRegistration !== undefined
         ? { allowSettlementRegistration: dto.allowSettlementRegistration }
         : {}),
-      ...(dto.allowItemStatusChange !== undefined ? { allowItemStatusChange: dto.allowItemStatusChange } : {}),
-      ...(dto.autoApproveNewMembers !== undefined ? { autoApproveNewMembers: dto.autoApproveNewMembers } : {}),
+      ...(dto.allowItemStatusChange !== undefined
+        ? { allowItemStatusChange: dto.allowItemStatusChange }
+        : {}),
+      ...(dto.autoApproveNewMembers !== undefined
+        ? { autoApproveNewMembers: dto.autoApproveNewMembers }
+        : {}),
     };
 
     return this.prisma.groupPermission.upsert({
@@ -156,7 +172,12 @@ export class GroupsService {
     });
   }
 
-  async updateMemberRole(groupId: bigint, targetUserId: bigint, dto: UpdateMemberRoleDto, currentUserId: bigint) {
+  async updateMemberRole(
+    groupId: bigint,
+    targetUserId: bigint,
+    dto: UpdateMemberRoleDto,
+    currentUserId: bigint,
+  ) {
     await this.findGroupOrThrow(groupId);
     await this.requireAdminOrThrow(groupId, currentUserId);
 
@@ -167,10 +188,20 @@ export class GroupsService {
         await this.requireNotLastAdminOrThrow(groupId, tx);
       }
 
-      return tx.groupMember.update({
+      const updatedTarget = await tx.groupMember.update({
         where: { userId_groupId: { userId: targetUserId, groupId } },
         data: { role: dto.role },
       });
+
+      // 관리자 위임: 다른 멤버를 ADMIN으로 지정하면 기존 관리자는 MEMBER로 강등된다.
+      if (dto.role === GroupRole.ADMIN && targetUserId !== currentUserId) {
+        await tx.groupMember.update({
+          where: { userId_groupId: { userId: currentUserId, groupId } },
+          data: { role: GroupRole.MEMBER },
+        });
+      }
+
+      return updatedTarget;
     });
   }
 
@@ -183,7 +214,7 @@ export class GroupsService {
       await this.requireAdminOrThrow(groupId, currentUserId);
     }
 
-    await this.runSerializable(async (tx) => {
+    await this.ruleStatusService.runWithGroupRecalculation(groupId, async (tx) => {
       const targetMember = await this.requireActiveTargetMemberOrThrow(groupId, targetUserId, tx);
 
       if (targetMember.role === GroupRole.ADMIN) {
@@ -207,10 +238,13 @@ export class GroupsService {
   private async runSerializable<T>(fn: (tx: PrismaTransactionClient) => Promise<T>): Promise<T> {
     for (let attempt = 1; attempt <= MAX_SERIALIZABLE_RETRIES; attempt += 1) {
       try {
-        return await this.prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        return await this.prisma.$transaction(fn, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
       } catch (error) {
         const isWriteConflict =
-          error instanceof Prisma.PrismaClientKnownRequestError && error.code === WRITE_CONFLICT_ERROR_CODE;
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === WRITE_CONFLICT_ERROR_CODE;
 
         if (!isWriteConflict || attempt === MAX_SERIALIZABLE_RETRIES) {
           throw error;
@@ -237,7 +271,10 @@ export class GroupsService {
     return member;
   }
 
-  private async requireNotLastAdminOrThrow(groupId: bigint, client: PrismaTransactionClient | PrismaService) {
+  private async requireNotLastAdminOrThrow(
+    groupId: bigint,
+    client: PrismaTransactionClient | PrismaService,
+  ) {
     const adminCount = await client.groupMember.count({
       where: { groupId, role: GroupRole.ADMIN, leftAt: null },
     });
@@ -254,16 +291,21 @@ export class GroupsService {
     return this.updateGroupInviteCode(groupId);
   }
 
+  async getInviteInfo(inviteCode: string) {
+    const group = await this.findGroupByValidInviteCodeOrThrow(inviteCode);
+
+    return {
+      name: group.name,
+      description: group.description,
+      groupImage: group.groupImage,
+      residenceType: group.residenceType,
+      currentMembers: group.currentMembers,
+      maxMembers: group.maxMembers,
+    };
+  }
+
   async joinGroup(dto: JoinGroupDto, currentUserId: bigint) {
-    const group = await this.prisma.group.findUnique({ where: { inviteCode: dto.inviteCode } });
-
-    if (!group || group.isDeleted) {
-      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_INVALID);
-    }
-
-    if (group.inviteExpiredAt.getTime() < Date.now()) {
-      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_EXPIRED);
-    }
+    const group = await this.findGroupByValidInviteCodeOrThrow(dto.inviteCode);
 
     const existingMember = await this.prisma.groupMember.findUnique({
       where: { userId_groupId: { userId: currentUserId, groupId: group.id } },
@@ -273,7 +315,7 @@ export class GroupsService {
       throw new BusinessException(ErrorCode.GROUP_ALREADY_MEMBER);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.ruleStatusService.runWithGroupRecalculation(group.id, async (tx) => {
       let updatedGroup;
 
       try {
@@ -331,6 +373,20 @@ export class GroupsService {
 
     if (!group || group.isDeleted) {
       throw new BusinessException(ErrorCode.GROUP_NOT_FOUND);
+    }
+
+    return group;
+  }
+
+  private async findGroupByValidInviteCodeOrThrow(inviteCode: string) {
+    const group = await this.prisma.group.findUnique({ where: { inviteCode } });
+
+    if (!group || group.isDeleted) {
+      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_INVALID);
+    }
+
+    if (group.inviteExpiredAt.getTime() < Date.now()) {
+      throw new BusinessException(ErrorCode.GROUP_INVITE_CODE_EXPIRED);
     }
 
     return group;

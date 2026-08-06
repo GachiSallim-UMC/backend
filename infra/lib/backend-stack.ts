@@ -24,6 +24,7 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -247,6 +248,38 @@ export class BackendStack extends Stack {
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       },
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+    });
+    new s3deploy.BucketDeployment(this, 'DefaultAvatarDeployment', {
+      sources: [s3deploy.Source.asset(join(__dirname, '../assets/default-avatars'))],
+      destinationBucket: profileImageBucket,
+      destinationKeyPrefix: 'default-avatars',
+      cacheControl: [s3deploy.CacheControl.fromString('public, max-age=86400')],
+      contentType: 'image/png',
+      distribution: profileImageDistribution,
+      distributionPaths: ['/default-avatars/*'],
+    });
+
+    // 영수증 이미지는 인증 + 그룹 멤버십 검증을 거친 요청에만 짧은 유효시간의 S3
+    // presigned URL로 노출한다. CloudFront는 그 검증을 우회하는 상시 공개 경로가
+    // 되므로 의도적으로 두지 않는다.
+    const receiptImageBucket = new s3.Bucket(this, 'ReceiptImageBucket', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      removalPolicy: RemovalPolicy.RETAIN,
+      cors: [
+        {
+          allowedHeaders: ['*'],
+          allowedMethods: [s3.HttpMethods.POST, s3.HttpMethods.GET],
+          allowedOrigins: [
+            ...RUNTIME_ENVIRONMENTS.map(({ webAppUrl }) => webAppUrl),
+            'http://localhost:5173',
+          ],
+          exposedHeaders: ['ETag'],
+          maxAge: 300,
+        },
+      ],
     });
 
     const applicationLogGroup = new logs.LogGroup(this, 'ApplicationLogGroup', {
@@ -599,7 +632,7 @@ export class BackendStack extends Stack {
       connectionsTable.grantWriteData(joinFunction);
       webSocketApi.grantManageConnections(joinFunction);
 
-      webSocketApi.addRoute('room:join', {
+      webSocketApi.addRoute('roomJoin', {
         integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
           `${environment.id}ChatWebSocketJoinIntegration`,
           joinFunction,
@@ -632,7 +665,7 @@ export class BackendStack extends Stack {
       connectionsTable.grantWriteData(leaveFunction);
       webSocketApi.grantManageConnections(leaveFunction);
 
-      webSocketApi.addRoute('room:leave', {
+      webSocketApi.addRoute('roomLeave', {
         integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
           `${environment.id}ChatWebSocketLeaveIntegration`,
           leaveFunction,
@@ -746,7 +779,7 @@ export class BackendStack extends Stack {
           clientId: socialAuthSecret.secretValueFromJson('kakaoClientId').unsafeUnwrap(),
           clientSecret: socialAuthSecret.secretValueFromJson('kakaoClientSecret').unsafeUnwrap(),
           issuerUrl: 'https://kauth.kakao.com',
-          scopes: ['openid', 'profile', 'account_email'],
+          scopes: ['openid', 'account_email'],
           attributeMapping: {
             email: cognito.ProviderAttribute.other('email'),
             emailVerified: cognito.ProviderAttribute.other('email_verified'),
@@ -827,6 +860,13 @@ export class BackendStack extends Stack {
     props.artifactBucket.grantRead(instanceRole, 'releases/*');
     for (const environment of RUNTIME_ENVIRONMENTS) {
       profileImageBucket.grantPut(instanceRole, `${environment.branch}/profiles/*`);
+      // 업로드/조회/정리 권한을 하나의 statement로 묶어 InstanceRole 기본 정책의 크기를 절약한다.
+      instanceRole.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          actions: ['s3:PutObject', 's3:GetObject', 's3:DeleteObject'],
+          resources: [`${receiptImageBucket.bucketArn}/${environment.branch}/receipts/*`],
+        }),
+      );
     }
     applicationLogGroup.grantWrite(instanceRole);
     for (const queue of notificationPushQueues.values()) {
@@ -969,6 +1009,8 @@ COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
 PROFILE_IMAGE_BUCKET='${profileImageBucket.bucketName}'
 PROFILE_IMAGE_OBJECT_PREFIX='${environment.branch}/profiles'
 PROFILE_IMAGE_PUBLIC_BASE_URL='https://${profileImageDistribution.distributionDomainName}'
+RECEIPT_IMAGE_BUCKET='${receiptImageBucket.bucketName}'
+RECEIPT_IMAGE_OBJECT_PREFIX='${environment.branch}/receipts'
 ENVIRONMENT_CONFIG`,
         `chmod 0600 /etc/gachisallim/${environment.branch}.config`,
       );
@@ -1000,6 +1042,8 @@ COGNITO_CLIENT_ID='${auth.client.userPoolClientId}'
 PROFILE_IMAGE_BUCKET='${profileImageBucket.bucketName}'
 PROFILE_IMAGE_OBJECT_PREFIX='${environment.branch}/profiles'
 PROFILE_IMAGE_PUBLIC_BASE_URL='https://${profileImageDistribution.distributionDomainName}'
+RECEIPT_IMAGE_BUCKET='${receiptImageBucket.bucketName}'
+RECEIPT_IMAGE_OBJECT_PREFIX='${environment.branch}/receipts'
 NOTIFICATION_PUSH_QUEUE_URL='${notificationPushQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_PUSH_RESULT_QUEUE_URL='${notificationPushResultQueues.get(environment.branch)!.queueUrl}'
 NOTIFICATION_VAPID_PUBLIC_KEY='${notificationVapidPublicKeys.get(environment.branch)!}'
@@ -1276,6 +1320,9 @@ done`,
     });
     new CfnOutput(this, 'ApplicationLogGroupName', {
       value: applicationLogGroup.logGroupName,
+    });
+    new CfnOutput(this, 'DefaultAvatarBaseUrl', {
+      value: `https://${profileImageDistribution.distributionDomainName}/default-avatars`,
     });
   }
 }

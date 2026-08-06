@@ -13,6 +13,7 @@ import { WebhookExpenseDto } from './dto/webhook-expense.dto';
 import { GetExpenseQueryDto } from './dto/get-expense-query.dto';
 import { SettleSplitDto } from './dto/settle-split.dto';
 import { ExpenseNotFoundException } from './expenses.exception';
+import { ReceiptImageService } from './receipt-image.service';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { ExpenseCategory, MessageType, ExpenseSplitStatus, SplitType } from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
@@ -21,7 +22,10 @@ import * as crypto from 'crypto';
 
 @Injectable()
 export class ExpensesService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly receiptImages: ReceiptImageService,
+  ) {}
 
   // DB User.id 조회
   private async getUserIdByAuth(auth: AuthContext): Promise<bigint> {
@@ -126,6 +130,11 @@ export class ExpensesService {
       throw new ForbiddenException('해당 그룹의 멤버가 아니거나 이미 탈퇴한 사용자가 정산 대상에 포함되어 있습니다.');
     }
 
+    if (receiptUrl) {
+      this.receiptImages.assertReceiptKeyBelongsToGroup(BigInt(targetGroupId), receiptUrl);
+      await this.receiptImages.assertObjectExists(receiptUrl);
+    }
+
     // 정산 분담금 계산
     let baseAmount = 0;
     let remainder = 0;
@@ -212,6 +221,9 @@ export class ExpensesService {
         ...(category && { category }),
         ...(userId && { payerId: BigInt(userId) }),
       },
+      include: {
+        splits: { include: { user: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -258,9 +270,14 @@ export class ExpensesService {
       throw new ForbiddenException('정산 수정 권한이 없습니다. (생성자 또는 선결제자만 가능)');
     }
 
-    const { title, totalAmount, category, splitType, targetMemberIds } = updateExpenseDto as UpdateExpenseDto & {
+    const { title, totalAmount, category, splitType, targetMemberIds, receiptUrl } = updateExpenseDto as UpdateExpenseDto & {
       category?: ExpenseCategory;
     };
+
+    if (receiptUrl) {
+      this.receiptImages.assertReceiptKeyBelongsToGroup(expense.groupId, receiptUrl);
+      await this.receiptImages.assertObjectExists(receiptUrl);
+    }
 
     // 변경될 핵심 값들 (전달되지 않았으면 기존 값 유지)
     const newTotalAmount = totalAmount ?? expense.totalAmount;
@@ -291,7 +308,7 @@ export class ExpensesService {
       (splitType !== undefined && splitType !== expense.splitType);
 
     // 3. 트랜잭션으로 지출 내역과 분담 내역 함께 업데이트
-    return this.prisma.$transaction(async (tx) => {
+    const updateResult = await this.prisma.$transaction(async (tx) => {
       // 3-1. Expense 테이블 기본 정보 업데이트
       const updatedExpense = await tx.expense.update({
         where: { id: numericExpenseId },
@@ -300,6 +317,7 @@ export class ExpensesService {
           ...(totalAmount !== undefined && { totalAmount }),
           ...(category && { category }),
           ...(splitType && { splitType }),
+          ...(receiptUrl !== undefined && { receiptUrl }),
         },
       });
 
@@ -371,6 +389,13 @@ export class ExpensesService {
 
       return updatedExpense;
     });
+
+    // 4. 영수증 이미지가 다른 값으로 교체된 경우, 더 이상 참조되지 않는 기존 오브젝트를 정리한다.
+    if (receiptUrl !== undefined && expense.receiptUrl && expense.receiptUrl !== receiptUrl) {
+      await this.receiptImages.deleteObject(expense.receiptUrl);
+    }
+
+    return updateResult;
   }
   // 5. 지출 내역 삭제
   async deleteExpense(auth: AuthContext, expenseId: number) {
@@ -388,6 +413,10 @@ export class ExpensesService {
     await this.prisma.expense.delete({
       where: { id: BigInt(expenseId) },
     });
+
+    if (expense.receiptUrl) {
+      await this.receiptImages.deleteObject(expense.receiptUrl);
+    }
 
     return {
       message: '지출 내역이 성공적으로 삭제되었습니다.',
@@ -538,8 +567,7 @@ export class ExpensesService {
     }
 
     const systemAuthContext: AuthContext = { cognitoSub: 'SYSTEM', accessToken: '' };
-    // 단건 결제 웹훅이므로 상위 정산은 전원 완료 시에만 자동으로 완료 처리한다(강제 완료 아님).
-    await this.settleSplit(systemAuthContext, Number(split.id));
+    await this.settleSplit(systemAuthContext, Number(split.id), { isBulkComplete: true });
 
     return { status: 'SUCCESS' };
   }
@@ -564,34 +592,37 @@ export class ExpensesService {
       }
     }
 
-    // isBulkComplete는 대상 split의 완료 처리와 무관하며, 미완료 인원이 남아있어도
-    // 상위 정산을 강제로 완료 처리할지 여부만 결정한다.
-    const forceParentComplete = settleDto?.isBulkComplete ?? false;
+    // isBulkComplete: true(기본값)이면 대상 split을 완료(DONE) 처리, false를 명시하면
+    // 요청(REQUESTED) 상태로 되돌린다(철회).
+    const isBulkComplete = settleDto?.isBulkComplete ?? true;
+    const targetStatus = isBulkComplete ? 'DONE' : 'REQUESTED';
 
     return this.prisma.$transaction(async (tx) => {
       const updatedSplit = await tx.expenseSplit.update({
         where: { id: BigInt(splitId) },
         data: {
-          status: 'DONE',
-          completedAt: new Date(),
+          status: targetStatus,
+          ...(isBulkComplete && { completedAt: new Date() }),
         },
       });
 
       const expenseId = updatedSplit.expenseId;
       const allSplits = await tx.expenseSplit.findMany({ where: { expenseId } });
-      const isAllSettled = allSplits.every((s) => s.status === 'DONE');
+      const settledCount = allSplits.filter((s) => s.status === 'DONE' || s.status === 'PRE_PAID').length;
+      const isAllSettled = settledCount === allSplits.length;
+      const expenseStatus = isAllSettled ? 'DONE' : settledCount > 0 ? 'PARTIAL' : 'PENDING';
 
-      if (isAllSettled || forceParentComplete) {
-        await tx.expense.update({
-          where: { id: BigInt(expenseId) },
-          data: { status: 'DONE' },
-        });
-      }
+      await tx.expense.update({
+        where: { id: BigInt(expenseId) },
+        data: { status: expenseStatus },
+      });
 
       return {
-        message: '정산 상태가 성공적으로 변경되었습니다.',
+        message: isBulkComplete
+          ? '정산 완료 처리가 성공적으로 동기화되었습니다.'
+          : '정산 완료 처리가 철회되어 요청 상태로 되돌아갔습니다.',
         isAllSettled,
-        status: 'DONE',
+        status: targetStatus,
       };
     });
   }

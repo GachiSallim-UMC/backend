@@ -236,6 +236,7 @@
                       {
                         "expenseId": 21,
                         "title": "마트 장보기",
+                        "category": "FOOD",
                         "payerName": "김영희",
                         "amountPerPerson": 10666,
                         "status": "UNSETTLED"
@@ -245,6 +246,7 @@
                       {
                         "supplyId": 31,
                         "name": "세제",
+                        "category": "DAILY_NECESSITIES",
                         "status": "LOW",
                         "assigneeName": "이철수"
                       }
@@ -545,6 +547,7 @@
                     "id": 1,
                     "name": "우리집",
                     "description": "강남구 역삼동 셰어하우스",
+                    "groupImage": "https://example.com/group.png",
                     "inviteCode": "ABC123",
                     "inviteExpiredAt": "2026-07-08T10:00:00Z",
                     "currentMembers": 3,
@@ -681,6 +684,12 @@
                     "example": "새로운 설명",
                     "description": "그룹 설명 (100자 이내)"
                   },
+                  "groupImage": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "https://example.com/group.png",
+                    "description": "그룹 이미지 URL (null이면 기존 이미지 제거)"
+                  },
                   "maxMembers": {
                     "type": "integer",
                     "example": 5,
@@ -703,6 +712,7 @@
                     "name": "우리집 시즌2",
                     "type": "SHARE_HOUSE",
                     "description": "새로운 설명",
+                    "groupImage": "https://example.com/group.png",
                     "maxMembers": 5,
                     "updatedAt": "2026-07-01T11:00:00Z"
                   },
@@ -2890,7 +2900,9 @@
                 "properties": {
                   "isBulkComplete": {
                     "type": "boolean",
-                    "example": false
+                    "description": "true(기본값) 또는 미전달 시 완료(DONE) 처리, false를 명시적으로 보내면 요청 상태(REQUESTED)로 되돌립니다.",
+                    "default": true,
+                    "example": true
                   }
                 }
               }
@@ -7105,6 +7117,49 @@
         }
       }
     },
+    "/api/v1/auth/me/data-export": {
+      "get": {
+        "tags": [
+          "인증"
+        ],
+        "summary": "내 데이터 CSV 내보내기",
+        "description": "인증된 사용자가 담당·생성·완료한 집안일, 생성·결제·분담에 참여한 정산, 본인이 주체인 활동 내역을 UTF-8 BOM이 포함된 CSV 파일로 내려받습니다.",
+        "operationId": "getAuthMeDataExport",
+        "responses": {
+          "200": {
+            "description": "UTF-8 BOM이 포함된 CSV 파일",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment; filename=\"gachisallim-my-data-YYYY-MM-DD.csv\"",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "default": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/auth/profile": {
       "patch": {
         "tags": [
@@ -7922,11 +7977,24 @@
           "알림"
         ],
         "summary": "알림 목록 조회",
-        "description": "인증된 사용자의 숨기지 않은 알림을 최신순으로 조회합니다.",
+        "description": "인증된 사용자의 지정 그룹 내 숨기지 않은 알림을 최신순으로 조회합니다.",
         "operationId": "getNotifications",
         "security": [
           {
             "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "query",
+            "required": true,
+            "description": "조회할 그룹 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "example": 3
           }
         ],
         "responses": {
@@ -7974,6 +8042,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "401": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -8125,11 +8196,24 @@
           "알림"
         ],
         "summary": "미읽음 알림 개수 조회",
-        "description": "인증된 사용자의 숨기지 않은 미읽음 알림 개수를 조회합니다.",
+        "description": "인증된 사용자의 지정 그룹 내 숨기지 않은 미읽음 알림 개수를 조회합니다.",
         "operationId": "getNotificationsUnreadCount",
         "security": [
           {
             "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "query",
+            "required": true,
+            "description": "조회할 그룹 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "example": 3
           }
         ],
         "responses": {
@@ -8167,6 +8251,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "401": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -8266,11 +8353,24 @@
           "알림"
         ],
         "summary": "전체 읽음 처리",
-        "description": "인증된 사용자의 노출 중인 미읽음 알림을 모두 읽음 처리합니다.",
+        "description": "인증된 사용자의 지정 그룹 내 노출 중인 미읽음 알림을 모두 읽음 처리합니다.",
         "operationId": "patchNotificationsReadAll",
         "security": [
           {
             "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "query",
+            "required": true,
+            "description": "조회할 그룹 ID",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "example": 3
           }
         ],
         "responses": {
@@ -8308,6 +8408,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "401": {
             "$ref": "#/components/responses/ErrorResponse"

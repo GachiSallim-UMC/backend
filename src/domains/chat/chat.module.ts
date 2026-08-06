@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthCommonModule } from '../auth/common/auth-common.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ChatAuthenticatedUserService } from './chat-authenticated-user.service';
 import {
   CHAT_CONNECTIONS_DYNAMODB_CLIENT_PROVIDER,
@@ -11,7 +12,7 @@ import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
 
 @Module({
-  imports: [AuthCommonModule],
+  imports: [AuthCommonModule, NotificationsModule],
   controllers: [ChatController],
   providers: [
     ChatService,

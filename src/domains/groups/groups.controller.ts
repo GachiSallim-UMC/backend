@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { parseBigIntId } from '../../common/utils/id.util';
@@ -6,7 +18,9 @@ import { AuthContext } from '../auth/common/auth-context.interface';
 import { CognitoAccessTokenGuard } from '../auth/common/cognito-access-token.guard';
 import { CurrentAuth } from '../auth/common/current-auth.decorator';
 import { CreateGroupDto } from './dto/create-group.dto';
+import { GetInviteInfoQueryDto } from './dto/get-invite-info-query.dto';
 import { GroupPermissionResponseDto } from './dto/group-permission-response.dto';
+import { InviteInfoResponseDto } from './dto/invite-info-response.dto';
 import { JoinGroupDto } from './dto/join-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { UpdateGroupPermissionDto } from './dto/update-group-permission.dto';
@@ -46,6 +60,27 @@ export class GroupsController {
   async reissueInviteCode(@CurrentAuth() auth: AuthContext, @Param('groupId') groupId: string) {
     const userId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
     return this.groupsService.reissueInviteCode(parseBigIntId(groupId, 'groupId'), userId);
+  }
+
+  @Get('invite-info')
+  @ApiOperation({
+    summary: '초대 코드 미리보기 조회',
+    description: '가입 처리 없이 초대 코드로 그룹 정보를 미리 조회합니다.',
+  })
+  @ApiResponse({ status: 200, description: '초대 코드 미리보기 조회 성공', type: InviteInfoResponseDto })
+  @ApiResponse({
+    status: 400,
+    description:
+      'COMMON_INVALID_PARAMETER - 초대 코드 형식이 올바르지 않습니다. | GROUP_INVITE_CODE_EXPIRED - 만료된 초대코드입니다.',
+  })
+  @ApiResponse({ status: 401, description: '인증이 필요합니다.' })
+  @ApiResponse({ status: 404, description: 'GROUP_INVITE_CODE_INVALID - 유효하지 않은 초대코드입니다.' })
+  async getInviteInfo(
+    @CurrentAuth() auth: AuthContext,
+    @Query() query: GetInviteInfoQueryDto,
+  ): Promise<InviteInfoResponseDto> {
+    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.groupsService.getInviteInfo(query.code);
   }
 
   @Get(':groupId')

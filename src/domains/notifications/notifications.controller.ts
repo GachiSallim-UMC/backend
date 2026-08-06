@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Patch,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -26,6 +27,7 @@ import { parseBigIntId } from '../../common/utils/id.util';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { CognitoAccessTokenGuard } from '../auth/common/cognito-access-token.guard';
 import { CurrentAuth } from '../auth/common/current-auth.decorator';
+import { NotificationGroupQueryDto } from './dto/notification-group-query.dto';
 import { NotificationListResponseDto } from './dto/notification-list-response.dto';
 import { NotificationPreferencesResponseDto } from './dto/notification-preferences-response.dto';
 import { ReadAllNotificationsResponseDto } from './dto/read-all-notifications-response.dto';
@@ -59,11 +61,15 @@ export class NotificationsController {
     description: '알림 목록 조회 성공',
     schema: successSchema(NotificationListResponseDto),
   })
+  @ApiResponse({ status: 400, description: '그룹 ID 형식이 올바르지 않습니다.' })
   @ApiResponse({ status: 401, description: '인증 토큰이 없거나 올바르지 않습니다.' })
   @ApiResponse({ status: 403, description: '비활성화된 계정입니다.' })
   @ApiResponse({ status: 404, description: '인증 계정 정보를 찾을 수 없습니다.' })
-  listNotifications(@CurrentAuth() auth: AuthContext): Promise<NotificationListResponseDto> {
-    return this.notificationsService.listNotifications(auth.cognitoSub);
+  listNotifications(
+    @CurrentAuth() auth: AuthContext,
+    @Query() query: NotificationGroupQueryDto,
+  ): Promise<NotificationListResponseDto> {
+    return this.notificationsService.listNotifications(auth.cognitoSub, query.groupId);
   }
 
   @Get('unread-count')
@@ -73,11 +79,15 @@ export class NotificationsController {
     description: '미읽음 알림 개수 조회 성공',
     schema: successSchema(UnreadNotificationCountResponseDto),
   })
+  @ApiResponse({ status: 400, description: '그룹 ID 형식이 올바르지 않습니다.' })
   @ApiResponse({ status: 401, description: '인증 토큰이 없거나 올바르지 않습니다.' })
   @ApiResponse({ status: 403, description: '비활성화된 계정입니다.' })
   @ApiResponse({ status: 404, description: '인증 계정 정보를 찾을 수 없습니다.' })
-  getUnreadCount(@CurrentAuth() auth: AuthContext): Promise<UnreadNotificationCountResponseDto> {
-    return this.notificationsService.getUnreadCount(auth.cognitoSub);
+  getUnreadCount(
+    @CurrentAuth() auth: AuthContext,
+    @Query() query: NotificationGroupQueryDto,
+  ): Promise<UnreadNotificationCountResponseDto> {
+    return this.notificationsService.getUnreadCount(auth.cognitoSub, query.groupId);
   }
 
   @Get('preferences')
@@ -145,9 +155,13 @@ export class NotificationsController {
     description: '전체 알림 읽음 처리 성공',
     schema: successSchema(ReadAllNotificationsResponseDto),
   })
+  @ApiResponse({ status: 400, description: '그룹 ID 형식이 올바르지 않습니다.' })
   @ApiResponse({ status: 401, description: '인증 토큰이 없거나 올바르지 않습니다.' })
-  readAllNotifications(@CurrentAuth() auth: AuthContext): Promise<ReadAllNotificationsResponseDto> {
-    return this.notificationsService.readAllNotifications(auth.cognitoSub);
+  readAllNotifications(
+    @CurrentAuth() auth: AuthContext,
+    @Query() query: NotificationGroupQueryDto,
+  ): Promise<ReadAllNotificationsResponseDto> {
+    return this.notificationsService.readAllNotifications(auth.cognitoSub, query.groupId);
   }
 
   @Delete(':notificationId')

@@ -1,3 +1,6 @@
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -96,7 +99,7 @@ describe('BackendStack', () => {
       }),
       ProviderDetails: Match.objectLike({
         oidc_issuer: 'https://kauth.kakao.com',
-        authorize_scopes: 'openid profile account_email',
+        authorize_scopes: 'openid account_email',
       }),
     });
 
@@ -321,8 +324,8 @@ describe('BackendStack', () => {
     expect(endpoints).toContain('.scheduler');
   });
 
-  it('creates a private profile image bucket served through CloudFront', () => {
-    template.resourceCountIs('AWS::S3::Bucket', 1);
+  it('creates a private profile image bucket served through CloudFront and a private, CDN-less receipt image bucket', () => {
+    template.resourceCountIs('AWS::S3::Bucket', 2);
     template.resourceCountIs('AWS::CloudFront::Distribution', 1);
     template.hasResourceProperties('AWS::S3::Bucket', {
       BucketEncryption: {
@@ -351,6 +354,15 @@ describe('BackendStack', () => {
         RestrictPublicBuckets: true,
       },
     });
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      CorsConfiguration: {
+        CorsRules: [
+          Match.objectLike({
+            AllowedMethods: ['POST', 'GET'],
+          }),
+        ],
+      },
+    });
     template.hasResourceProperties('AWS::CloudFront::Distribution', {
       DistributionConfig: Match.objectLike({
         DefaultCacheBehavior: Match.objectLike({
@@ -363,19 +375,51 @@ describe('BackendStack', () => {
 
     const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
     expect(policies).toContain('s3:PutObject');
+    expect(policies).toContain('s3:GetObject');
+    expect(policies).toContain('s3:DeleteObject');
     expect(policies).toContain('/main/profiles/*');
     expect(policies).toContain('/develop/profiles/*');
+    expect(policies).toContain('/main/receipts/*');
+    expect(policies).toContain('/develop/receipts/*');
 
     const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
     expect(userData).toContain('PROFILE_IMAGE_BUCKET');
     expect(userData).toContain("PROFILE_IMAGE_OBJECT_PREFIX='main/profiles'");
     expect(userData).toContain("PROFILE_IMAGE_OBJECT_PREFIX='develop/profiles'");
     expect(userData).toContain('PROFILE_IMAGE_PUBLIC_BASE_URL');
+    expect(userData).toContain('RECEIPT_IMAGE_BUCKET');
+    expect(userData).toContain("RECEIPT_IMAGE_OBJECT_PREFIX='main/receipts'");
+    expect(userData).toContain("RECEIPT_IMAGE_OBJECT_PREFIX='develop/receipts'");
+    expect(userData).not.toContain('RECEIPT_IMAGE_PUBLIC_BASE_URL');
 
     const runtimeConfiguration = JSON.stringify(template.findResources('AWS::SSM::Document'));
     expect(runtimeConfiguration).toContain('PROFILE_IMAGE_BUCKET');
     expect(runtimeConfiguration).toContain('PROFILE_IMAGE_OBJECT_PREFIX');
     expect(runtimeConfiguration).toContain('PROFILE_IMAGE_PUBLIC_BASE_URL');
+    expect(runtimeConfiguration).toContain('RECEIPT_IMAGE_BUCKET');
+    expect(runtimeConfiguration).toContain('RECEIPT_IMAGE_OBJECT_PREFIX');
+    expect(runtimeConfiguration).not.toContain('RECEIPT_IMAGE_PUBLIC_BASE_URL');
+  });
+
+  it('deploys all default avatars to stable CloudFront paths', () => {
+    const avatarDirectory = join(__dirname, '../assets/default-avatars');
+    const avatarFiles = readdirSync(avatarDirectory).sort((left, right) =>
+      left.localeCompare(right, undefined, { numeric: true }),
+    );
+
+    expect(avatarFiles).toEqual(
+      Array.from({ length: 10 }, (_, index) => `avatar-${index + 1}.png`),
+    );
+    template.hasResourceProperties('Custom::CDKBucketDeployment', {
+      DestinationBucketKeyPrefix: 'default-avatars',
+      DistributionPaths: ['/default-avatars/*'],
+      SystemMetadata: {
+        'cache-control': 'public, max-age=86400',
+        'content-type': 'image/png',
+      },
+    });
+    expect(JSON.stringify(template.toJSON().Outputs)).toContain('DefaultAvatarBaseUrl');
+    expect(JSON.stringify(template.toJSON().Outputs)).toContain('/default-avatars');
   });
 
   it('creates encrypted notification push queues and dead-letter queues per environment', () => {
@@ -563,7 +607,7 @@ describe('BackendStack', () => {
     expect(instancePolicies).toContain('dynamodb:GetItem');
   });
 
-  it('protects the chat WebSocket $connect route with a Lambda authorizer and adds a room:join route', () => {
+  it('protects the chat WebSocket $connect route with a Lambda authorizer and adds a roomJoin route', () => {
     template.resourceCountIs('AWS::ApiGatewayV2::Authorizer', 2);
     template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
       AuthorizerType: 'REQUEST',
@@ -571,7 +615,8 @@ describe('BackendStack', () => {
     });
 
     const routes = JSON.stringify(template.findResources('AWS::ApiGatewayV2::Route'));
-    expect(routes).toContain('room:join');
+    expect(routes).toContain('roomJoin');
+    expect(routes).not.toContain('room:join');
     expect(routes).toContain('$connect');
     expect(routes).toContain('$disconnect');
 
@@ -601,9 +646,10 @@ describe('BackendStack', () => {
     expect(joinPolicies).toContain('dynamodb:UpdateItem');
   });
 
-  it('adds a room:leave route with its own Lambda and lets $disconnect query and delete every row for a connection', () => {
+  it('adds a roomLeave route with its own Lambda and lets $disconnect query and delete every row for a connection', () => {
     const routes = JSON.stringify(template.findResources('AWS::ApiGatewayV2::Route'));
-    expect(routes).toContain('room:leave');
+    expect(routes).toContain('roomLeave');
+    expect(routes).not.toContain('room:leave');
 
     const lambdaFunctions = JSON.stringify(template.findResources('AWS::Lambda::Function'));
     expect(lambdaFunctions).toContain('gachisallim-main-chat-ws-leave');

@@ -1,5 +1,12 @@
 ﻿import { jest } from '@jest/globals';
-import { ChoreStatus, ExpenseStatus, RepeatType, SupplyStatus } from '@prisma/client';
+import {
+  ChoreStatus,
+  ExpenseCategory,
+  ExpenseStatus,
+  RepeatType,
+  SupplyCategory,
+  SupplyStatus,
+} from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { DashboardService } from './dashboard.service';
@@ -92,6 +99,7 @@ describe('DashboardService', () => {
       {
         id: 21n,
         title: 'Team dinner',
+        category: ExpenseCategory.FOOD,
         totalAmount: 1980,
         status: ExpenseStatus.PENDING,
         payer: { id: 2n, nickname: 'Chris' },
@@ -100,6 +108,7 @@ describe('DashboardService', () => {
       {
         id: 20n,
         title: 'Groceries',
+        category: ExpenseCategory.SHOPPING,
         totalAmount: 30000,
         status: ExpenseStatus.PARTIAL,
         payer: { id: 3n, nickname: 'Daniel' },
@@ -110,6 +119,7 @@ describe('DashboardService', () => {
       {
         id: 31n,
         name: 'Detergent',
+        category: SupplyCategory.DAILY_NECESSITIES,
         status: SupplyStatus.LOW,
         assignee: { id: 3n, nickname: 'Daniel' },
       },
@@ -146,6 +156,7 @@ describe('DashboardService', () => {
         {
           expenseId: 21,
           title: 'Team dinner',
+          category: ExpenseCategory.FOOD,
           payerName: 'Chris',
           amountPerPerson: 660,
           status: 'UNSETTLED',
@@ -153,6 +164,7 @@ describe('DashboardService', () => {
         {
           expenseId: 20,
           title: 'Groceries',
+          category: ExpenseCategory.SHOPPING,
           payerName: 'Daniel',
           amountPerPerson: 10000,
           status: 'UNSETTLED',
@@ -162,6 +174,7 @@ describe('DashboardService', () => {
         {
           supplyId: 31,
           name: 'Detergent',
+          category: SupplyCategory.DAILY_NECESSITIES,
           status: SupplyStatus.LOW,
           assigneeName: 'Daniel',
         },
@@ -202,15 +215,13 @@ describe('DashboardService', () => {
       expect.objectContaining({
         where: {
           groupId: 10n,
-          dueDate: {
+          startDate: {
             gte: new Date('2026-07-24T15:00:00.000Z'),
             lt: new Date('2026-07-25T15:00:00.000Z'),
           },
         },
       }),
     );
-    expect(prisma.expense.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ take: 2 }),
-    );
+    expect(prisma.expense.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 2 }));
   });
 });

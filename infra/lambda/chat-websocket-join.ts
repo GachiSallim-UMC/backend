@@ -97,7 +97,7 @@ async function sendEvent(
   await client.send(
     new PostToConnectionCommand({
       ConnectionId: connectionId,
-      Data: Buffer.from(JSON.stringify({ event, ...data })),
+      Data: Buffer.from(JSON.stringify({ event, data })),
     }),
   );
 }

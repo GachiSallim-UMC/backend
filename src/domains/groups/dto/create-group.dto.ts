@@ -1,5 +1,6 @@
+import { ResidenceType } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 
 export class CreateGroupDto {
   @ApiProperty({ description: '그룹 이름', example: '자취방 메이트' })
@@ -19,4 +20,9 @@ export class CreateGroupDto {
   @Min(2)
   @Max(12)
   maxMembers?: number;
+
+  @ApiProperty({ description: '거주 타입', enum: ResidenceType, example: ResidenceType.ROOMMATE, required: false })
+  @IsOptional()
+  @IsEnum(ResidenceType)
+  residenceType?: ResidenceType;
 }

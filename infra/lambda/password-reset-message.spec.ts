@@ -1,4 +1,4 @@
-import { createPasswordResetMessageHandler } from './password-reset-message';
+import { createPasswordResetMessageHandler, handler } from './password-reset-message';
 
 describe('password reset custom message', () => {
   it('adds a fragment-based reset link to forgot-password emails', () => {
@@ -27,6 +27,25 @@ describe('password reset custom message', () => {
     event.request.userAttributes.email = undefined;
 
     expect(() => handler(event)).toThrow('A verified email is required for password reset');
+  });
+
+  it('returns a promise from the Lambda entrypoint', async () => {
+    const previousPasswordResetUrl = process.env.PASSWORD_RESET_URL;
+    process.env.PASSWORD_RESET_URL = 'https://gachisallim.com/reset-password';
+    const event = createEvent('CustomMessage_ForgotPassword');
+
+    try {
+      const result = handler(event);
+
+      expect(result).toBeInstanceOf(Promise);
+      await expect(result).resolves.toBe(event);
+    } finally {
+      if (previousPasswordResetUrl === undefined) {
+        delete process.env.PASSWORD_RESET_URL;
+      } else {
+        process.env.PASSWORD_RESET_URL = previousPasswordResetUrl;
+      }
+    }
   });
 
   function createEvent(triggerSource: string) {

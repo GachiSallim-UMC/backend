@@ -14,6 +14,7 @@ trap 'rm -rf "${staging_directory}"' EXIT
 npm ci
 npm run prisma:generate
 npm run build
+bash scripts/build-notification-web-push.sh "${output_directory}"
 npm prune --omit=dev
 
 mkdir -p "${output_directory}" "${staging_directory}/bin"
