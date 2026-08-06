@@ -54,6 +54,11 @@ print(f'postgresql://{username}:{password}@{host}:{port}/{database}?schema=publi
 PY
 )"
 
+webhook_secret="$(aws secretsmanager get-secret-value \
+  --secret-id "${WEBHOOK_SECRET_ARN}" \
+  --query SecretString \
+  --output text)"
+
 environment_file="/etc/gachisallim/${environment_name}.env"
 umask 077
 cat > "${environment_file}" <<EOF
@@ -63,6 +68,7 @@ APP_NAME=${APP_NAME}
 APP_VERSION=${APP_VERSION}
 CORS_ORIGIN=${CORS_ORIGIN}
 DATABASE_URL=${database_url}
+WEBHOOK_SECRET=${webhook_secret}
 AWS_REGION=${AWS_REGION}
 COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
 COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID}

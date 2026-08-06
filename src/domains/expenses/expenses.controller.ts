@@ -1,8 +1,9 @@
 import { 
   Controller, Post, Get, Patch, Delete, 
-  Body, Query, Param, ParseIntPipe, HttpCode, HttpStatus, UseGuards, Headers, UnauthorizedException 
+  Body, Query, Param, ParseIntPipe, HttpCode, HttpStatus, UseGuards, Headers, UnauthorizedException, InternalServerErrorException 
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiParam, ApiBearerAuth, ApiHeader,ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiParam, ApiBearerAuth, ApiHeader, ApiBody } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config'; 
 import { ExpensesService } from './expenses.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { GetExpenseQueryDto } from './dto/get-expense-query.dto';
@@ -22,10 +23,11 @@ import { AuthContext } from '../auth/common/auth-context.interface';
 
 @ApiTags('생활비 정산 (EXP)')
 @ApiBearerAuth('BearerAuth')
-@Controller('expenses') // 👈 auth 모듈 수정을 피하기 위해 클래스 레벨 @UseGuards 제거
+@Controller('expenses')
 export class ExpensesController {
   constructor(
     private readonly expensesService: ExpensesService,
+    private readonly configService: ConfigService,
     private readonly receiptImages: ReceiptImageService,
   ) {}
 
@@ -91,7 +93,7 @@ export class ExpensesController {
     return this.expensesService.calculateSplitsPreview(auth, calculateDto);
   }
 
-  // 💡 가드를 붙이지 않음으로써 auth 수정 없이 외부 PG/핀테크 웹훅 호출 허용!
+  // Secret 필수화 및 기본값 사용 시 Fail-closed 처리
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
@@ -105,10 +107,20 @@ export class ExpensesController {
     @Headers('x-timestamp') timestamp: string,
     @Body() webhookDto: WebhookExpenseDto,
   ) {
+    const webhookSecret = this.configService.get<string>('WEBHOOK_SECRET');
+
+    // Secret 미설정 또는 하드코딩 기본값 사용 시 500 에러로 즉시 차단 (Fail-closed)
+    if (!webhookSecret || webhookSecret === 'gachisallim-webhook-secret-key') {
+      throw new InternalServerErrorException(
+        '서버 설정 오류: WEBHOOK_SECRET 환경변수가 설정되지 않았거나 올바르지 않습니다.',
+      );
+    }
+
     if (!signature || !timestamp) {
       throw new UnauthorizedException('웹훅 필수 헤더(x-signature, x-timestamp)가 누락되었습니다.');
     }
-    return this.expensesService.handleWebhook(signature, timestamp, webhookDto);
+
+    return this.expensesService.handleWebhook(signature, timestamp, webhookDto, webhookSecret);
   }
 
   // ==========================================
@@ -150,7 +162,9 @@ export class ExpensesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
     summary: '개별 송금 및 전체 정산 상태 동기화 완료 (EXP-SETTLE-01)', 
-    description: '대상자별 상태를 완료로 변경하고, 그룹 전체 완료 시 부모 정산 상태를 자동으로 완료 처리합니다.' 
+    description:
+      '대상자별 상태를 완료(DONE)로 변경합니다. isBulkComplete를 false로 명시하면 요청(REQUESTED) 상태로 되돌립니다(철회). ' +
+      '그룹 전체 상태는 매 호출마다 다시 계산되어 완료/부분완료/대기 상태로 자동 동기화됩니다.',
   })
   @ApiParam({ name: 'splitId', description: '정산 완료할 분담 내역(Split) ID', example: 2 })
   async settleSplit(
@@ -180,7 +194,7 @@ export class ExpensesController {
     return this.expensesService.getExpenseDetail(auth, expenseId);
   }
 
-@Patch(':expenseId')
+  @Patch(':expenseId')
   @UseGuards(CognitoAccessTokenGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 

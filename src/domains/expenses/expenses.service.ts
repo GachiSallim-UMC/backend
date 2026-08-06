@@ -1,9 +1,9 @@
-import { 
-  Injectable, 
-  BadRequestException, 
-  ForbiddenException, 
-  UnauthorizedException, 
-  InternalServerErrorException 
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+  UnauthorizedException,
+  InternalServerErrorException
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
@@ -15,15 +15,13 @@ import { SettleSplitDto } from './dto/settle-split.dto';
 import { ExpenseNotFoundException } from './expenses.exception';
 import { ReceiptImageService } from './receipt-image.service';
 import { AuthContext } from '../auth/common/auth-context.interface';
-import { ExpenseCategory, MessageType, ExpenseSplitStatus, SplitType  } from '@prisma/client';
+import { ExpenseCategory, MessageType, ExpenseSplitStatus, SplitType } from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class ExpensesService {
-  private readonly WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'gachisallim-webhook-secret-key';
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly receiptImages: ReceiptImageService,
@@ -46,19 +44,19 @@ export class ExpensesService {
     return user.id;
   }
 
-  // 1. 비용 등록 및 정산 요청 생성
+ // 1. 비용 등록 및 정산 요청 생성
   async createExpense(auth: AuthContext, createExpenseDto: CreateExpenseDto) {
-    const { 
+    const {
       groupId,
-      title, 
-      amount, 
-      payerId, 
-      date, 
-      splitType, 
-      category, 
-      targetMemberIds, 
-      memo, 
-      receiptUrl 
+      title,
+      amount,
+      payerId,
+      date,
+      splitType,
+      category,
+      targetMemberIds,
+      memo,
+      receiptUrl
     } = createExpenseDto;
 
     const currentUserId = await this.getUserIdByAuth(auth);
@@ -67,8 +65,38 @@ export class ExpensesService {
       throw new BadRequestException('정산 대상 멤버가 최소 1명 이상 필요합니다.');
     }
 
+    // 정산 금액 및 비율 합계 부합성 검증 로직
+    if (splitType === SplitType.CUSTOM) {
+      const sumAmount = targetMemberIds.reduce((sum, m) => sum + (m.amount ?? 0), 0);
+      if (sumAmount !== amount) {
+        throw new BadRequestException(
+          `각 멤버별 분담금 합계(${sumAmount.toLocaleString()}원)가 총 정산 금액(${amount.toLocaleString()}원)과 일치하지 않습니다.`
+        );
+      }
+    } else if (splitType === SplitType.RATIO) {
+      const sumPercentage = targetMemberIds.reduce((sum, m) => sum + (m.percentage ?? 0), 0);
+      if (sumPercentage !== 100) {
+        throw new BadRequestException(
+          `분담 비율의 총합(${sumPercentage}%)은 반드시 100%이어야 합니다.`
+        );
+      }
+    }
+
     const numericPayerId = Number(payerId);
     const targetGroupId = groupId ? Number(groupId) : 1;
+
+    // 1-1. 요청자(로그인 유저) 본인이 해당 그룹의 활성 구성원(leftAt: null)인지 검증
+    const requesterMembership = await this.prisma.groupMember.findFirst({
+      where: {
+        groupId: BigInt(targetGroupId),
+        userId: currentUserId,
+        leftAt: null, // 탈퇴 구성원 제외
+      },
+    });
+
+    if (!requesterMembership) {
+      throw new ForbiddenException('해당 그룹의 활성 구성원만 정산을 생성할 수 있습니다.');
+    }
 
     // 중복 유저 ID 제거 및 정산 대상 목록 추출
     const targetUserMap = new Map<number, { amount?: number; percentage?: number }>();
@@ -89,17 +117,17 @@ export class ExpensesService {
       throw new BadRequestException('존재하지 않는 사용자 ID가 정산 대상에 포함되어 있습니다.');
     }
 
-    // 그룹 멤버십 검증
+    // 1-2. 정산 참여 유저들이 대상 그룹의 활성 멤버(leftAt: null)인지 검증
     const groupMemberships = await this.prisma.groupMember.findMany({
       where: {
         groupId: BigInt(targetGroupId),
         userId: { in: allRequiredUserIds.map((id) => BigInt(id)) },
-        leftAt: null,
+        leftAt: null, // 탈퇴 구성원 배제 조건 추가
       },
       select: { userId: true },
     });
     if (groupMemberships.length !== allRequiredUserIds.length) {
-      throw new ForbiddenException('해당 그룹의 멤버가 아닌 사용자가 정산 대상에 포함되어 있습니다.');
+      throw new ForbiddenException('해당 그룹의 멤버가 아니거나 이미 탈퇴한 사용자가 정산 대상에 포함되어 있습니다.');
     }
 
     if (receiptUrl) {
@@ -223,7 +251,7 @@ export class ExpensesService {
     return expense;
   }
 
-// 4. 지출 내역 수정
+  // 4. 지출 내역 수정
   async updateExpense(auth: AuthContext, expenseId: number, updateExpenseDto: UpdateExpenseDto) {
     const currentUserId = await this.getUserIdByAuth(auth);
     const numericExpenseId = BigInt(expenseId);
@@ -254,6 +282,25 @@ export class ExpensesService {
     // 변경될 핵심 값들 (전달되지 않았으면 기존 값 유지)
     const newTotalAmount = totalAmount ?? expense.totalAmount;
     const newSplitType = splitType ?? expense.splitType;
+
+    // 💡 [추가] targetMemberIds 전달 시 총액 및 비율 검증 로직
+    if (targetMemberIds && targetMemberIds.length > 0) {
+      if (newSplitType === SplitType.CUSTOM) {
+        const sumAmount = targetMemberIds.reduce((sum, m) => sum + (m.amount ?? 0), 0);
+        if (sumAmount !== newTotalAmount) {
+          throw new BadRequestException(
+            `각 멤버별 분담금 합계(${sumAmount.toLocaleString()}원)가 총 정산 금액(${newTotalAmount.toLocaleString()}원)과 일치하지 않습니다.`
+          );
+        }
+      } else if (newSplitType === SplitType.RATIO) {
+        const sumPercentage = targetMemberIds.reduce((sum, m) => sum + (m.percentage ?? 0), 0);
+        if (sumPercentage !== 100) {
+          throw new BadRequestException(
+            `분담 비율의 총합(${sumPercentage}%)은 반드시 100%이어야 합니다.`
+          );
+        }
+      }
+    }
 
     // 총액이나 분담 방식이 실제로 변경되었는지 여부
     const isCalculationChanged =
@@ -350,7 +397,6 @@ export class ExpensesService {
 
     return updateResult;
   }
-
   // 5. 지출 내역 삭제
   async deleteExpense(auth: AuthContext, expenseId: number) {
     const currentUserId = await this.getUserIdByAuth(auth);
@@ -468,8 +514,9 @@ export class ExpensesService {
   }
 
   // 9. 결제 수신 웹훅 처리
-  async handleWebhook(signature: string, timestamp: string, webhookDto: WebhookExpenseDto) {
-    if (!this.WEBHOOK_SECRET) {
+  async handleWebhook(signature: string, timestamp: string, webhookDto: WebhookExpenseDto, webhookSecret?: string) {
+    const secret = webhookSecret;
+    if (!secret) {
       throw new InternalServerErrorException('웹훅 검증용 Secret Key가 서버에 설정되지 않았습니다.');
     }
 
@@ -487,7 +534,7 @@ export class ExpensesService {
 
     const payload = `${timestamp}.${transactionId}.${amount}`;
     const expectedSignature = crypto
-      .createHmac('sha256', this.WEBHOOK_SECRET)
+      .createHmac('sha256', secret) // 지역변수 사용
       .update(payload)
       .digest('hex');
 
@@ -536,11 +583,17 @@ export class ExpensesService {
 
       if (!split) throw new BadRequestException('존재하지 않는 분담 내역입니다.');
 
-      if (split.userId !== currentUserId && split.expense.payerId !== currentUserId && split.expense.createdBy !== currentUserId) {
+      if (
+        split.userId !== currentUserId &&
+        split.expense.payerId !== currentUserId &&
+        split.expense.createdBy !== currentUserId
+      ) {
         throw new ForbiddenException('해당 정산을 완료 처리할 권한이 없습니다.');
       }
     }
 
+    // isBulkComplete: true(기본값)이면 대상 split을 완료(DONE) 처리, false를 명시하면
+    // 요청(REQUESTED) 상태로 되돌린다(철회).
     const isBulkComplete = settleDto?.isBulkComplete ?? true;
     const targetStatus = isBulkComplete ? 'DONE' : 'REQUESTED';
 
