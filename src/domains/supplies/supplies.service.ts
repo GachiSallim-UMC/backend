@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   ExpenseCategory,
+  ExpenseSplitStatus,
   ExpenseStatus,
   GroupRole,
   MessageType,
@@ -253,8 +254,12 @@ export class SuppliesService {
         },
       });
 
+      // Expense만 만들고 끝내면 대상자별 부담금이 없어 정산을 완료할 수 없다. (#222)
+      // 같은 트랜잭션 안에서 분담 내역까지 생성해 EXP-DETAIL-01 / EXP-SETTLE-01과 연결한다.
+      const splits = await this.createEqualSplits(tx, expense.id, supply.groupId, amount, userId);
+
       // 조건부 상태 전이(CAS): 읽어온 prevStatus 그대로일 때만 PURCHASED로 전환.
-      // 동시 요청이 먼저 구매를 확정했다면 count가 0이 되어 트랜잭션 전체(Expense 포함)가 롤백된다.
+      // 동시 요청이 먼저 구매를 확정했다면 count가 0이 되어 트랜잭션 전체(Expense·Split 포함)가 롤백된다.
       const claimed = await tx.supply.updateMany({
         where: { id: supplyId, status: prevStatus },
         data: { status: SupplyStatus.PURCHASED, linkedExpenseId: expense.id },
@@ -270,7 +275,7 @@ export class SuppliesService {
 
       const updated = await tx.supply.findUniqueOrThrow({ where: { id: supplyId } });
 
-      return { expense, updated, prevStatus };
+      return { expense, splits, updated, prevStatus };
     });
 
     const prevStatus = result.prevStatus;
@@ -289,6 +294,11 @@ export class SuppliesService {
         totalAmount: result.expense.totalAmount,
         splitType: result.expense.splitType,
         status: result.expense.status,
+        splits: result.splits.map((split) => ({
+          userId: Number(split.userId),
+          amount: split.amount,
+          status: split.status,
+        })),
       },
       updatedAt: toIsoNoMillis(result.updated.updatedAt),
     };
@@ -361,6 +371,64 @@ export class SuppliesService {
     });
 
     return { supplyId: Number(supply.id) };
+  }
+
+  /**
+   * 구매 완료로 생성된 Expense에 대해 활성 그룹 멤버 전원 기준 균등 분담 내역을 만든다. (#222)
+   *
+   * 분할 규칙은 `ExpensesService.createExpense()`의 EQUAL 로직과 동일하다.
+   * 총액을 인원수로 나눈 몫을 기본 부담금으로 하고, 나머지 1원 단위는 앞에서부터 한 명씩 더 부담한다.
+   * 배분 순서가 흔들리면 같은 입력에도 결과가 달라지므로 userId 오름차순으로 고정한다.
+   *
+   * 선지불자(구매를 수행한 사용자)는 이미 돈을 냈으므로 PRE_PAID, 나머지는 REQUESTED로 생성한다.
+   */
+  private async createEqualSplits(
+    tx: Prisma.TransactionClient,
+    expenseId: bigint,
+    groupId: bigint,
+    totalAmount: number,
+    payerId: bigint,
+  ) {
+    const members = await tx.groupMember.findMany({
+      where: { groupId, leftAt: null, user: { isActive: true } },
+      select: { userId: true },
+      orderBy: { userId: 'asc' },
+    });
+
+    if (members.length === 0) {
+      // 활성 멤버가 없으면 부담금을 나눌 대상이 없다. 구매 요청자 본인은 활성 멤버 검증을
+      // 이미 통과했으므로 정상 흐름에서는 도달하지 않는다.
+      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+        {
+          field: 'groupId',
+          value: String(groupId),
+          reason: '정산을 분담할 활성 그룹 구성원이 없습니다.',
+        },
+      ]);
+    }
+
+    const baseAmount = Math.floor(totalAmount / members.length);
+    let remainder = totalAmount % members.length;
+
+    const data = members.map(({ userId }) => {
+      let amount = baseAmount;
+
+      if (remainder > 0) {
+        amount += 1;
+        remainder -= 1;
+      }
+
+      return {
+        expenseId,
+        userId,
+        amount,
+        status: userId === payerId ? ExpenseSplitStatus.PRE_PAID : ExpenseSplitStatus.REQUESTED,
+      };
+    });
+
+    await tx.expenseSplit.createMany({ data });
+
+    return data;
   }
 
   private async createLowStockNotifications(
