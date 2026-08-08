@@ -403,7 +403,10 @@ export class RulesService {
       throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
     }
 
-    const deletedRule = await this.prisma.rule.delete({ where: { id: ruleId } });
+    const [, deletedRule] = await this.prisma.$transaction([
+      this.prisma.ruleLog.deleteMany({ where: { ruleId } }),
+      this.prisma.rule.delete({ where: { id: ruleId } }),
+    ]);
 
     return { ruleId: Number(deletedRule.id), title: deletedRule.title };
   }

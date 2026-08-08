@@ -28,6 +28,7 @@ type MockedPrisma = {
   };
   ruleLog: {
     create: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    deleteMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   $transaction: jest.MockedFunction<(args: Promise<unknown>[]) => Promise<unknown[]>>;
   groupMember: {
@@ -65,6 +66,7 @@ describe('RulesService', () => {
       },
       ruleLog: {
         create: jest.fn<() => Promise<unknown>>(),
+        deleteMany: jest.fn<() => Promise<unknown>>(),
       },
       $transaction: jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations)),
       groupMember: {
@@ -289,11 +291,14 @@ describe('RulesService', () => {
   it('deletes a rule and returns the deleted id', async () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 1n, groupId: 1n });
     prisma.groupMember.findUnique.mockResolvedValue({ role: GroupRole.MEMBER, leftAt: null });
+    prisma.ruleLog.deleteMany.mockResolvedValue({ count: 1 });
     prisma.rule.delete.mockResolvedValue({ id: 123n, title: '삭제 규칙' });
 
     const result = await service.deleteRule(123n, 1n);
 
     expect(result).toEqual({ ruleId: 123, title: '삭제 규칙' });
+    expect(prisma.ruleLog.deleteMany).toHaveBeenCalledWith({ where: { ruleId: 123n } });
+    expect(prisma.$transaction).toHaveBeenCalled();
     expect(prisma.rule.delete).toHaveBeenCalledWith({ where: { id: 123n } });
   });
 
