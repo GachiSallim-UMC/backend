@@ -4,6 +4,7 @@ import {
   CognitoIdentityProviderClient,
   ConfirmSignUpCommand,
   GetUserCommand,
+  ResendConfirmationCodeCommand,
   SignUpCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { Inject, Injectable } from '@nestjs/common';
@@ -17,6 +18,7 @@ import { AuthAccountResponseDto } from '../account/dto/auth-account-response.dto
 import { AuthContext } from '../common/auth-context.interface';
 import { COGNITO_IDP_CLIENT } from '../common/cognito.constants';
 import { ConfirmSignupDto, ConfirmSignupResponseDto } from './dto/confirm-signup.dto';
+import { ResendSignupEmailDto, ResendSignupEmailResponseDto } from './dto/resend-signup-email.dto';
 import { SocialSignupDto } from './dto/social-signup.dto';
 import { SignupDto, SignupResponseDto } from './dto/signup.dto';
 
@@ -133,6 +135,34 @@ export class AuthRegistrationService {
     });
 
     return { userId: Number(user.id), email: identity.email, confirmed: true };
+  }
+
+  async resendSignupEmail(dto: ResendSignupEmailDto): Promise<ResendSignupEmailResponseDto> {
+    const identity = await this.prisma.userAuthIdentity.findFirst({
+      where: { email: dto.email, provider: AuthProvider.COGNITO },
+      include: { user: true },
+    });
+
+    if (!identity) {
+      throw new BusinessException(ErrorCode.AUTH_ACCOUNT_NOT_FOUND);
+    }
+
+    if (identity.user.isActive) {
+      throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_CONFIRMED);
+    }
+
+    try {
+      await this.cognitoClient.send(
+        new ResendConfirmationCodeCommand({
+          ClientId: this.configService.getOrThrow<string>('COGNITO_CLIENT_ID'),
+          Username: dto.email,
+        }),
+      );
+    } catch (error) {
+      this.throwResendSignupEmailError(error);
+    }
+
+    return { email: identity.email, resent: true };
   }
 
   async socialSignup(auth: AuthContext, dto: SocialSignupDto): Promise<AuthAccountResponseDto> {
@@ -351,6 +381,20 @@ export class AuthRegistrationService {
         throw new BusinessException(ErrorCode.AUTH_EXPIRED_CONFIRMATION_CODE);
       case 'UserNotFoundException':
         throw new BusinessException(ErrorCode.AUTH_ACCOUNT_NOT_FOUND);
+      case 'TooManyRequestsException':
+      case 'LimitExceededException':
+        throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+      default:
+        throw new BusinessException(ErrorCode.AUTH_PROVIDER_ERROR);
+    }
+  }
+
+  private throwResendSignupEmailError(error: unknown): never {
+    switch (this.getErrorName(error)) {
+      case 'UserNotFoundException':
+        throw new BusinessException(ErrorCode.AUTH_ACCOUNT_NOT_FOUND);
+      case 'InvalidParameterException':
+        throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_CONFIRMED);
       case 'TooManyRequestsException':
       case 'LimitExceededException':
         throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);

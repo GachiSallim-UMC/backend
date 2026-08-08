@@ -4,9 +4,11 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
 
 import { AuthAccountResponseDto } from '../account/dto/auth-account-response.dto';
@@ -14,6 +16,7 @@ import { AuthContext } from '../common/auth-context.interface';
 import { CognitoAccessTokenGuard } from '../common/cognito-access-token.guard';
 import { CurrentAuth } from '../common/current-auth.decorator';
 import { ConfirmSignupDto, ConfirmSignupResponseDto } from './dto/confirm-signup.dto';
+import { ResendSignupEmailDto, ResendSignupEmailResponseDto } from './dto/resend-signup-email.dto';
 import { SocialSignupDto } from './dto/social-signup.dto';
 import { SignupDto, SignupResponseDto } from './dto/signup.dto';
 import { AuthRegistrationService } from './registration.service';
@@ -42,6 +45,19 @@ export class AuthRegistrationController {
   @ApiBadGatewayResponse({ description: '인증 서비스 요청에 실패했습니다.' })
   confirmSignup(@Body() dto: ConfirmSignupDto): Promise<ConfirmSignupResponseDto> {
     return this.registrationService.confirmSignup(dto);
+  }
+
+  @Post('signup/resend')
+  @HttpCode(200)
+  @ApiOperation({ summary: '회원가입 인증메일 재전송' })
+  @ApiOkResponse({ type: ResendSignupEmailResponseDto })
+  @ApiBadRequestResponse({ description: '요청이 올바르지 않습니다.' })
+  @ApiNotFoundResponse({ description: '가입 계정을 찾을 수 없습니다.' })
+  @ApiConflictResponse({ description: '이미 이메일 인증이 완료된 계정입니다.' })
+  @ApiTooManyRequestsResponse({ description: '인증 서비스 요청 제한을 초과했습니다.' })
+  @ApiBadGatewayResponse({ description: '인증 서비스 요청에 실패했습니다.' })
+  resendSignupEmail(@Body() dto: ResendSignupEmailDto): Promise<ResendSignupEmailResponseDto> {
+    return this.registrationService.resendSignupEmail(dto);
   }
 
   @Post('social/signup')
