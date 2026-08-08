@@ -191,6 +191,34 @@ describe('BackendStack', () => {
     }
   });
 
+  it('exposes signup endpoints without JWT authentication', () => {
+    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+      Conditions: Match.arrayWith([
+        Match.objectLike({
+          Field: 'path-pattern',
+          PathPatternConfig: {
+            Values: Match.arrayWith([
+              '/api/v1/auth/signup',
+              '/api/v1/auth/signup/confirm',
+              '/api/v1/auth/signup/resend',
+            ]),
+          },
+        }),
+      ]),
+    });
+
+    const listenerRules = template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule');
+    const signupRules = Object.values(listenerRules).filter((rule) =>
+      JSON.stringify(rule).includes('/api/v1/auth/signup/resend'),
+    );
+
+    expect(signupRules).toHaveLength(2);
+    for (const rule of signupRules) {
+      expect(JSON.stringify(rule)).not.toContain('jwt-validation');
+    }
+  });
+
   it('exposes Swagger documents only on the development domain', () => {
     template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
       Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
