@@ -1,5 +1,6 @@
 /// <reference types="jest" />
 import { jest } from '@jest/globals';
+import { GroupRole } from '@prisma/client';
 
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -27,6 +28,7 @@ type MockedPrisma = {
   };
   ruleLog: {
     create: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    deleteMany: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   $transaction: jest.MockedFunction<(args: Promise<unknown>[]) => Promise<unknown[]>>;
   groupMember: {
@@ -64,6 +66,7 @@ describe('RulesService', () => {
       },
       ruleLog: {
         create: jest.fn<() => Promise<unknown>>(),
+        deleteMany: jest.fn<() => Promise<unknown>>(),
       },
       $transaction: jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations)),
       groupMember: {
@@ -287,12 +290,27 @@ describe('RulesService', () => {
 
   it('deletes a rule and returns the deleted id', async () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 1n, groupId: 1n });
+    prisma.groupMember.findUnique.mockResolvedValue({ role: GroupRole.MEMBER, leftAt: null });
+    prisma.ruleLog.deleteMany.mockResolvedValue({ count: 1 });
     prisma.rule.delete.mockResolvedValue({ id: 123n, title: '삭제 규칙' });
 
     const result = await service.deleteRule(123n, 1n);
 
     expect(result).toEqual({ ruleId: 123, title: '삭제 규칙' });
+    expect(prisma.ruleLog.deleteMany).toHaveBeenCalledWith({ where: { ruleId: 123n } });
+    expect(prisma.$transaction).toHaveBeenCalled();
     expect(prisma.rule.delete).toHaveBeenCalledWith({ where: { id: 123n } });
+  });
+
+  it('allows a group admin to delete another user rule', async () => {
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 2n, groupId: 1n });
+    prisma.groupMember.findUnique.mockResolvedValue({ role: GroupRole.ADMIN, leftAt: null });
+    prisma.rule.delete.mockResolvedValue({ id: 123n, title: '삭제 규칙' });
+
+    await expect(service.deleteRule(123n, 1n)).resolves.toEqual({
+      ruleId: 123,
+      title: '삭제 규칙',
+    });
   });
 
   it('throws when the rule does not exist', async () => {
@@ -303,8 +321,22 @@ describe('RulesService', () => {
 
   it('throws when trying to delete a rule by another user', async () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 2n, groupId: 1n });
+    prisma.groupMember.findUnique.mockResolvedValue({ role: GroupRole.MEMBER, leftAt: null });
 
     await expect(service.deleteRule(123n, 1n)).rejects.toMatchObject({ code: 'COMMON_403' });
+    expect(prisma.rule.delete).not.toHaveBeenCalled();
+  });
+
+  it('throws when a former group admin tries to delete another user rule', async () => {
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, userId: 2n, groupId: 1n });
+    prisma.groupMember.findUnique.mockResolvedValue({
+      role: GroupRole.ADMIN,
+      leftAt: new Date('2026-08-01T00:00:00.000Z'),
+    });
+
+    await expect(service.deleteRule(123n, 1n)).rejects.toMatchObject({
+      code: 'GROUP_MEMBER_NOT_FOUND',
+    });
     expect(prisma.rule.delete).not.toHaveBeenCalled();
   });
 

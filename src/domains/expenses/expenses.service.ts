@@ -15,7 +15,13 @@ import { SettleSplitDto } from './dto/settle-split.dto';
 import { ExpenseNotFoundException } from './expenses.exception';
 import { ReceiptImageService } from './receipt-image.service';
 import { AuthContext } from '../auth/common/auth-context.interface';
-import { ExpenseCategory, MessageType, ExpenseSplitStatus, SplitType } from '@prisma/client';
+import {
+  ExpenseCategory,
+  MessageType,
+  ExpenseSplitStatus,
+  SplitType,
+  GroupRole,
+} from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import * as crypto from 'crypto';
@@ -406,8 +412,19 @@ export class ExpensesService {
     });
     if (!expense) throw new ExpenseNotFoundException();
 
-    if (expense.createdBy !== currentUserId) {
-      throw new ForbiddenException('정산 삭제 권한이 없습니다. (생성자만 가능)');
+    const membership = await this.prisma.groupMember.findFirst({
+      where: {
+        groupId: expense.groupId,
+        userId: currentUserId,
+        leftAt: null,
+      },
+    });
+
+    if (
+      !membership ||
+      (expense.createdBy !== currentUserId && membership.role !== GroupRole.ADMIN)
+    ) {
+      throw new ForbiddenException('정산 삭제 권한이 없습니다. (생성자 또는 관리자만 가능)');
     }
 
     await this.prisma.expense.delete({
