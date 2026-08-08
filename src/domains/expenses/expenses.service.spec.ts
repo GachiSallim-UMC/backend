@@ -17,7 +17,7 @@ import { CreateExpenseDto } from './dto/create-expense.dto';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code.constant';
-import { ExpenseCategory, SplitType, ExpenseSplitStatus } from '@prisma/client';
+import { ExpenseCategory, SplitType, ExpenseSplitStatus, GroupRole } from '@prisma/client';
 import * as crypto from 'crypto';
 
 const mockPrismaService = (): any => {
@@ -111,7 +111,12 @@ describe('ExpensesService', () => {
     prisma = module.get<PrismaService>(PrismaService);
 
     prisma.user.findFirst.mockResolvedValue({ id: BigInt(12) });
-    prisma.groupMember.findFirst.mockResolvedValue({ id: BigInt(1), groupId: BigInt(1), userId: BigInt(12) });
+    prisma.groupMember.findFirst.mockResolvedValue({
+      id: BigInt(1),
+      groupId: BigInt(1),
+      userId: BigInt(12),
+      role: GroupRole.MEMBER,
+    });
   });
 
   it('should be defined', () => {
@@ -726,7 +731,11 @@ describe('updateExpense', () => {
     });
 
     it('지출 내역을 성공적으로 삭제해야 한다', async () => {
-      prisma.expense.findUnique.mockResolvedValue({ id: BigInt(1), createdBy: BigInt(12) });
+      prisma.expense.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        groupId: BigInt(1),
+        createdBy: BigInt(12),
+      });
       prisma.expense.delete.mockResolvedValue({ id: BigInt(1) });
 
       const result = await service.deleteExpense(mockAuthContext, 1);
@@ -737,9 +746,52 @@ describe('updateExpense', () => {
       expect(receiptImages.deleteObject).not.toHaveBeenCalled();
     });
 
+    it('그룹 관리자는 다른 사용자가 작성한 지출 내역을 삭제할 수 있어야 한다', async () => {
+      prisma.expense.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        groupId: BigInt(1),
+        createdBy: BigInt(99),
+      });
+      prisma.groupMember.findFirst.mockResolvedValue({ role: GroupRole.ADMIN });
+      prisma.expense.delete.mockResolvedValue({ id: BigInt(1) });
+
+      await expect(service.deleteExpense(mockAuthContext, 1)).resolves.toMatchObject({
+        deletedExpenseId: 1,
+      });
+    });
+
+    it('일반 그룹 구성원은 다른 사용자가 작성한 지출 내역을 삭제할 수 없어야 한다', async () => {
+      prisma.expense.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        groupId: BigInt(1),
+        createdBy: BigInt(99),
+      });
+      prisma.groupMember.findFirst.mockResolvedValue({ role: GroupRole.MEMBER });
+
+      await expect(service.deleteExpense(mockAuthContext, 1)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(prisma.expense.delete).not.toHaveBeenCalled();
+    });
+
+    it('탈퇴한 그룹 관리자는 다른 사용자가 작성한 지출 내역을 삭제할 수 없어야 한다', async () => {
+      prisma.expense.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        groupId: BigInt(1),
+        createdBy: BigInt(99),
+      });
+      prisma.groupMember.findFirst.mockResolvedValue(null);
+
+      await expect(service.deleteExpense(mockAuthContext, 1)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(prisma.expense.delete).not.toHaveBeenCalled();
+    });
+
     it('영수증 이미지가 첨부된 지출을 삭제하면 해당 S3 오브젝트도 정리해야 한다', async () => {
       prisma.expense.findUnique.mockResolvedValue({
         id: BigInt(1),
+        groupId: BigInt(1),
         createdBy: BigInt(12),
         receiptUrl: 'develop/receipts/5/12/uuid.jpg',
       });

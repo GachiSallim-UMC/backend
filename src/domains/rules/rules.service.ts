@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { MessageType, RuleAction } from '@prisma/client';
+import { GroupRole, MessageType, RuleAction } from '@prisma/client';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -397,7 +397,9 @@ export class RulesService {
       throw new BusinessException(ErrorCode.COMMON_NOT_FOUND);
     }
 
-    if (rule.userId !== currentUserId) {
+    const membership = await this.requireActiveGroupMemberOrThrow(rule.groupId, currentUserId);
+
+    if (rule.userId !== currentUserId && membership.role !== GroupRole.ADMIN) {
       throw new BusinessException(ErrorCode.COMMON_FORBIDDEN);
     }
 
