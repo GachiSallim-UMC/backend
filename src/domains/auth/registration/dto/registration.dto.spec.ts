@@ -2,6 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
 import { ConfirmSignupDto } from './confirm-signup.dto';
+import { ResendSignupEmailDto } from './resend-signup-email.dto';
 import { SignupDto } from './signup.dto';
 import { SocialSignupDto } from './social-signup.dto';
 
@@ -46,6 +47,23 @@ describe('registration DTOs', () => {
     const errors = await validate(dto);
 
     expect(errors.some((error) => error.property === 'confirmationCode')).toBe(true);
+  });
+
+  it('accepts a resend request and normalizes its email', async () => {
+    const dto = plainToInstance(ResendSignupEmailDto, {
+      email: ' User@Example.com ',
+    });
+
+    await expect(validate(dto)).resolves.toHaveLength(0);
+    expect(dto.email).toBe('user@example.com');
+  });
+
+  it('rejects an invalid resend email', async () => {
+    const dto = plainToInstance(ResendSignupEmailDto, { email: 'not-an-email' });
+
+    const errors = await validate(dto);
+
+    expect(errors.some((error) => error.property === 'email')).toBe(true);
   });
 
   it('accepts and trims a valid social signup profile', async () => {

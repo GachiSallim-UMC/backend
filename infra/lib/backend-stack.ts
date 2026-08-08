@@ -1175,6 +1175,7 @@ done`,
           elbv2.ListenerCondition.pathPatterns([
             '/api/v1/auth/signup',
             '/api/v1/auth/signup/confirm',
+            '/api/v1/auth/signup/resend',
           ]),
           elbv2.ListenerCondition.httpRequestMethods(['POST']),
         ],

@@ -3,12 +3,14 @@ import {
   AdminGetUserCommand,
   CognitoIdentityProviderClient,
   ConfirmSignUpCommand,
+  ResendConfirmationCodeCommand,
   SignUpCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ConfirmSignupDto } from './dto/confirm-signup.dto';
+import { ResendSignupEmailDto } from './dto/resend-signup-email.dto';
 import { SignupDto } from './dto/signup.dto';
 import { AuthRegistrationService } from './registration.service';
 
@@ -23,6 +25,7 @@ describe('AuthRegistrationService', () => {
     email: signupDto.email,
     confirmationCode: '123456',
   };
+  const resendDto: ResendSignupEmailDto = { email: signupDto.email };
 
   let send: jest.Mock;
   let createUser: jest.Mock;
@@ -209,5 +212,117 @@ describe('AuthRegistrationService', () => {
       confirmed: true,
     });
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('resends the signup confirmation email for an inactive Cognito user', async () => {
+    findIdentity.mockResolvedValue({
+      email: signupDto.email,
+      user: { isActive: false },
+    });
+    send
+      .mockResolvedValueOnce({ UserStatus: 'UNCONFIRMED', Enabled: true })
+      .mockResolvedValueOnce({});
+
+    await expect(service.resendSignupEmail(resendDto)).resolves.toEqual({
+      email: signupDto.email,
+      resent: true,
+    });
+    expect(send).toHaveBeenNthCalledWith(1, expect.any(AdminGetUserCommand));
+    expect(send).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        input: {
+          ClientId: 'client-id',
+          Username: signupDto.email,
+        },
+      }),
+    );
+  });
+
+  it('rejects a resend request when the local Cognito account does not exist', async () => {
+    findIdentity.mockResolvedValue(null);
+
+    await expect(service.resendSignupEmail(resendDto)).rejects.toMatchObject({
+      code: 'AUTH_ACCOUNT_NOT_FOUND',
+    });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('rejects a resend request when a deleted local identity has no Cognito user', async () => {
+    findIdentity.mockResolvedValue({
+      email: signupDto.email,
+      user: { isActive: false },
+    });
+    send.mockRejectedValueOnce({ name: 'UserNotFoundException' });
+
+    await expect(service.resendSignupEmail(resendDto)).rejects.toMatchObject({
+      code: 'AUTH_ACCOUNT_NOT_FOUND',
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(expect.any(AdminGetUserCommand));
+    expect(send).not.toHaveBeenCalledWith(expect.any(ResendConfirmationCodeCommand));
+  });
+
+  it.each([
+    ['LimitExceededException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['TooManyRequestsException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['InternalErrorException', 'AUTH_PROVIDER_ERROR'],
+  ])('maps %s while checking Cognito state before resending', async (name, code) => {
+    findIdentity.mockResolvedValue({
+      email: signupDto.email,
+      user: { isActive: false },
+    });
+    send.mockRejectedValueOnce({ name });
+
+    await expect(service.resendSignupEmail(resendDto)).rejects.toMatchObject({ code });
+    expect(send).not.toHaveBeenCalledWith(expect.any(ResendConfirmationCodeCommand));
+  });
+
+  it.each([
+    ['CONFIRMED', true, 'AUTH_EMAIL_ALREADY_CONFIRMED'],
+    ['UNCONFIRMED', false, 'AUTH_ACCOUNT_NOT_FOUND'],
+  ])(
+    'rejects Cognito status %s with enabled=%s before resending',
+    async (userStatus, enabled, code) => {
+      findIdentity.mockResolvedValue({
+        email: signupDto.email,
+        user: { isActive: false },
+      });
+      send.mockResolvedValueOnce({ UserStatus: userStatus, Enabled: enabled });
+
+      await expect(service.resendSignupEmail(resendDto)).rejects.toMatchObject({ code });
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).not.toHaveBeenCalledWith(expect.any(ResendConfirmationCodeCommand));
+    },
+  );
+
+  it('rejects a resend request when signup is already confirmed', async () => {
+    findIdentity.mockResolvedValue({
+      email: signupDto.email,
+      user: { isActive: true },
+    });
+
+    await expect(service.resendSignupEmail(resendDto)).rejects.toMatchObject({
+      code: 'AUTH_EMAIL_ALREADY_CONFIRMED',
+    });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['UserNotFoundException', 'AUTH_ACCOUNT_NOT_FOUND'],
+    ['InvalidParameterException', 'AUTH_EMAIL_ALREADY_CONFIRMED'],
+    ['LimitExceededException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['TooManyRequestsException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['CodeDeliveryFailureException', 'AUTH_PROVIDER_ERROR'],
+  ])('maps %s while resending the signup email', async (name, code) => {
+    findIdentity.mockResolvedValue({
+      email: signupDto.email,
+      user: { isActive: false },
+    });
+    send
+      .mockResolvedValueOnce({ UserStatus: 'UNCONFIRMED', Enabled: true })
+      .mockRejectedValueOnce({ name });
+
+    await expect(service.resendSignupEmail(resendDto)).rejects.toMatchObject({ code });
   });
 });

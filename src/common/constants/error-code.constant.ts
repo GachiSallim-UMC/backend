@@ -57,6 +57,11 @@ export const ErrorCode = {
     code: 'AUTH_EMAIL_NOT_CONFIRMED',
     message: '이메일 확인이 필요합니다.',
   },
+  AUTH_EMAIL_ALREADY_CONFIRMED: {
+    status: 409,
+    code: 'AUTH_EMAIL_ALREADY_CONFIRMED',
+    message: '이미 이메일 인증이 완료된 계정입니다.',
+  },
   AUTH_INVALID_CONFIRMATION_CODE: {
     status: 400,
     code: 'AUTH_INVALID_CONFIRMATION_CODE',
