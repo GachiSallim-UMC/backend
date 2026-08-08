@@ -151,6 +151,8 @@ export class AuthRegistrationService {
       throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_CONFIRMED);
     }
 
+    await this.assertCognitoUserAwaitingConfirmation(dto.email);
+
     try {
       await this.cognitoClient.send(
         new ResendConfirmationCodeCommand({
@@ -353,6 +355,40 @@ export class AuthRegistrationService {
         default:
           throw new BusinessException(ErrorCode.AUTH_PROVIDER_ERROR);
       }
+    }
+  }
+
+  private async assertCognitoUserAwaitingConfirmation(username: string): Promise<void> {
+    let userStatus: string | undefined;
+    let enabled: boolean | undefined;
+
+    try {
+      const response = await this.cognitoClient.send(
+        new AdminGetUserCommand({
+          UserPoolId: this.configService.getOrThrow<string>('COGNITO_USER_POOL_ID'),
+          Username: username,
+        }),
+      );
+      userStatus = response.UserStatus;
+      enabled = response.Enabled;
+    } catch (error) {
+      switch (this.getErrorName(error)) {
+        case 'UserNotFoundException':
+          throw new BusinessException(ErrorCode.AUTH_ACCOUNT_NOT_FOUND);
+        case 'LimitExceededException':
+        case 'TooManyRequestsException':
+          throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
+        default:
+          throw new BusinessException(ErrorCode.AUTH_PROVIDER_ERROR);
+      }
+    }
+
+    if (userStatus === 'CONFIRMED') {
+      throw new BusinessException(ErrorCode.AUTH_EMAIL_ALREADY_CONFIRMED);
+    }
+
+    if (userStatus !== 'UNCONFIRMED' || enabled !== true) {
+      throw new BusinessException(ErrorCode.AUTH_ACCOUNT_NOT_FOUND);
     }
   }
 

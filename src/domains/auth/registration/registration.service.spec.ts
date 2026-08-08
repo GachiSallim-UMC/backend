@@ -219,14 +219,17 @@ describe('AuthRegistrationService', () => {
       email: signupDto.email,
       user: { isActive: false },
     });
-    send.mockResolvedValueOnce({});
+    send
+      .mockResolvedValueOnce({ UserStatus: 'UNCONFIRMED', Enabled: true })
+      .mockResolvedValueOnce({});
 
     await expect(service.resendSignupEmail(resendDto)).resolves.toEqual({
       email: signupDto.email,
       resent: true,
     });
-    expect(send).toHaveBeenCalledWith(expect.any(ResendConfirmationCodeCommand));
-    expect(send).toHaveBeenCalledWith(
+    expect(send).toHaveBeenNthCalledWith(1, expect.any(AdminGetUserCommand));
+    expect(send).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         input: {
           ClientId: 'client-id',
@@ -244,6 +247,54 @@ describe('AuthRegistrationService', () => {
     });
     expect(send).not.toHaveBeenCalled();
   });
+
+  it('rejects a resend request when a deleted local identity has no Cognito user', async () => {
+    findIdentity.mockResolvedValue({
+      email: signupDto.email,
+      user: { isActive: false },
+    });
+    send.mockRejectedValueOnce({ name: 'UserNotFoundException' });
+
+    await expect(service.resendSignupEmail(resendDto)).rejects.toMatchObject({
+      code: 'AUTH_ACCOUNT_NOT_FOUND',
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(expect.any(AdminGetUserCommand));
+    expect(send).not.toHaveBeenCalledWith(expect.any(ResendConfirmationCodeCommand));
+  });
+
+  it.each([
+    ['LimitExceededException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['TooManyRequestsException', 'AUTH_TOO_MANY_REQUESTS'],
+    ['InternalErrorException', 'AUTH_PROVIDER_ERROR'],
+  ])('maps %s while checking Cognito state before resending', async (name, code) => {
+    findIdentity.mockResolvedValue({
+      email: signupDto.email,
+      user: { isActive: false },
+    });
+    send.mockRejectedValueOnce({ name });
+
+    await expect(service.resendSignupEmail(resendDto)).rejects.toMatchObject({ code });
+    expect(send).not.toHaveBeenCalledWith(expect.any(ResendConfirmationCodeCommand));
+  });
+
+  it.each([
+    ['CONFIRMED', true, 'AUTH_EMAIL_ALREADY_CONFIRMED'],
+    ['UNCONFIRMED', false, 'AUTH_ACCOUNT_NOT_FOUND'],
+  ])(
+    'rejects Cognito status %s with enabled=%s before resending',
+    async (userStatus, enabled, code) => {
+      findIdentity.mockResolvedValue({
+        email: signupDto.email,
+        user: { isActive: false },
+      });
+      send.mockResolvedValueOnce({ UserStatus: userStatus, Enabled: enabled });
+
+      await expect(service.resendSignupEmail(resendDto)).rejects.toMatchObject({ code });
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).not.toHaveBeenCalledWith(expect.any(ResendConfirmationCodeCommand));
+    },
+  );
 
   it('rejects a resend request when signup is already confirmed', async () => {
     findIdentity.mockResolvedValue({
@@ -268,7 +319,9 @@ describe('AuthRegistrationService', () => {
       email: signupDto.email,
       user: { isActive: false },
     });
-    send.mockRejectedValueOnce({ name });
+    send
+      .mockResolvedValueOnce({ UserStatus: 'UNCONFIRMED', Enabled: true })
+      .mockRejectedValueOnce({ name });
 
     await expect(service.resendSignupEmail(resendDto)).rejects.toMatchObject({ code });
   });
