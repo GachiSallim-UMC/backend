@@ -62,8 +62,8 @@ export class RulesController {
     @CurrentAuth() auth: AuthContext,
     @Query() query: ListRulesQueryDto,
   ): Promise<RuleListResponseDto> {
-    await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
-    return this.rulesService.getRules(query);
+    const requesterId = await this.authenticatedUsers.resolveActiveUserId(auth.cognitoSub);
+    return this.rulesService.getRules(query, requesterId);
   }
 
   @Get(':ruleId')

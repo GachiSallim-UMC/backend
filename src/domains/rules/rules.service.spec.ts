@@ -24,6 +24,7 @@ type MockedPrisma = {
     delete: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   ruleAgreement: {
+    findUnique: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
     upsert: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
   ruleLog: {
@@ -62,6 +63,7 @@ describe('RulesService', () => {
         delete: jest.fn<() => Promise<unknown>>(),
       },
       ruleAgreement: {
+        findUnique: jest.fn<() => Promise<unknown>>(),
         upsert: jest.fn<() => Promise<unknown>>(),
       },
       ruleLog: {
@@ -353,15 +355,15 @@ describe('RulesService', () => {
         updatedAt: new Date('2026-01-02T00:00:00.000Z'),
         creator: { id: 8n, nickname: '작성자' },
         agreements: [
-          { status: 'AGREED' },
-          { status: 'DISAGREED' },
-          { status: 'PENDING' },
-          { status: 'AGREED' },
+          { userId: 8n, status: 'AGREED' },
+          { userId: 9n, status: 'DISAGREED' },
+          { userId: 10n, status: 'PENDING' },
+          { userId: 11n, status: 'AGREED' },
         ],
       },
     ]);
 
-    const result = await service.getRules({ groupId: 10 });
+    const result = await service.getRules({ groupId: 10 }, 9n);
 
     expect(result).toEqual({
       rules: [
@@ -376,6 +378,7 @@ describe('RulesService', () => {
             userId: 8,
             nickname: '작성자',
           },
+          myAgreementStatus: 'DISAGREED',
           agreementSummary: {
             totalCount: 4,
             agreedCount: 2,
@@ -533,6 +536,7 @@ describe('RulesService', () => {
     const anyDate = expect.any(Date) as unknown as Date;
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
     prisma.groupMember.findUnique.mockResolvedValue({ id: 1n, leftAt: null });
+    prisma.ruleAgreement.findUnique.mockResolvedValue(null);
     prisma.ruleAgreement.upsert.mockResolvedValue({
       id: 15n,
       ruleId: 123n,
@@ -584,6 +588,7 @@ describe('RulesService', () => {
   it('clears the confirmation time when a rule agreement becomes pending', async () => {
     prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
     prisma.groupMember.findUnique.mockResolvedValue({ id: 1n, leftAt: null });
+    prisma.ruleAgreement.findUnique.mockResolvedValue({ status: 'AGREED' });
     prisma.ruleAgreement.upsert.mockResolvedValue({
       id: 15n,
       ruleId: 123n,
@@ -621,6 +626,35 @@ describe('RulesService', () => {
         snapshot: JSON.stringify({ status: RuleAgreementStatusValue.PENDING }),
       },
     });
+  });
+
+  it('does not update or create a log when the agreement status is unchanged', async () => {
+    const confirmedAt = new Date('2026-07-03T13:30:00.000Z');
+    prisma.rule.findUnique.mockResolvedValue({ id: 123n, groupId: 1n });
+    prisma.groupMember.findUnique.mockResolvedValue({ id: 1n, leftAt: null });
+    prisma.ruleAgreement.findUnique.mockResolvedValue({
+      id: 15n,
+      ruleId: 123n,
+      userId: 5n,
+      status: 'AGREED',
+      confirmedAt,
+    });
+
+    await expect(
+      service.updateRuleAgreement(
+        123n,
+        { status: RuleAgreementStatusValue.AGREED },
+        5n,
+      ),
+    ).resolves.toEqual({
+      agreementId: 15,
+      ruleId: 123,
+      userId: 5,
+      status: 'AGREED',
+      confirmedAt: confirmedAt.toISOString(),
+    });
+    expect(prisma.ruleAgreement.upsert).not.toHaveBeenCalled();
+    expect(prisma.ruleLog.create).not.toHaveBeenCalled();
   });
 
   it('throws when updating an agreement for a missing rule', async () => {
