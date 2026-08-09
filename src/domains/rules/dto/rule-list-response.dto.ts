@@ -44,6 +44,14 @@ export class RuleListItemDto {
   @ApiProperty({ type: RuleCreatorDto, description: '등록자 정보' })
   createdBy!: RuleCreatorDto;
 
+  @ApiProperty({
+    enum: ['AGREED', 'DISAGREED', 'PENDING'],
+    example: 'AGREED',
+    description: '요청한 사용자의 동의 상태',
+    nullable: true,
+  })
+  myAgreementStatus!: string | null;
+
   @ApiProperty({ type: RuleAgreementSummaryDto, description: '동의 요약 정보' })
   agreementSummary!: RuleAgreementSummaryDto;
 

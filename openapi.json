@@ -4071,6 +4071,7 @@
                           "userId": 5,
                           "nickname": "티니"
                         },
+                        "myAgreementStatus": "AGREED",
                         "agreementSummary": {
                           "totalCount": 3,
                           "agreedCount": 2,

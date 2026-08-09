@@ -22,7 +22,7 @@ export class RulesService {
     private readonly ruleStatusService: RuleStatusService,
   ) {}
 
-  async getRules(query: ListRulesQueryDto): Promise<RuleListResponseDto> {
+  async getRules(query: ListRulesQueryDto, currentUserId: bigint): Promise<RuleListResponseDto> {
     const where = {
       groupId: BigInt(query.groupId),
       ...(query.status ? { status: query.status } : {}),
@@ -54,6 +54,9 @@ export class RulesService {
         const pendingCount = agreements.filter(
           (agreement) => agreement.status === 'PENDING',
         ).length;
+        const myAgreement = agreements.find(
+          (agreement) => agreement.userId === currentUserId,
+        );
 
         return {
           ruleId: Number(rule.id),
@@ -66,6 +69,7 @@ export class RulesService {
             userId: Number(rule.creator.id),
             nickname: rule.creator.nickname,
           },
+          myAgreementStatus: myAgreement?.status ?? null,
           agreementSummary: {
             totalCount: agreements.length,
             agreedCount,
@@ -353,6 +357,19 @@ export class RulesService {
       [RuleAgreementStatusValue.PENDING]: RuleAction.PENDING,
     };
     const agreement = await this.ruleStatusService.runWithRecalculation(ruleId, async (tx) => {
+      const existingAgreement = await tx.ruleAgreement.findUnique({
+        where: {
+          ruleId_userId: {
+            ruleId,
+            userId: currentUserId,
+          },
+        },
+      });
+
+      if (existingAgreement?.status === dto.status) {
+        return existingAgreement;
+      }
+
       const updatedAgreement = await tx.ruleAgreement.upsert({
         where: {
           ruleId_userId: {
