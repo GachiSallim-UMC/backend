@@ -419,7 +419,15 @@ export class SuppliesService {
     // 그대로 두면 선지불자 없이 남은 멤버에게 총액 전부가 REQUESTED로 배분된다.
     // 분담 대상에 구매자가 포함되어야 한다는 불변식을 여기서 다시 확인하고, 깨지면 롤백한다.
     if (!members.some(({ userId }) => userId === payerId)) {
-      throw new BusinessException(ErrorCode.SUP_FORBIDDEN);
+      // SUP_FORBIDDEN의 공통 메시지는 삭제 권한 기준이라 이 상황을 설명하지 못한다.
+      // 어떤 불변식이 깨졌는지 응답에서 바로 알 수 있도록 상세를 함께 실어 보낸다.
+      throw new BusinessException(ErrorCode.SUP_FORBIDDEN, [
+        {
+          field: 'payerId',
+          value: String(payerId),
+          reason: '구매자가 그룹의 활성 구성원이 아니어서 분담 대상에 포함할 수 없습니다.',
+        },
+      ]);
     }
 
     const baseAmount = Math.floor(totalAmount / members.length);

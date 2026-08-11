@@ -19,6 +19,7 @@ import {
   ApiParam,
   ApiResponse,
   ApiTags,
+  getSchemaPath,
 } from '@nestjs/swagger';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
@@ -30,7 +31,9 @@ import { CreateSupplyDto } from './dto/create-supply.dto';
 import { ListSuppliesQueryDto } from './dto/list-supplies-query.dto';
 import { PurchaseSupplyDto } from './dto/purchase-supply.dto';
 import {
+  PurchaseSupplyExpenseDto,
   PurchaseSupplyExpenseSplitDto,
+  PurchaseSupplyLogDto,
   PurchaseSupplyResponseDto,
 } from './dto/purchase-supply-response.dto';
 import { ShareSupplyDto } from './dto/share-supply.dto';
@@ -42,6 +45,12 @@ import { SuppliesService } from './supplies.service';
 @ApiBearerAuth('BearerAuth')
 @ApiResponse({ status: 401, description: '인증 토큰이 없거나 올바르지 않습니다.' })
 @ApiResponse({ status: 403, description: '그룹 멤버가 아니거나 권한이 없습니다.' })
+@ApiExtraModels(
+  PurchaseSupplyResponseDto,
+  PurchaseSupplyExpenseDto,
+  PurchaseSupplyExpenseSplitDto,
+  PurchaseSupplyLogDto,
+)
 @UseGuards(CognitoAccessTokenGuard)
 @Controller('supplies')
 export class SuppliesController {
@@ -97,8 +106,10 @@ export class SuppliesController {
       '물품을 PURCHASED로 전환하고 구매 금액으로 Expense를 생성한 뒤, 활성 그룹 구성원 전원 기준 균등 분담 내역(ExpenseSplit)까지 같은 트랜잭션에서 생성합니다. 선지불자(구매자)의 분담은 PRE_PAID, 나머지는 REQUESTED로 생성되며, 반환된 splitId로 `PATCH /api/v1/expenses/splits/{splitId}/settle`을 바로 호출할 수 있습니다.',
   })
   @ApiParam({ name: 'supplyId', type: Number, example: 21 })
-  @ApiExtraModels(PurchaseSupplyExpenseSplitDto)
-  @ApiOkResponse({ type: PurchaseSupplyResponseDto, description: '구매 완료 및 정산 연결 성공' })
+  @ApiOkResponse({
+    description: '구매 완료 및 정산 연결 성공',
+    schema: successSchema(PurchaseSupplyResponseDto),
+  })
   purchase(
     @Param('supplyId') supplyId: string,
     @Body() dto: PurchaseSupplyDto,
@@ -140,4 +151,21 @@ export class SuppliesController {
 
     return BigInt(value);
   }
+}
+
+/**
+ * 전역 `ResponseInterceptor`가 반환값을 `{ statusCode, data, error }`로 감싸므로,
+ * 실제 wire 응답과 맞추려면 Swagger 스키마도 envelope를 포함해야 한다.
+ * DTO를 `type`으로 그대로 노출하면 클라이언트가 최상위에서 필드를 찾게 되어 파싱에 실패한다.
+ */
+function successSchema(model: typeof PurchaseSupplyResponseDto, statusCode = 200) {
+  return {
+    type: 'object',
+    required: ['statusCode', 'data', 'error'],
+    properties: {
+      statusCode: { type: 'integer', example: statusCode },
+      data: { $ref: getSchemaPath(model) },
+      error: { type: 'object', nullable: true, example: null },
+    },
+  };
 }

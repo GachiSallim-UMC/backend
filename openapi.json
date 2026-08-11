@@ -3594,12 +3594,18 @@
                   "category": {
                     "type": "string",
                     "enum": [
+                      "FINANCE",
                       "FOOD",
                       "SHOPPING",
+                      "EDUCATION",
+                      "GROCERY",
+                      "TRANSPORT",
+                      "LEISURE",
+                      "CAFE",
                       "UTILITIES",
                       "ETC"
                     ],
-                    "description": "정산 카테고리 (Expense.category, 필수). FOOD(식비), SHOPPING(쇼핑), UTILITIES(공과금), ETC(기타)",
+                    "description": "정산 카테고리 (Expense.category, 필수). FINANCE(금융), FOOD(식비), SHOPPING(쇼핑), EDUCATION(교육), GROCERY(장보기), TRANSPORT(교통), LEISURE(여가), CAFE(카페), UTILITIES(공과금), ETC(기타)",
                     "example": "SHOPPING"
                   },
                   "amount": {
@@ -3657,6 +3663,11 @@
                         },
                         "log": {
                           "type": "object",
+                          "required": [
+                            "prevStatus",
+                            "nextStatus",
+                            "note"
+                          ],
                           "properties": {
                             "prevStatus": {
                               "type": "string",
@@ -3665,8 +3676,7 @@
                                 "SUFFICIENT",
                                 "LOW",
                                 "EMPTY",
-                                "PURCHASED",
-                                null
+                                "PURCHASED"
                               ],
                               "example": "LOW"
                             },
@@ -3707,8 +3717,14 @@
                             "category": {
                               "type": "string",
                               "enum": [
+                                "FINANCE",
                                 "FOOD",
                                 "SHOPPING",
+                                "EDUCATION",
+                                "GROCERY",
+                                "TRANSPORT",
+                                "LEISURE",
+                                "CAFE",
                                 "UTILITIES",
                                 "ETC"
                               ],
@@ -3802,10 +3818,16 @@
                       }
                     },
                     "error": {
+                      "type": "object",
                       "nullable": true,
                       "example": null
                     }
-                  }
+                  },
+                  "required": [
+                    "statusCode",
+                    "data",
+                    "error"
+                  ]
                 },
                 "example": {
                   "statusCode": 200,
@@ -3918,8 +3940,14 @@
                   "data": null,
                   "error": {
                     "code": "SUP_403",
-                    "message": "해당 물품에 대한 권한이 없습니다.",
-                    "errors": []
+                    "message": "공용물품을 삭제할 권한이 없습니다. (등록자 또는 관리자만 가능)",
+                    "errors": [
+                      {
+                        "field": "payerId",
+                        "value": "5",
+                        "reason": "구매자가 그룹의 활성 구성원이 아니어서 분담 대상에 포함할 수 없습니다."
+                      }
+                    ]
                   }
                 }
               }
