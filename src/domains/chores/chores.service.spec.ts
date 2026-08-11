@@ -71,7 +71,116 @@ describe('ChoresService', () => {
         code: 'GROUP_MEMBER_NOT_FOUND',
       });
     });
+  });
 
+  describe('listChores 주간 날짜 범위 필터', () => {
+    beforeEach(() => {
+      prisma.chore.findMany.mockResolvedValue([]);
+    });
+
+    it('fromDate만 전달하면 400 예외를 던진다', async () => {
+      await expect(
+        service.listChores({ groupId: 1, fromDate: '2026-08-10' }, BigInt(9)),
+      ).rejects.toMatchObject({ code: 'COMMON_INVALID_PARAMETER' });
+
+      expect(prisma.chore.findMany).not.toHaveBeenCalled();
+    });
+
+    it('toDate만 전달하면 400 예외를 던진다', async () => {
+      await expect(
+        service.listChores({ groupId: 1, toDate: '2026-08-16' }, BigInt(9)),
+      ).rejects.toMatchObject({ code: 'COMMON_INVALID_PARAMETER' });
+    });
+
+    it('fromDate가 toDate보다 이후면 400 예외를 던진다', async () => {
+      await expect(
+        service.listChores(
+          { groupId: 1, fromDate: '2026-08-16', toDate: '2026-08-10' },
+          BigInt(9),
+        ),
+      ).rejects.toMatchObject({ code: 'COMMON_INVALID_PARAMETER' });
+    });
+
+    it('범위가 7일을 초과하면 400 예외를 던진다', async () => {
+      await expect(
+        service.listChores(
+          { groupId: 1, fromDate: '2026-08-10', toDate: '2026-08-17' },
+          BigInt(9),
+        ),
+      ).rejects.toMatchObject({ code: 'COMMON_INVALID_PARAMETER' });
+    });
+
+    it('정확히 7일 범위는 허용된다', async () => {
+      await service.listChores(
+        { groupId: 1, fromDate: '2026-08-10', toDate: '2026-08-16' },
+        BigInt(9),
+      );
+
+      /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+      expect(prisma.chore.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [
+              {
+                repeatType: RepeatType.NONE,
+                dueDate: null,
+                startDate: {
+                  gte: new Date('2026-08-10T00:00:00.000Z'),
+                  lte: new Date('2026-08-16T00:00:00.000Z'),
+                },
+              },
+              {
+                repeatType: RepeatType.NONE,
+                dueDate: {
+                  gte: new Date('2026-08-10T00:00:00.000Z'),
+                  lte: new Date('2026-08-16T00:00:00.000Z'),
+                },
+              },
+              {
+                repeatType: { not: RepeatType.NONE },
+                startDate: {
+                  gte: new Date('2026-08-10T00:00:00.000Z'),
+                  lte: new Date('2026-08-16T00:00:00.000Z'),
+                },
+              },
+            ],
+          }),
+        }),
+      );
+      /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    });
+
+    it('날짜를 전달하지 않으면 OR 필터 없이 전체 목록을 조회한다', async () => {
+      await service.listChores({ groupId: 1 }, BigInt(9));
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const where = prisma.chore.findMany.mock.calls[0][0] as { where: { OR?: unknown } };
+      expect(where.where.OR).toBeUndefined();
+    });
+
+    it('기존 status, assigneeId 필터와 함께 사용할 수 있다', async () => {
+      await service.listChores(
+        {
+          groupId: 1,
+          status: ChoreStatus.PENDING,
+          assigneeId: 5,
+          fromDate: '2026-08-10',
+          toDate: '2026-08-16',
+        },
+        BigInt(9),
+      );
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const where = prisma.chore.findMany.mock.calls[0][0] as {
+        where: { status?: ChoreStatus; assigneeId?: bigint; OR?: unknown };
+      };
+      expect(where.where.status).toBe(ChoreStatus.PENDING);
+      expect(where.where.assigneeId).toBe(BigInt(5));
+      expect(where.where.OR).toBeDefined();
+    });
+  });
+
+  describe('요청자 그룹 멤버십 검증 (완료/완료취소)', () => {
     it('그룹 멤버가 아니면 완료 처리 시 403 예외를 던진다', async () => {
       prisma.chore.findUnique.mockResolvedValue({
         id: BigInt(1),
