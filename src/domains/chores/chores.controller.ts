@@ -63,7 +63,12 @@ export class ChoresController {
   }
 
   @Put(':choreId')
-  @ApiOperation({ summary: '집안일 수정 (CHORE-EDIT-01)' })
+  @ApiOperation({
+    summary: '집안일 수정 (CHORE-EDIT-01)',
+    description:
+      '반복 집안일의 경우 선택한 회차부터 이후의 기존 미래 회차를 정리하고, 선택 회차만 새 값으로 갱신합니다. ' +
+      '변경된 반복 설정에 따른 미래 회차는 이후 목록 조회 시 다시 채워집니다. 지나간/완료된 이전 회차는 변경되지 않습니다.',
+  })
   @ApiParam({ name: 'choreId', type: Number, example: 11 })
   @ApiResponse({ status: 401, description: '인증이 필요합니다.' })
   @ApiResponse({
@@ -98,8 +103,8 @@ export class ChoresController {
   @ApiOperation({
     summary: '집안일 완료 취소 (CHORE-DONE-02)',
     description:
-      '완료된 집안일을 미완료(PENDING)로 되돌립니다. 완료 처리 시 자동 생성된 다음 회차가 있으면 함께 삭제되며, ' +
-      '삭제된 회차 ID는 removedNextOccurrenceIds로 반환됩니다.',
+      '완료된 집안일을 미완료(PENDING)로 되돌립니다. 완료 시 생성됐을 수 있는 다음 회차는 ' +
+      '독립된 미래 일정이므로 영향을 받지 않습니다.',
   })
   @ApiParam({ name: 'choreId', type: Number, example: 11 })
   @ApiResponse({ status: 401, description: '인증이 필요합니다.' })
@@ -114,7 +119,12 @@ export class ChoresController {
   }
 
   @Delete(':choreId')
-  @ApiOperation({ summary: '집안일 삭제 (CHORE-DEL-01)' })
+  @ApiOperation({
+    summary: '집안일 삭제 (CHORE-DEL-01)',
+    description:
+      '선택한 회차와 이후의 PENDING 상태 미래 회차를 삭제합니다. 과거 완료 이력은 보존되며, ' +
+      '삭제 시점 이후로 회차가 다시 생성되지 않도록 반복이 종료됩니다.',
+  })
   @ApiParam({ name: 'choreId', type: Number, example: 11 })
   @ApiResponse({ status: 401, description: '인증이 필요합니다.' })
   @ApiResponse({
