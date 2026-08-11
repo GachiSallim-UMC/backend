@@ -162,17 +162,76 @@ export class ChoresService {
   async listChores(query: ListChoresQueryDto, requesterId: bigint) {
     await this.requireActiveGroupMemberOrThrow(BigInt(query.groupId), requesterId);
 
+    const dateRange = this.assertAndBuildDateRange(query.fromDate, query.toDate);
+
     const chores = await this.prisma.chore.findMany({
       where: {
         groupId: BigInt(query.groupId),
         status: query.status,
         assigneeId: query.assigneeId ? BigInt(query.assigneeId) : undefined,
+        ...(dateRange ? { OR: this.buildDueDateFilter(dateRange) } : {}),
       },
       include: CHORE_WITH_USERS,
       orderBy: { startDate: 'asc' },
     });
 
     return chores.map((chore) => this.toListItem(chore));
+  }
+
+  /**
+   * fromDate/toDate 쿼리를 검증하고 UTC 자정 기준 Date 범위로 변환한다.
+   * 둘 다 없으면 필터 미적용(null), 하나만 있거나 역전/7일 초과면 400.
+   */
+  private assertAndBuildDateRange(
+    fromDate?: string,
+    toDate?: string,
+  ): { from: Date; to: Date } | null {
+    if (!fromDate && !toDate) {
+      return null;
+    }
+
+    if (!fromDate || !toDate) {
+      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+        {
+          field: !fromDate ? 'fromDate' : 'toDate',
+          value: null,
+          reason: 'fromDate와 toDate는 함께 전달해야 합니다.',
+        },
+      ]);
+    }
+
+    const from = new Date(`${fromDate}T00:00:00.000Z`);
+    const to = new Date(`${toDate}T00:00:00.000Z`);
+
+    if (from > to) {
+      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+        { field: 'fromDate', value: fromDate, reason: 'fromDate는 toDate보다 이후일 수 없습니다.' },
+      ]);
+    }
+
+    const rangeDays = Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+
+    if (rangeDays > 7) {
+      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
+        { field: 'toDate', value: toDate, reason: '주간 조회는 최대 7일 범위까지만 허용됩니다.' },
+      ]);
+    }
+
+    return { from, to };
+  }
+
+  /**
+   * 조회 기준일 규칙: 일회성(repeatType=NONE)은 dueDate ?? startDate,
+   * 반복 집안일은 각 회차의 startDate를 기준으로 범위 필터링한다.
+   */
+  private buildDueDateFilter(range: { from: Date; to: Date }): Prisma.ChoreWhereInput[] {
+    const inRange = { gte: range.from, lte: range.to };
+
+    return [
+      { repeatType: RepeatType.NONE, dueDate: null, startDate: inRange },
+      { repeatType: RepeatType.NONE, dueDate: inRange },
+      { repeatType: { not: RepeatType.NONE }, startDate: inRange },
+    ];
   }
 
   async createChore(dto: CreateChoreDto, createdBy: bigint) {
