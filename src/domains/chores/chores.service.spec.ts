@@ -536,16 +536,18 @@ describe('ChoresService', () => {
     beforeEach(() => {
       prisma.chore.findUnique.mockResolvedValue({ id: BigInt(10), groupId: BigInt(1) });
       prisma.chore.update.mockResolvedValue(fullChoreRecord);
-      prisma.chore.updateMany.mockResolvedValue({ count: 1 });
     });
 
-    it('이미 생성된 미래 회차가 있으면 선택 회차와 함께 동일한 필드를 반영한다', async () => {
+    it('이미 생성된 미래 회차가 있으면 지우고 선택 회차만 새 값으로 갱신한다', async () => {
       prisma.chore.findMany
         .mockResolvedValueOnce([{ id: BigInt(11) }]) // choreId(10)의 자식
         .mockResolvedValueOnce([]); // 11의 자식 없음(체인 종료)
 
       await service.updateChore(BigInt(10), updateDto, BigInt(1));
 
+      expect(prisma.chore.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: [BigInt(11)] } },
+      });
       /* eslint-disable @typescript-eslint/no-unsafe-assignment */
       expect(prisma.chore.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -556,38 +558,37 @@ describe('ChoresService', () => {
           }),
         }),
       );
-      expect(prisma.chore.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: [BigInt(11)] } },
-        data: expect.not.objectContaining({ startDate: expect.anything() }),
-      });
       /* eslint-enable @typescript-eslint/no-unsafe-assignment */
     });
 
-    it('미래 회차가 없으면 updateMany를 호출하지 않는다', async () => {
+    it('미래 회차가 없으면 deleteMany를 호출하지 않는다', async () => {
       prisma.chore.findMany.mockResolvedValueOnce([]);
 
       await service.updateChore(BigInt(10), updateDto, BigInt(1));
 
       expect(prisma.chore.update).toHaveBeenCalledTimes(1);
-      expect(prisma.chore.updateMany).not.toHaveBeenCalled();
+      expect(prisma.chore.deleteMany).not.toHaveBeenCalled();
     });
   });
 
-  describe('deleteChore 회차별 처리 (선택 회차 + 이후 미래 회차)', () => {
+  describe('deleteChore 회차별 처리 (선택 회차 + 이후 PENDING 회차)', () => {
     beforeEach(() => {
       prisma.chore.findUnique.mockResolvedValue({
         id: BigInt(10),
+        parentId: null,
         groupId: BigInt(1),
         createdBy: BigInt(1),
+        repeatType: RepeatType.WEEKLY,
       });
       prisma.chore.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.chore.findMany.mockResolvedValue([]);
     });
 
-    it('선택 회차와 이미 생성된 이후 미래 회차를 모두 삭제한다', async () => {
+    it('선택 회차와 이후 PENDING 회차를 모두 삭제한다', async () => {
       prisma.chore.findMany
-        .mockResolvedValueOnce([{ id: BigInt(11) }])
-        .mockResolvedValueOnce([{ id: BigInt(12) }])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([{ id: BigInt(11) }, { id: BigInt(12) }]) // collectFutureOccurrenceIds: 10의 자식
+        .mockResolvedValueOnce([]) // 자식 체인 종료
+        .mockResolvedValueOnce([{ id: BigInt(11) }, { id: BigInt(12) }]); // 상태 조회: 둘 다 PENDING
 
       const result = await service.deleteChore(BigInt(10), BigInt(1));
 
@@ -595,6 +596,20 @@ describe('ChoresService', () => {
         where: { id: { in: [BigInt(10), BigInt(11), BigInt(12)] } },
       });
       expect(result).toEqual({ choreId: 10, deletedChoreIds: [10, 11, 12] });
+    });
+
+    it('이미 완료된 미래 회차는 삭제하지 않는다', async () => {
+      prisma.chore.findMany
+        .mockResolvedValueOnce([{ id: BigInt(11) }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]); // status=PENDING 필터 결과 없음(11은 DONE이라 걸러짐)
+
+      const result = await service.deleteChore(BigInt(10), BigInt(1));
+
+      expect(prisma.chore.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: [BigInt(10)] } },
+      });
+      expect(result).toEqual({ choreId: 10, deletedChoreIds: [10] });
     });
 
     it('미래 회차가 없으면 선택 회차만 삭제한다', async () => {
@@ -606,6 +621,30 @@ describe('ChoresService', () => {
         where: { id: { in: [BigInt(10)] } },
       });
       expect(result).toEqual({ choreId: 10, deletedChoreIds: [10] });
+    });
+
+    it('부모 회차가 있으면 반복이 재생성되지 않도록 dueDate를 부모의 startDate로 고정한다', async () => {
+      prisma.chore.findUnique
+        .mockResolvedValueOnce({
+          id: BigInt(10),
+          parentId: BigInt(9),
+          groupId: BigInt(1),
+          createdBy: BigInt(1),
+          repeatType: RepeatType.WEEKLY,
+        })
+        .mockResolvedValueOnce({
+          id: BigInt(9),
+          startDate: new Date('2026-08-03T00:00:00Z'),
+          repeatType: RepeatType.WEEKLY,
+        });
+      prisma.chore.findMany.mockResolvedValueOnce([]);
+
+      await service.deleteChore(BigInt(10), BigInt(1));
+
+      expect(prisma.chore.update).toHaveBeenCalledWith({
+        where: { id: BigInt(9) },
+        data: { dueDate: new Date('2026-08-03T00:00:00Z') },
+      });
     });
   });
 
@@ -705,6 +744,29 @@ describe('ChoresService', () => {
       await service.completeChore(BigInt(1), BigInt(1));
 
       expect(prisma.chore.create).not.toHaveBeenCalled();
+    });
+
+    it('미래 회차가 이미 생성돼 있으면 중복 생성하지 않고 기존 회차를 반환한다', async () => {
+      arrangeComplete({ repeatType: RepeatType.DAILY });
+      prisma.chore.findFirst.mockResolvedValue({
+        id: BigInt(50),
+        parentId: BigInt(1),
+        startDate: new Date('2026-08-05T00:00:00Z'),
+        dueDate: null,
+        status: ChoreStatus.PENDING,
+      });
+
+      const result = await service.completeChore(BigInt(1), BigInt(1));
+
+      expect(prisma.chore.create).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        nextOccurrence: {
+          choreId: 50,
+          parentId: 1,
+          startDate: '2026-08-05',
+          status: ChoreStatus.PENDING,
+        },
+      });
     });
 
     describe('다음 회차 기준일 (#159)', () => {
@@ -900,15 +962,14 @@ describe('ChoresService', () => {
     });
   });
 
-  describe('incompleteChore (#159)', () => {
+  describe('incompleteChore', () => {
     /** 완료 상태의 chore와, 되돌린 뒤의 update 결과를 준비한다. */
-    function arrangeIncomplete(children: { id: bigint; status: ChoreStatus }[] = []) {
+    function arrangeIncomplete() {
       prisma.chore.findUnique.mockResolvedValue({
         id: BigInt(1),
         groupId: BigInt(1),
         status: ChoreStatus.DONE,
       });
-      prisma.chore.findMany.mockResolvedValue(children);
       prisma.chore.update.mockResolvedValue({
         id: BigInt(1),
         status: ChoreStatus.PENDING,
@@ -957,41 +1018,13 @@ describe('ChoresService', () => {
       });
     });
 
-    it('완료 시 생성된 다음 회차를 함께 삭제한다', async () => {
-      arrangeIncomplete([{ id: BigInt(99), status: ChoreStatus.PENDING }]);
-
-      const result = await service.incompleteChore(BigInt(1), BigInt(1));
-
-      expect(prisma.chore.deleteMany).toHaveBeenCalledWith({
-        where: { id: { in: [BigInt(99)] } },
-      });
-      expect(result.removedNextOccurrenceIds).toEqual([99]);
-    });
-
-    it('다음 회차가 없으면 삭제를 호출하지 않는다', async () => {
+    it('완료 시 생성된 다음 회차가 있어도 건드리지 않는다', async () => {
       arrangeIncomplete();
-
-      const result = await service.incompleteChore(BigInt(1), BigInt(1));
-
-      expect(prisma.chore.deleteMany).not.toHaveBeenCalled();
-      expect(result.removedNextOccurrenceIds).toEqual([]);
-    });
-
-    it('다음 회차가 이미 완료됐으면 409 예외를 던진다', async () => {
-      arrangeIncomplete([{ id: BigInt(99), status: ChoreStatus.DONE }]);
-
-      await expect(service.incompleteChore(BigInt(1), BigInt(1))).rejects.toThrow(BusinessException);
-
-      expect(prisma.chore.deleteMany).not.toHaveBeenCalled();
-      expect(prisma.chore.update).not.toHaveBeenCalled();
-    });
-
-    it('회차 삭제와 상태 복원을 하나의 트랜잭션에서 처리한다', async () => {
-      arrangeIncomplete([{ id: BigInt(99), status: ChoreStatus.PENDING }]);
 
       await service.incompleteChore(BigInt(1), BigInt(1));
 
-      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.chore.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.chore.findMany).not.toHaveBeenCalled();
     });
   });
 
