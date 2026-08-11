@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   ExpenseCategory,
+  ExpenseSplitStatus,
   ExpenseStatus,
   Prisma,
   SplitType,
@@ -22,8 +23,9 @@ describe('SuppliesService', () => {
   let tx: {
     supply: { findUnique: jest.Mock; updateMany: jest.Mock; findUniqueOrThrow: jest.Mock };
     supplyLog: { create: jest.Mock };
-    expense: { create: jest.Mock };
-    groupMember: { findUnique: jest.Mock };
+    expense: { create: jest.Mock; update: jest.Mock };
+    expenseSplit: { createManyAndReturn: jest.Mock };
+    groupMember: { findUnique: jest.Mock; findMany: jest.Mock };
   };
   let prisma: {
     $transaction: jest.Mock;
@@ -40,8 +42,9 @@ describe('SuppliesService', () => {
         findUniqueOrThrow: jest.fn(),
       },
       supplyLog: { create: jest.fn() },
-      expense: { create: jest.fn() },
-      groupMember: { findUnique: jest.fn() },
+      expense: { create: jest.fn(), update: jest.fn() },
+      expenseSplit: { createManyAndReturn: jest.fn() },
+      groupMember: { findUnique: jest.fn(), findMany: jest.fn() },
     };
 
     prisma = {
@@ -63,7 +66,7 @@ describe('SuppliesService', () => {
     service = module.get(SuppliesService);
   });
 
-  function arrangeHappyPath() {
+  function arrangeHappyPath(memberIds: bigint[] = [USER_ID, BigInt(6), BigInt(7)]) {
     tx.supply.findUnique.mockResolvedValue({
       id: SUPPLY_ID,
       groupId: GROUP_ID,
@@ -71,6 +74,15 @@ describe('SuppliesService', () => {
       status: SupplyStatus.LOW,
     });
     tx.groupMember.findUnique.mockResolvedValue({ id: BigInt(1), leftAt: null });
+    tx.groupMember.findMany.mockResolvedValue(memberIds.map((userId) => ({ userId })));
+    // createManyAndReturn은 INSERT ... RETURNING이라 전달한 data 순서 그대로 id가 붙어 돌아온다.
+    tx.expenseSplit.createManyAndReturn.mockImplementation(
+      ({ data }: { data: Array<{ userId: bigint; amount: number; status: ExpenseSplitStatus }> }) =>
+        Promise.resolve(
+          data.map((split, index) => ({ id: BigInt(301 + index), ...split, expenseId: undefined })),
+        ),
+    );
+    tx.expense.update.mockResolvedValue({});
     tx.expense.create.mockResolvedValue({
       id: BigInt(88),
       category: ExpenseCategory.SHOPPING,
@@ -138,6 +150,170 @@ describe('SuppliesService', () => {
       expect(result.expense).not.toHaveProperty('categoryId');
       expect(result.status).toBe(SupplyStatus.PURCHASED);
       expect(result.linkedExpenseId).toBe(88);
+    });
+
+    it('활성 그룹 멤버 전원에 대해 ExpenseSplit을 생성한다 (#222)', async () => {
+      arrangeHappyPath();
+
+      await service.purchase(
+        SUPPLY_ID,
+        { category: ExpenseCategory.SHOPPING, amount: 9000 },
+        COGNITO_SUB,
+      );
+
+      expect(tx.groupMember.findMany).toHaveBeenCalledWith({
+        where: { groupId: GROUP_ID, leftAt: null, user: { isActive: true } },
+        select: { userId: true },
+        orderBy: { userId: 'asc' },
+      });
+
+      const createManyCalls = tx.expenseSplit.createManyAndReturn.mock.calls as [
+        { data: Array<{ expenseId: bigint; userId: bigint; amount: number; status: string }> },
+      ][];
+      const data = createManyCalls[0][0].data;
+
+      expect(data).toHaveLength(3);
+      expect(data.map((split) => split.userId)).toEqual([USER_ID, BigInt(6), BigInt(7)]);
+      expect(data.every((split) => split.expenseId === BigInt(88))).toBe(true);
+      expect(data.map((split) => split.amount)).toEqual([3000, 3000, 3000]);
+    });
+
+    it('나머지 금액을 앞에서부터 1원씩 배분한다 (#222)', async () => {
+      arrangeHappyPath();
+
+      await service.purchase(
+        SUPPLY_ID,
+        { category: ExpenseCategory.SHOPPING, amount: 8900 },
+        COGNITO_SUB,
+      );
+
+      const createManyCalls = tx.expenseSplit.createManyAndReturn.mock.calls as [
+        { data: Array<{ amount: number }> },
+      ][];
+      const amounts = createManyCalls[0][0].data.map((split) => split.amount);
+
+      // 8900 / 3 = 2966 나머지 2 → 앞의 두 명이 1원씩 더 부담
+      expect(amounts).toEqual([2967, 2967, 2966]);
+      expect(amounts.reduce((sum, amount) => sum + amount, 0)).toBe(8900);
+    });
+
+    it('선지불자는 PRE_PAID, 나머지는 REQUESTED 상태로 생성한다 (#222)', async () => {
+      arrangeHappyPath();
+
+      await service.purchase(
+        SUPPLY_ID,
+        { category: ExpenseCategory.SHOPPING, amount: 9000 },
+        COGNITO_SUB,
+      );
+
+      const createManyCalls = tx.expenseSplit.createManyAndReturn.mock.calls as [
+        { data: Array<{ userId: bigint; status: ExpenseSplitStatus }> },
+      ][];
+      const byUserId = new Map(
+        createManyCalls[0][0].data.map((split) => [split.userId, split.status]),
+      );
+
+      expect(byUserId.get(USER_ID)).toBe(ExpenseSplitStatus.PRE_PAID);
+      expect(byUserId.get(BigInt(6))).toBe(ExpenseSplitStatus.REQUESTED);
+      expect(byUserId.get(BigInt(7))).toBe(ExpenseSplitStatus.REQUESTED);
+    });
+
+    it('응답의 expense.splits로 생성된 분담 내역을 반환한다 (#222)', async () => {
+      arrangeHappyPath();
+
+      const result = await service.purchase(
+        SUPPLY_ID,
+        { category: ExpenseCategory.SHOPPING, amount: 9000 },
+        COGNITO_SUB,
+      );
+
+      expect(result.expense.splits).toEqual([
+        { splitId: 301, userId: 5, amount: 3000, status: ExpenseSplitStatus.PRE_PAID },
+        { splitId: 302, userId: 6, amount: 3000, status: ExpenseSplitStatus.REQUESTED },
+        { splitId: 303, userId: 7, amount: 3000, status: ExpenseSplitStatus.REQUESTED },
+      ]);
+    });
+
+    it('CAS 실패 시 Split 생성까지 포함해 트랜잭션이 롤백된다 (#222)', async () => {
+      arrangeHappyPath();
+      tx.supply.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.purchase(
+          SUPPLY_ID,
+          { category: ExpenseCategory.SHOPPING, amount: 9000 },
+          COGNITO_SUB,
+        ),
+      ).rejects.toThrow(BusinessException);
+
+      // Split은 CAS 이전에 생성되지만, 예외로 트랜잭션 전체가 롤백되므로 커밋되지 않는다.
+      expect(tx.expenseSplit.createManyAndReturn).toHaveBeenCalled();
+      expect(tx.supplyLog.create).not.toHaveBeenCalled();
+    });
+
+    it('활성 그룹 멤버가 없으면 403 예외를 던진다 (#222)', async () => {
+      arrangeHappyPath([]);
+
+      await expect(
+        service.purchase(
+          SUPPLY_ID,
+          { category: ExpenseCategory.SHOPPING, amount: 9000 },
+          COGNITO_SUB,
+        ),
+      ).rejects.toThrow(BusinessException);
+
+      expect(tx.expenseSplit.createManyAndReturn).not.toHaveBeenCalled();
+      expect(tx.supply.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('멤버십 검증 이후 구매자가 활성 구성원에서 빠지면 403으로 롤백한다 (#223 리뷰)', async () => {
+      // READ COMMITTED에서는 assertActiveGroupMember 통과 이후 커밋된 탈퇴·강퇴가 findMany에 보인다.
+      // 목록이 비어 있지 않아도 구매자가 없으면 선지불자 없는 분담이 만들어지므로 막아야 한다.
+      arrangeHappyPath([BigInt(6), BigInt(7)]);
+
+      await expect(
+        service.purchase(
+          SUPPLY_ID,
+          { category: ExpenseCategory.SHOPPING, amount: 9000 },
+          COGNITO_SUB,
+        ),
+      ).rejects.toThrow(BusinessException);
+
+      expect(tx.expenseSplit.createManyAndReturn).not.toHaveBeenCalled();
+      expect(tx.supply.updateMany).not.toHaveBeenCalled();
+      expect(tx.supplyLog.create).not.toHaveBeenCalled();
+    });
+
+    it('분담 대상이 구매자뿐이면 Expense를 DONE으로 생성한다 (#223 리뷰)', async () => {
+      arrangeHappyPath([USER_ID]);
+
+      const result = await service.purchase(
+        SUPPLY_ID,
+        { category: ExpenseCategory.SHOPPING, amount: 9000 },
+        COGNITO_SUB,
+      );
+
+      expect(tx.expense.update).toHaveBeenCalledWith({
+        where: { id: BigInt(88) },
+        data: { status: ExpenseStatus.DONE },
+      });
+      expect(result.expense.status).toBe(ExpenseStatus.DONE);
+      expect(result.expense.splits).toEqual([
+        { splitId: 301, userId: 5, amount: 9000, status: ExpenseSplitStatus.PRE_PAID },
+      ]);
+    });
+
+    it('REQUESTED split이 하나라도 있으면 Expense를 PENDING으로 둔다 (#223 리뷰)', async () => {
+      arrangeHappyPath();
+
+      const result = await service.purchase(
+        SUPPLY_ID,
+        { category: ExpenseCategory.SHOPPING, amount: 9000 },
+        COGNITO_SUB,
+      );
+
+      expect(tx.expense.update).not.toHaveBeenCalled();
+      expect(result.expense.status).toBe(ExpenseStatus.PENDING);
     });
 
     it('이미 구매 완료된 물품이면 409 예외를 던진다', async () => {
