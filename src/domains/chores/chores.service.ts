@@ -25,6 +25,28 @@ const CHORE_WITH_USERS = {
 
 type ChoreWithUsers = Prisma.ChoreGetPayload<{ include: typeof CHORE_WITH_USERS }>;
 
+const OCCURRENCE_GENERATION_SELECT = {
+  id: true,
+  parentId: true,
+  groupId: true,
+  title: true,
+  category: true,
+  assigneeId: true,
+  startDate: true,
+  dueDate: true,
+  repeatType: true,
+  customOption: true,
+  repeatInterval: true,
+  repeatDays: true,
+  memo: true,
+  createdBy: true,
+} satisfies Prisma.ChoreSelect;
+
+type OccurrenceGenerationSeed = Prisma.ChoreGetPayload<{ select: typeof OCCURRENCE_GENERATION_SELECT }>;
+
+/** 무한/장기 미방문 반복 시리즈가 한 번의 조회로 과도하게 많은 회차를 만들지 않도록 두는 상한. */
+const MAX_FUTURE_OCCURRENCE_STEPS = 500;
+
 function toDateOnly(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -164,6 +186,10 @@ export class ChoresService {
 
     const dateRange = this.assertAndBuildDateRange(query.fromDate, query.toDate);
 
+    if (dateRange) {
+      await this.generateFutureOccurrences(BigInt(query.groupId), dateRange.to);
+    }
+
     const chores = await this.prisma.chore.findMany({
       where: {
         groupId: BigInt(query.groupId),
@@ -232,6 +258,78 @@ export class ChoresService {
       { repeatType: RepeatType.NONE, dueDate: inRange },
       { repeatType: { not: RepeatType.NONE }, startDate: inRange },
     ];
+  }
+
+  /**
+   * 조회 범위(until)까지 아직 존재하지 않는 반복 집안일의 미래 회차를 실제 레코드로 생성한다.
+   * 시리즈의 '꼬리'(다른 회차의 parentId로 참조되지 않는 회차)부터 addInterval로 한 칸씩 전진하며,
+   * until을 넘거나 dueDate(반복 종료일)를 넘으면 멈춘다. 무한 반복 시리즈가 오래 방치된 경우를
+   * 대비해 시리즈당 생성 횟수에 상한을 둔다.
+   */
+  private async generateFutureOccurrences(groupId: bigint, until: Date): Promise<void> {
+    const repeating = await this.prisma.chore.findMany({
+      where: { groupId, repeatType: { not: RepeatType.NONE } },
+      select: OCCURRENCE_GENERATION_SELECT,
+    });
+
+    const referencedParentIds = new Set(
+      repeating.filter((chore) => chore.parentId !== null).map((chore) => chore.parentId!.toString()),
+    );
+    const tails = repeating.filter((chore) => !referencedParentIds.has(chore.id.toString()));
+
+    for (const tail of tails) {
+      await this.generateOccurrencesFrom(tail, until);
+    }
+  }
+
+  private async generateOccurrencesFrom(
+    tail: OccurrenceGenerationSeed,
+    until: Date,
+  ): Promise<void> {
+    let current = tail;
+
+    for (let step = 0; step < MAX_FUTURE_OCCURRENCE_STEPS; step += 1) {
+      const nextStartDate = addInterval(current.startDate, {
+        repeatType: current.repeatType,
+        customOption: current.customOption,
+        repeatInterval: current.repeatInterval,
+        repeatDays: current.repeatDays,
+      });
+
+      if (nextStartDate > until) {
+        return;
+      }
+
+      if (current.dueDate !== null && nextStartDate > current.dueDate) {
+        return;
+      }
+
+      const existing = await this.prisma.chore.findFirst({
+        where: { parentId: current.id, startDate: nextStartDate },
+        select: OCCURRENCE_GENERATION_SELECT,
+      });
+
+      current =
+        existing ??
+        (await this.prisma.chore.create({
+          data: {
+            parentId: current.id,
+            groupId: current.groupId,
+            title: current.title,
+            category: current.category,
+            assigneeId: current.assigneeId,
+            startDate: nextStartDate,
+            dueDate: current.dueDate,
+            repeatType: current.repeatType,
+            customOption: current.customOption,
+            repeatInterval: current.repeatInterval,
+            repeatDays: current.repeatDays,
+            memo: current.memo,
+            createdBy: current.createdBy,
+          },
+          select: OCCURRENCE_GENERATION_SELECT,
+        }));
+    }
   }
 
   async createChore(dto: CreateChoreDto, createdBy: bigint) {
