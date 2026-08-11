@@ -393,37 +393,33 @@ export class ChoresService {
       String(dto.assigneeId),
     );
 
+    // 회차별 처리 기준: 수정은 선택 회차부터 이후의 기존 미래 회차를 정리하고,
+    // 선택 회차만 새 값으로 갱신한다. 반복 주기/요일이 바뀌면 옛 패턴으로 만들어진
+    // 미래 회차의 날짜가 더 이상 유효하지 않으므로, 지우고 이후 조회 시점에
+    // generateFutureOccurrences가 새 패턴으로 다시 채워 넣도록 한다(중복 생성 방지 포함).
     const descendantIds = await this.collectFutureOccurrenceIds(choreId);
 
-    // 회차별 처리 기준: 수정은 선택 회차 + 이후 미래 회차(이미 생성된 자식 체인)에 공통 적용.
-    // 각 회차 고유의 startDate는 유지하고, 선택 회차만 요청받은 startDate로 갱신한다.
-    const sharedFields = {
-      title: dto.title,
-      category: dto.category,
-      assigneeId: BigInt(dto.assigneeId),
-      dueDate,
-      repeatType: repeat.repeatType,
-      customOption: repeat.customOption,
-      repeatInterval: repeat.repeatInterval,
-      repeatDays: [...repeat.repeatDays],
-      memo: dto.memo ?? null,
-    };
-
     const chore = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.chore.update({
-        where: { id: choreId },
-        data: { ...sharedFields, startDate },
-        include: CHORE_WITH_USERS,
-      });
-
       if (descendantIds.length > 0) {
-        await tx.chore.updateMany({
-          where: { id: { in: descendantIds } },
-          data: sharedFields,
-        });
+        await tx.chore.deleteMany({ where: { id: { in: descendantIds } } });
       }
 
-      return updated;
+      return tx.chore.update({
+        where: { id: choreId },
+        data: {
+          title: dto.title,
+          category: dto.category,
+          assigneeId: BigInt(dto.assigneeId),
+          startDate,
+          dueDate,
+          repeatType: repeat.repeatType,
+          customOption: repeat.customOption,
+          repeatInterval: repeat.repeatInterval,
+          repeatDays: [...repeat.repeatDays],
+          memo: dto.memo ?? null,
+        },
+        include: CHORE_WITH_USERS,
+      });
     });
 
     return this.toUpdateResponse(chore);
@@ -481,49 +477,64 @@ export class ChoresService {
     } | null = null;
 
     if (updated.repeatType !== RepeatType.NONE) {
-      // 다음 회차는 '완료일' 기준으로 계산한다. startDate를 기준으로 삼으면
-      // 완료가 밀렸을 때 다음 회차가 오늘이나 과거 날짜로 생성된다. (#159)
-      // 단, 시작일보다 먼저 완료한 경우에는 시작일을 기준으로 삼아 회차가 겹치지 않게 한다.
-      const completedDate = toKoreaDateOnly(completedAt);
-      const baseDate = completedDate > updated.startDate ? completedDate : updated.startDate;
-
-      const nextStartDate = addInterval(baseDate, {
-        repeatType: updated.repeatType,
-        customOption: updated.customOption,
-        repeatInterval: updated.repeatInterval,
-        repeatDays: updated.repeatDays,
+      // 미래 회차가 이미 생성돼 있으면(주간 조회 등으로 사전 생성된 경우) 중복 생성하지 않는다.
+      const existingNext = await this.prisma.chore.findFirst({
+        where: { parentId: updated.id },
       });
 
-      // dueDate는 '반복 종료일'이다. 회차마다 밀지 않고 고정하며,
-      // 다음 회차 시작일이 종료일을 넘어서면 반복을 종료한다. (같은 날은 생성)
-      const reachedRepeatEnd = updated.dueDate !== null && nextStartDate > updated.dueDate;
+      if (existingNext) {
+        nextOccurrence = {
+          choreId: Number(existingNext.id),
+          parentId: Number(existingNext.parentId),
+          startDate: toDateOnly(existingNext.startDate),
+          dueDate: existingNext.dueDate ? toDateOnly(existingNext.dueDate) : null,
+          status: existingNext.status,
+        };
+      } else {
+        // 다음 회차는 '완료일' 기준으로 계산한다. startDate를 기준으로 삼으면
+        // 완료가 밀렸을 때 다음 회차가 오늘이나 과거 날짜로 생성된다. (#159)
+        // 단, 시작일보다 먼저 완료한 경우에는 시작일을 기준으로 삼아 회차가 겹치지 않게 한다.
+        const completedDate = toKoreaDateOnly(completedAt);
+        const baseDate = completedDate > updated.startDate ? completedDate : updated.startDate;
 
-      if (!reachedRepeatEnd) {
-        const created = await this.prisma.chore.create({
-          data: {
-            parentId: updated.id,
-            groupId: updated.groupId,
-            title: updated.title,
-            category: updated.category,
-            assigneeId: updated.assigneeId,
-            startDate: nextStartDate,
-            dueDate: updated.dueDate,
-            repeatType: updated.repeatType,
-            customOption: updated.customOption,
-            repeatInterval: updated.repeatInterval,
-            repeatDays: updated.repeatDays,
-            memo: updated.memo,
-            createdBy: updated.createdBy,
-          },
+        const nextStartDate = addInterval(baseDate, {
+          repeatType: updated.repeatType,
+          customOption: updated.customOption,
+          repeatInterval: updated.repeatInterval,
+          repeatDays: updated.repeatDays,
         });
 
-        nextOccurrence = {
-          choreId: Number(created.id),
-          parentId: Number(created.parentId),
-          startDate: toDateOnly(created.startDate),
-          dueDate: created.dueDate ? toDateOnly(created.dueDate) : null,
-          status: created.status,
-        };
+        // dueDate는 '반복 종료일'이다. 회차마다 밀지 않고 고정하며,
+        // 다음 회차 시작일이 종료일을 넘어서면 반복을 종료한다. (같은 날은 생성)
+        const reachedRepeatEnd = updated.dueDate !== null && nextStartDate > updated.dueDate;
+
+        if (!reachedRepeatEnd) {
+          const created = await this.prisma.chore.create({
+            data: {
+              parentId: updated.id,
+              groupId: updated.groupId,
+              title: updated.title,
+              category: updated.category,
+              assigneeId: updated.assigneeId,
+              startDate: nextStartDate,
+              dueDate: updated.dueDate,
+              repeatType: updated.repeatType,
+              customOption: updated.customOption,
+              repeatInterval: updated.repeatInterval,
+              repeatDays: updated.repeatDays,
+              memo: updated.memo,
+              createdBy: updated.createdBy,
+            },
+          });
+
+          nextOccurrence = {
+            choreId: Number(created.id),
+            parentId: Number(created.parentId),
+            startDate: toDateOnly(created.startDate),
+            dueDate: created.dueDate ? toDateOnly(created.dueDate) : null,
+            status: created.status,
+          };
+        }
       }
     }
 
@@ -537,9 +548,9 @@ export class ChoresService {
   }
 
   /**
-   * 완료 취소(미완료 전환). (#159)
-   * 완료 처리 때 자동 생성된 다음 회차를 함께 제거해야
-   * 완료 -> 취소 -> 재완료 시 회차가 중복 생성되지 않는다.
+   * 완료 취소(미완료 전환).
+   * 완료 시 이미 생성돼 있던 다음 회차는 독립된 미래 일정이므로 건드리지 않는다(중복 생성 방지는
+   * completeChore의 존재 여부 확인으로 처리한다).
    */
   async incompleteChore(choreId: bigint, requesterId: bigint) {
     const chore = await this.findChoreOrThrow(choreId);
@@ -550,28 +561,10 @@ export class ChoresService {
       throw new BusinessException(ErrorCode.CHORE_NOT_DONE);
     }
 
-    const children = await this.prisma.chore.findMany({
-      where: { parentId: choreId },
-      select: { id: true, status: true },
-    });
-
-    // 다음 회차가 이미 완료됐다면 그 아래로 회차가 더 이어졌을 수 있어 되돌리지 않는다.
-    if (children.some((child) => child.status === ChoreStatus.DONE)) {
-      throw new BusinessException(ErrorCode.CHORE_NEXT_OCCURRENCE_DONE);
-    }
-
-    const removedChildIds = children.map((child) => child.id);
-
-    const updated = await this.prisma.$transaction(async (tx) => {
-      if (removedChildIds.length > 0) {
-        await tx.chore.deleteMany({ where: { id: { in: removedChildIds } } });
-      }
-
-      return tx.chore.update({
-        where: { id: choreId },
-        data: { status: ChoreStatus.PENDING, completedBy: null, completedAt: null },
-        include: CHORE_WITH_USERS,
-      });
+    const updated = await this.prisma.chore.update({
+      where: { id: choreId },
+      data: { status: ChoreStatus.PENDING, completedBy: null, completedAt: null },
+      include: CHORE_WITH_USERS,
     });
 
     return {
@@ -579,7 +572,6 @@ export class ChoresService {
       status: updated.status,
       completedBy: null,
       completedAt: null,
-      removedNextOccurrenceIds: removedChildIds.map(Number),
     };
   }
 
@@ -592,13 +584,44 @@ export class ChoresService {
     await this.requireActiveGroupMemberOrThrow(chore.groupId, requesterId);
     await this.assertDeletePermission(chore, requesterId);
 
-    // 회차별 처리 기준: 삭제는 선택 회차를 포함해 이후 미래 회차를 모두 삭제한다.
+    // 회차별 처리 기준: 삭제는 선택 회차와 이후 PENDING 회차만 지운다.
+    // 과거 완료 이력(미래 날짜라도 이미 완료된 회차 포함)은 보존한다.
     const descendantIds = await this.collectFutureOccurrenceIds(choreId);
-    const idsToDelete = [choreId, ...descendantIds];
 
-    await this.prisma.chore.deleteMany({ where: { id: { in: idsToDelete } } });
+    const deletedChoreIds = await this.prisma.$transaction(async (tx) => {
+      let idsToDelete = [choreId];
 
-    return { choreId: Number(chore.id), deletedChoreIds: idsToDelete.map(Number) };
+      if (descendantIds.length > 0) {
+        const pendingDescendants = await tx.chore.findMany({
+          where: { id: { in: descendantIds }, status: ChoreStatus.PENDING },
+          select: { id: true },
+        });
+
+        idsToDelete = [...idsToDelete, ...pendingDescendants.map((c) => c.id)];
+      }
+
+      await tx.chore.deleteMany({ where: { id: { in: idsToDelete } } });
+
+      // 반복 연결 종료: 삭제 이후 미래 회차가 다시 생성되지 않도록,
+      // 남아있는 직전 회차(parent)가 있다면 그 회차에서 반복이 끝나도록 dueDate를 고정한다.
+      if (chore.repeatType !== RepeatType.NONE && chore.parentId !== null) {
+        const parent = await tx.chore.findUnique({
+          where: { id: chore.parentId },
+          select: { id: true, startDate: true, repeatType: true },
+        });
+
+        if (parent && parent.repeatType !== RepeatType.NONE) {
+          await tx.chore.update({
+            where: { id: parent.id },
+            data: { dueDate: parent.startDate },
+          });
+        }
+      }
+
+      return idsToDelete;
+    });
+
+    return { choreId: Number(chore.id), deletedChoreIds: deletedChoreIds.map(Number) };
   }
 
   async shareChore(choreId: bigint, senderId: bigint, chatRoomId: bigint, content?: string) {
