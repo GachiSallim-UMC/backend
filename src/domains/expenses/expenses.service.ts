@@ -42,7 +42,7 @@ const TOSS_BANK_NAME: Record<Bank, string> = {
   [Bank.SC]: 'SC제일',
   [Bank.CITI]: '씨티',
   [Bank.KAKAOBANK]: '카카오',
-  [Bank.TOSSBANK]: '토스',
+  [Bank.TOSSBANK]: '토스뱅크',
   [Bank.SUHYUP]: '수협',
   [Bank.POST]: '우체국',
   [Bank.SAEMAUL]: '새마을',
