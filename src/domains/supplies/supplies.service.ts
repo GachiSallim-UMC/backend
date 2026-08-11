@@ -258,6 +258,24 @@ export class SuppliesService {
       // 같은 트랜잭션 안에서 분담 내역까지 생성해 EXP-DETAIL-01 / EXP-SETTLE-01과 연결한다.
       const splits = await this.createEqualSplits(tx, expense.id, supply.groupId, amount, userId);
 
+      // 분담 대상이 구매자 한 명뿐이면 유일한 split이 이미 PRE_PAID라 처리할 REQUESTED가 없다.
+      // Expense를 PENDING으로 두면 정산할 것이 없는데도 대시보드 미정산 목록에 계속 남으므로,
+      // `ExpensesService.settleSplit()`의 판정 규칙(PRE_PAID·DONE = 정산됨)과 동일하게
+      // 전부 정산된 상태라면 부모 Expense도 같은 트랜잭션에서 DONE으로 맞춘다.
+      const isAllSettled = splits.every(
+        (split) =>
+          split.status === ExpenseSplitStatus.PRE_PAID || split.status === ExpenseSplitStatus.DONE,
+      );
+
+      const expenseStatus = isAllSettled ? ExpenseStatus.DONE : expense.status;
+
+      if (isAllSettled) {
+        await tx.expense.update({
+          where: { id: expense.id },
+          data: { status: ExpenseStatus.DONE },
+        });
+      }
+
       // 조건부 상태 전이(CAS): 읽어온 prevStatus 그대로일 때만 PURCHASED로 전환.
       // 동시 요청이 먼저 구매를 확정했다면 count가 0이 되어 트랜잭션 전체(Expense·Split 포함)가 롤백된다.
       const claimed = await tx.supply.updateMany({
@@ -275,7 +293,7 @@ export class SuppliesService {
 
       const updated = await tx.supply.findUniqueOrThrow({ where: { id: supplyId } });
 
-      return { expense, splits, updated, prevStatus };
+      return { expense, expenseStatus, splits, updated, prevStatus };
     });
 
     const prevStatus = result.prevStatus;
@@ -293,8 +311,9 @@ export class SuppliesService {
         payerId: Number(result.expense.payerId),
         totalAmount: result.expense.totalAmount,
         splitType: result.expense.splitType,
-        status: result.expense.status,
+        status: result.expenseStatus,
         splits: result.splits.map((split) => ({
+          splitId: Number(split.id),
           userId: Number(split.userId),
           amount: split.amount,
           status: split.status,
@@ -395,16 +414,12 @@ export class SuppliesService {
       orderBy: { userId: 'asc' },
     });
 
-    if (members.length === 0) {
-      // 활성 멤버가 없으면 부담금을 나눌 대상이 없다. 구매 요청자 본인은 활성 멤버 검증을
-      // 이미 통과했으므로 정상 흐름에서는 도달하지 않는다.
-      throw new BusinessException(ErrorCode.COMMON_INVALID_PARAMETER, [
-        {
-          field: 'groupId',
-          value: String(groupId),
-          reason: '정산을 분담할 활성 그룹 구성원이 없습니다.',
-        },
-      ]);
+    // PostgreSQL 기본 격리 수준(READ COMMITTED)에서는 앞선 멤버십 검증과 이 조회 사이에
+    // 커밋된 탈퇴·강퇴가 그대로 보인다. 목록이 비어 있지 않더라도 구매자가 빠질 수 있고,
+    // 그대로 두면 선지불자 없이 남은 멤버에게 총액 전부가 REQUESTED로 배분된다.
+    // 분담 대상에 구매자가 포함되어야 한다는 불변식을 여기서 다시 확인하고, 깨지면 롤백한다.
+    if (!members.some(({ userId }) => userId === payerId)) {
+      throw new BusinessException(ErrorCode.SUP_FORBIDDEN);
     }
 
     const baseAmount = Math.floor(totalAmount / members.length);
@@ -426,9 +441,12 @@ export class SuppliesService {
       };
     });
 
-    await tx.expenseSplit.createMany({ data });
-
-    return data;
+    // 구매 응답만으로 EXP-SETTLE-01(`PATCH /expenses/splits/{splitId}/settle`)까지 이어갈 수 있도록
+    // 생성된 split의 영속 ID를 함께 돌려받는다.
+    return tx.expenseSplit.createManyAndReturn({
+      data,
+      select: { id: true, userId: true, amount: true, status: true },
+    });
   }
 
   private async createLowStockNotifications(

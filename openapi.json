@@ -3567,7 +3567,7 @@
           "물품"
         ],
         "summary": "구매 완료 및 정산 연결 (SUP-BUY-01)",
-        "description": "물품 상태를 PURCHASED로 전환하고, 구매 금액(amount)으로 Expense를 생성해 linkedExpenseId로 연결합니다. 생성되는 Expense의 payerId(선지불자)는 Access Token의 요청자로 설정하며, title은 물품명, splitType은 EQUAL, status는 PENDING으로 초기화됩니다. Expense.totalAmount는 NOT NULL이므로 amount는 필수입니다. 정산 카테고리(category)도 필수입니다. 이미 구매 완료된 물품은 재처리할 수 없습니다. (우선순위: P1) ※ 생성되는 Expense의 payerId/splitType 처리 방식은 EXP 도메인 담당자와 최종 협의 대상입니다.",
+        "description": "물품 상태를 PURCHASED로 전환하고, 구매 금액(amount)으로 Expense를 생성해 linkedExpenseId로 연결합니다. 이어서 같은 트랜잭션 안에서 활성 그룹 구성원(leftAt=null, isActive=true) 전원을 대상으로 균등 분담 내역(ExpenseSplit)까지 생성합니다. 생성되는 Expense의 payerId(선지불자)는 Access Token의 요청자로 설정하며, title은 물품명, splitType은 EQUAL입니다. 분담금은 총액을 인원수로 나눈 몫을 기본값으로 하고 나머지 1원 단위는 userId 오름차순으로 앞에서부터 배분합니다. 선지불자의 분담은 PRE_PAID, 나머지는 REQUESTED로 생성되며, 반환된 splitId로 `PATCH /api/v1/expenses/splits/{splitId}/settle`을 바로 호출할 수 있습니다. Expense.status는 PENDING으로 시작하지만, 분담 대상이 구매자 한 명뿐이라 생성된 split이 전부 PRE_PAID이면 DONE으로 생성됩니다. Expense.totalAmount는 NOT NULL이므로 amount는 필수이며, 정산 카테고리(category)도 필수입니다. 이미 구매 완료된 물품은 재처리할 수 없습니다. (우선순위: P1)",
         "parameters": [
           {
             "name": "supplyId",
@@ -3618,6 +3618,195 @@
             "description": "구매 완료 및 정산 연결 성공",
             "content": {
               "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "supplyId",
+                        "status",
+                        "linkedExpenseId",
+                        "log",
+                        "expense",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "supplyId": {
+                          "type": "integer",
+                          "example": 21
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "SUFFICIENT",
+                            "LOW",
+                            "EMPTY",
+                            "PURCHASED"
+                          ],
+                          "example": "PURCHASED"
+                        },
+                        "linkedExpenseId": {
+                          "type": "integer",
+                          "nullable": true,
+                          "example": 88
+                        },
+                        "log": {
+                          "type": "object",
+                          "properties": {
+                            "prevStatus": {
+                              "type": "string",
+                              "nullable": true,
+                              "enum": [
+                                "SUFFICIENT",
+                                "LOW",
+                                "EMPTY",
+                                "PURCHASED",
+                                null
+                              ],
+                              "example": "LOW"
+                            },
+                            "nextStatus": {
+                              "type": "string",
+                              "enum": [
+                                "SUFFICIENT",
+                                "LOW",
+                                "EMPTY",
+                                "PURCHASED"
+                              ],
+                              "example": "PURCHASED"
+                            },
+                            "note": {
+                              "type": "string",
+                              "nullable": true,
+                              "example": null
+                            }
+                          }
+                        },
+                        "expense": {
+                          "type": "object",
+                          "required": [
+                            "expenseId",
+                            "category",
+                            "title",
+                            "payerId",
+                            "totalAmount",
+                            "splitType",
+                            "status",
+                            "splits"
+                          ],
+                          "properties": {
+                            "expenseId": {
+                              "type": "integer",
+                              "example": 88
+                            },
+                            "category": {
+                              "type": "string",
+                              "enum": [
+                                "FOOD",
+                                "SHOPPING",
+                                "UTILITIES",
+                                "ETC"
+                              ],
+                              "example": "SHOPPING"
+                            },
+                            "title": {
+                              "type": "string",
+                              "description": "정산 항목명. 물품명이 그대로 들어간다.",
+                              "example": "화장지"
+                            },
+                            "payerId": {
+                              "type": "integer",
+                              "description": "선지불자 사용자 ID. 구매를 수행한 요청자다.",
+                              "example": 5
+                            },
+                            "totalAmount": {
+                              "type": "integer",
+                              "example": 8900
+                            },
+                            "splitType": {
+                              "type": "string",
+                              "enum": [
+                                "EQUAL",
+                                "RATIO",
+                                "CUSTOM"
+                              ],
+                              "example": "EQUAL"
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "PENDING",
+                                "PARTIAL",
+                                "DONE"
+                              ],
+                              "description": "생성된 split이 전부 PRE_PAID이면 DONE, 그 외에는 PENDING",
+                              "example": "PENDING"
+                            },
+                            "splits": {
+                              "type": "array",
+                              "description": "활성 그룹 구성원 전원 기준 균등 분담 내역. userId 오름차순.",
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "splitId",
+                                  "userId",
+                                  "amount",
+                                  "status"
+                                ],
+                                "properties": {
+                                  "splitId": {
+                                    "type": "integer",
+                                    "description": "생성된 분담 내역 ID. 정산 완료 API에 그대로 사용한다.",
+                                    "example": 301
+                                  },
+                                  "userId": {
+                                    "type": "integer",
+                                    "description": "분담 대상 사용자 ID",
+                                    "example": 5
+                                  },
+                                  "amount": {
+                                    "type": "integer",
+                                    "description": "해당 사용자의 부담금(원)",
+                                    "example": 2967
+                                  },
+                                  "status": {
+                                    "type": "string",
+                                    "enum": [
+                                      "REQUESTED",
+                                      "CONFIRMED",
+                                      "TRANSFER_PENDING",
+                                      "PROCESSING",
+                                      "DONE",
+                                      "PRE_PAID",
+                                      "FAILED",
+                                      "CANCELLED"
+                                    ],
+                                    "description": "분담 상태. 선지불자는 PRE_PAID, 나머지는 REQUESTED로 생성된다.",
+                                    "example": "REQUESTED"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "example": "2026-07-03T14:00:00Z"
+                        }
+                      }
+                    },
+                    "error": {
+                      "nullable": true,
+                      "example": null
+                    }
+                  }
+                },
                 "example": {
                   "statusCode": 200,
                   "data": {
@@ -3636,7 +3825,27 @@
                       "payerId": 5,
                       "totalAmount": 8900,
                       "splitType": "EQUAL",
-                      "status": "PENDING"
+                      "status": "PENDING",
+                      "splits": [
+                        {
+                          "splitId": 301,
+                          "userId": 5,
+                          "amount": 2967,
+                          "status": "PRE_PAID"
+                        },
+                        {
+                          "splitId": 302,
+                          "userId": 6,
+                          "amount": 2967,
+                          "status": "REQUESTED"
+                        },
+                        {
+                          "splitId": 303,
+                          "userId": 7,
+                          "amount": 2966,
+                          "status": "REQUESTED"
+                        }
+                      ]
                     },
                     "updatedAt": "2026-07-03T14:00:00Z"
                   },
@@ -3694,6 +3903,22 @@
                   "error": {
                     "code": "AUTH_UNAUTHORIZED",
                     "message": "인증이 필요합니다.",
+                    "errors": []
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "그룹 멤버가 아니거나, 처리 도중 구매자가 활성 구성원에서 제외되어 분담 대상에 포함되지 않은 경우",
+            "content": {
+              "application/json": {
+                "example": {
+                  "statusCode": 403,
+                  "data": null,
+                  "error": {
+                    "code": "SUP_403",
+                    "message": "해당 물품에 대한 권한이 없습니다.",
                     "errors": []
                   }
                 }

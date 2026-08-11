@@ -11,7 +11,15 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiExtraModels,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -21,6 +29,10 @@ import { CurrentAuth } from '../auth/common/current-auth.decorator';
 import { CreateSupplyDto } from './dto/create-supply.dto';
 import { ListSuppliesQueryDto } from './dto/list-supplies-query.dto';
 import { PurchaseSupplyDto } from './dto/purchase-supply.dto';
+import {
+  PurchaseSupplyExpenseSplitDto,
+  PurchaseSupplyResponseDto,
+} from './dto/purchase-supply-response.dto';
 import { ShareSupplyDto } from './dto/share-supply.dto';
 import { UpdateSupplyDto } from './dto/update-supply.dto';
 import { UpdateSupplyStatusDto } from './dto/update-supply-status.dto';
@@ -79,8 +91,14 @@ export class SuppliesController {
 
   @Post(':supplyId/purchase')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '구매 완료 및 정산 연결 (SUP-BUY-01)' })
+  @ApiOperation({
+    summary: '구매 완료 및 정산 연결 (SUP-BUY-01)',
+    description:
+      '물품을 PURCHASED로 전환하고 구매 금액으로 Expense를 생성한 뒤, 활성 그룹 구성원 전원 기준 균등 분담 내역(ExpenseSplit)까지 같은 트랜잭션에서 생성합니다. 선지불자(구매자)의 분담은 PRE_PAID, 나머지는 REQUESTED로 생성되며, 반환된 splitId로 `PATCH /api/v1/expenses/splits/{splitId}/settle`을 바로 호출할 수 있습니다.',
+  })
   @ApiParam({ name: 'supplyId', type: Number, example: 21 })
+  @ApiExtraModels(PurchaseSupplyExpenseSplitDto)
+  @ApiOkResponse({ type: PurchaseSupplyResponseDto, description: '구매 완료 및 정산 연결 성공' })
   purchase(
     @Param('supplyId') supplyId: string,
     @Body() dto: PurchaseSupplyDto,
