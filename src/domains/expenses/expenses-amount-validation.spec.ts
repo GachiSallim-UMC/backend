@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ReceiptImageService } from './receipt-image.service';
+import { NotificationDeliveryService } from '../notifications/notification-delivery.service';
 import { SplitType, ExpenseCategory } from '@prisma/client';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { CreateExpenseDto } from './dto/create-expense.dto';
@@ -25,6 +26,9 @@ describe('ExpensesService - createExpense Validation Tests', () => {
     expenseSplit: {
       createMany: jest.Mock;
     };
+    userBankAccount: {
+      findFirst: jest.Mock;
+    };
     $transaction: jest.Mock;
   }
 
@@ -41,6 +45,9 @@ describe('ExpensesService - createExpense Validation Tests', () => {
     },
     expenseSplit: {
       createMany: jest.fn(),
+    },
+    userBankAccount: {
+      findFirst: jest.fn(),
     },
     $transaction: jest.fn(
       <T>(callback: (tx: MockPrismaService) => Promise<T>): Promise<T> =>
@@ -59,6 +66,10 @@ describe('ExpensesService - createExpense Validation Tests', () => {
         {
           provide: ReceiptImageService,
           useValue: {},
+        },
+        {
+          provide: NotificationDeliveryService,
+          useValue: { createNotification: jest.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();
@@ -147,6 +158,7 @@ describe('ExpensesService - createExpense Validation Tests', () => {
         { userId: BigInt(1) },
         { userId: BigInt(2) },
       ]);
+      mockPrismaService.userBankAccount.findFirst.mockResolvedValue({ id: BigInt(1) });
       mockPrismaService.expense.create.mockResolvedValue({ id: BigInt(100) });
       mockPrismaService.expenseSplit.createMany.mockResolvedValue({ count: 2 });
 

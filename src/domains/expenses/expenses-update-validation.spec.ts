@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ReceiptImageService } from './receipt-image.service';
+import { NotificationDeliveryService } from '../notifications/notification-delivery.service';
 import { SplitType, ExpenseCategory } from '@prisma/client';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
@@ -50,6 +51,10 @@ describe('ExpensesService - updateExpense Validation Tests', () => {
         {
           provide: ReceiptImageService,
           useValue: {},
+        },
+        {
+          provide: NotificationDeliveryService,
+          useValue: { createNotification: jest.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();

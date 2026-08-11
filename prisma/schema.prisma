@@ -47,6 +47,7 @@ model User {
   sentMessages           Message[]
   notifications          Notification[]
   activityLogs           ActivityLog[]
+  bankAccounts           UserBankAccount[]
 
   @@map("users")
 }
@@ -278,6 +279,20 @@ model ExpenseLog {
   user         User          @relation(fields: [userId], references: [id])
 
   @@map("expense_logs")
+}
+
+model UserBankAccount {
+  id            BigInt   @id @default(autoincrement())
+  userId        BigInt   @map("user_id")
+  bankName      Bank     @map("bank_name")
+  accountNumber String   @map("account_number") @db.VarChar(30)
+  isPrimary     Boolean  @default(false) @map("is_primary")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_bank_accounts")
 }
 
 // =====================================================
@@ -608,6 +623,27 @@ enum ExpenseSplitStatus {
   CANCELLED
 }
 
+// 토스 송금 딥링크(supertoss://send?bank=...)가 요구하는 은행 코드에 맞춰야 함
+enum Bank {
+  KB
+  SHINHAN
+  WOORI
+  HANA
+  NH
+  IBK
+  KDB
+  SC
+  CITI
+  KAKAOBANK
+  TOSSBANK
+  SUHYUP
+  POST
+  SAEMAUL
+  SINHYUP
+  DGB
+  BNK
+}
+
 enum ExpenseAction {
   CREATED
   SPLIT_REQUESTED
@@ -679,6 +715,7 @@ enum NotificationType {
   NEW_MESSAGE
   GROUP_INVITE
   EXPENSE_DONE
+  EXPENSE_TRANSFER_CLAIMED
 }
 
 enum NotificationPushDeliveryStatus {

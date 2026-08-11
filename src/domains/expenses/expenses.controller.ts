@@ -15,6 +15,9 @@ import { CreateReceiptImageUploadDto } from './dto/create-receipt-image-upload.d
 import { ReceiptImageUploadResponseDto } from './dto/receipt-image-upload-response.dto';
 import { ReceiptImageViewResponseDto } from './dto/receipt-image-view.dto';
 import { ReceiptImageService } from './receipt-image.service';
+import { CreateBankAccountDto } from './dto/create-bank-account.dto';
+import { BankAccountResponseDto } from './dto/bank-account-response.dto';
+import { BankAccountService } from './bank-account.service';
 
 // 인증 가드, 데코레이터 및 인터페이스
 import { CognitoAccessTokenGuard } from '../auth/common/cognito-access-token.guard';
@@ -29,6 +32,7 @@ export class ExpensesController {
     private readonly expensesService: ExpensesService,
     private readonly configService: ConfigService,
     private readonly receiptImages: ReceiptImageService,
+    private readonly bankAccounts: BankAccountService,
   ) {}
 
   // ==========================================
@@ -51,12 +55,73 @@ export class ExpensesController {
     return this.receiptImages.createUpload(auth, dto);
   }
 
+  @Post('bank-accounts')
+  @UseGuards(CognitoAccessTokenGuard)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: '정산 수령용 계좌 등록',
+    description:
+      '정산 대금을 받을 본인 명의 계좌를 등록합니다. 처음 등록하는 계좌는 자동으로 기본 계좌(주계좌)로 지정됩니다.',
+  })
+  @ApiBody({ type: CreateBankAccountDto })
+  async createBankAccount(
+    @CurrentAuth() auth: AuthContext,
+    @Body() dto: CreateBankAccountDto,
+  ): Promise<BankAccountResponseDto> {
+    return this.bankAccounts.createBankAccount(auth, dto);
+  }
+
+  @Get('bank-accounts')
+  @UseGuards(CognitoAccessTokenGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '내 계좌 목록 조회',
+    description: '등록한 계좌 목록을 기본 계좌가 먼저 오도록 조회합니다.',
+  })
+  async getBankAccounts(@CurrentAuth() auth: AuthContext): Promise<BankAccountResponseDto[]> {
+    return this.bankAccounts.listBankAccounts(auth);
+  }
+
+  @Patch('bank-accounts/:bankAccountId/primary')
+  @UseGuards(CognitoAccessTokenGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '기본 계좌(주계좌) 변경',
+    description: '등록된 계좌 중 하나를 정산 송금 링크 생성 시 사용할 기본 계좌로 지정합니다.',
+  })
+  @ApiParam({ name: 'bankAccountId', description: '기본 계좌로 지정할 계좌 ID', example: 1 })
+  async setPrimaryBankAccount(
+    @CurrentAuth() auth: AuthContext,
+    @Param('bankAccountId', ParseIntPipe) bankAccountId: number,
+  ): Promise<BankAccountResponseDto> {
+    return this.bankAccounts.setPrimaryBankAccount(auth, bankAccountId);
+  }
+
+  @Delete('bank-accounts/:bankAccountId')
+  @UseGuards(CognitoAccessTokenGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '계좌 삭제',
+    description:
+      '등록한 계좌를 삭제합니다. 기본 계좌를 삭제하면 남은 계좌 중 하나가 자동으로 기본 계좌로 지정됩니다. ' +
+      '마지막 남은 계좌를 삭제하려는데 본인이 선지불자인 미완료 정산 내역이 있으면 400 에러로 막습니다.',
+  })
+  @ApiParam({ name: 'bankAccountId', description: '삭제할 계좌 ID', example: 1 })
+  async deleteBankAccount(
+    @CurrentAuth() auth: AuthContext,
+    @Param('bankAccountId', ParseIntPipe) bankAccountId: number,
+  ): Promise<{ message: string }> {
+    return this.bankAccounts.deleteBankAccount(auth, bankAccountId);
+  }
+
   @Post()
   @UseGuards(CognitoAccessTokenGuard)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ 
-    summary: '비용 등록 및 정산 요청 생성 (EXP-REG-01, EXP-REQ-01)', 
-    description: '항목명, 금액, 선지불자, 분담 대상을 입력받아 필수값 검증 후 정산 내역 및 알림을 생성합니다.' 
+    summary: '비용 등록 및 정산 요청 생성 (EXP-REG-01, EXP-REQ-01)',
+    description:
+      '항목명, 금액, 선지불자, 분담 대상을 입력받아 필수값 검증 후 정산 내역 및 알림을 생성합니다. ' +
+      '선지불자(payer)가 정산 수령용 계좌를 등록해두지 않았으면 400 에러로 막습니다.'
   })
   async createExpense(
     @CurrentAuth() auth: AuthContext,
@@ -130,9 +195,11 @@ export class ExpensesController {
   @Post('splits/:splitId/paylink')
   @UseGuards(CognitoAccessTokenGuard)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
-    summary: '외부 송금 앱 연결 정보 생성 (EXP-PAYLINK-01)', 
-    description: '수취인, 금액 정보를 기반으로 토스 송금 딥링크 정보를 생성하고 대기 상태로 변경합니다.' 
+  @ApiOperation({
+    summary: '외부 송금 앱 연결 정보 생성 (EXP-PAYLINK-01)',
+    description:
+      '수취인, 금액 정보를 기반으로 토스 송금 딥링크 정보를 생성합니다. 딥링크를 여는 것만으로는 ' +
+      '분담 상태가 바뀌지 않으며, 실제 송금 후 별도로 송금 완료 알림(EXP-TRANSFER-CLAIM-01)을 보내야 합니다.',
   })
   @ApiParam({ name: 'splitId', description: '송금할 분담 내역(Split) ID', example: 2 })
   async createPayLink(
@@ -140,6 +207,23 @@ export class ExpensesController {
     @Param('splitId', ParseIntPipe) splitId: number,
   ) {
     return this.expensesService.createPayLink(auth, splitId);
+  }
+
+  @Patch('splits/:splitId/transfer-claim')
+  @UseGuards(CognitoAccessTokenGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '송금 완료 알림 전송 (EXP-TRANSFER-CLAIM-01)',
+    description:
+      '실제로 송금을 완료한 뒤 사용자가 직접 눌러야 하는 액션입니다. 분담 상태를 대기(TRANSFER_PENDING)로 ' +
+      '변경하고, 결제 상대방(수령인)에게 확인 요청 알림을 보냅니다.',
+  })
+  @ApiParam({ name: 'splitId', description: '송금 완료를 알릴 분담 내역(Split) ID', example: 2 })
+  async claimTransfer(
+    @CurrentAuth() auth: AuthContext,
+    @Param('splitId', ParseIntPipe) splitId: number,
+  ) {
+    return this.expensesService.claimTransfer(auth, splitId);
   }
 
   @Post('splits/:splitId/pay-poc')
