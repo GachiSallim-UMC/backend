@@ -9,6 +9,7 @@ describe('ChoresService', () => {
   let prisma: {
     chore: {
       findMany: jest.Mock;
+      findFirst: jest.Mock;
       findUnique: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
@@ -26,6 +27,7 @@ describe('ChoresService', () => {
     prisma = {
       chore: {
         findMany: jest.fn(),
+        findFirst: jest.fn(),
         findUnique: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
@@ -170,13 +172,118 @@ describe('ChoresService', () => {
         BigInt(9),
       );
 
+      const lastCallIndex = prisma.chore.findMany.mock.calls.length - 1;
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      const where = prisma.chore.findMany.mock.calls[0][0] as {
+      const where = prisma.chore.findMany.mock.calls[lastCallIndex][0] as {
         where: { status?: ChoreStatus; assigneeId?: bigint; OR?: unknown };
       };
       expect(where.where.status).toBe(ChoreStatus.PENDING);
       expect(where.where.assigneeId).toBe(BigInt(5));
       expect(where.where.OR).toBeDefined();
+    });
+  });
+
+  describe('반복 집안일 미래 회차 사전 생성', () => {
+    const baseSeries = {
+      id: BigInt(1),
+      parentId: null,
+      groupId: BigInt(1),
+      title: '분리수거',
+      category: ChoreCategory.TRASH,
+      assigneeId: BigInt(5),
+      startDate: new Date('2026-08-03T00:00:00.000Z'),
+      dueDate: null,
+      repeatType: RepeatType.WEEKLY,
+      customOption: null,
+      repeatInterval: null,
+      repeatDays: [Weekday.MON],
+      memo: null,
+      createdBy: BigInt(1),
+    };
+
+    it('시리즈 꼬리부터 조회 범위(toDate)까지 미래 회차를 생성한다', async () => {
+      prisma.chore.findMany.mockResolvedValueOnce([baseSeries]); // 반복 시리즈 조회
+      prisma.chore.findFirst.mockResolvedValue(null); // 중복 없음
+      prisma.chore.create.mockResolvedValueOnce({
+        ...baseSeries,
+        id: BigInt(2),
+        parentId: BigInt(1),
+        startDate: new Date('2026-08-10T00:00:00.000Z'),
+      });
+      prisma.chore.findMany.mockResolvedValueOnce([]); // listChores 최종 조회
+
+      await service.listChores(
+        { groupId: 1, fromDate: '2026-08-10', toDate: '2026-08-16' },
+        BigInt(9),
+      );
+
+      expect(prisma.chore.create).toHaveBeenCalledTimes(1);
+      /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+      expect(prisma.chore.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            parentId: BigInt(1),
+            startDate: new Date('2026-08-10T00:00:00.000Z'),
+          }),
+        }),
+      );
+      /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    });
+
+    it('이미 존재하는 회차는 중복 생성하지 않는다', async () => {
+      const existingNext = {
+        ...baseSeries,
+        id: BigInt(2),
+        parentId: BigInt(1),
+        startDate: new Date('2026-08-10T00:00:00.000Z'),
+      };
+
+      prisma.chore.findMany.mockResolvedValueOnce([baseSeries]);
+      prisma.chore.findFirst.mockResolvedValueOnce(existingNext);
+      prisma.chore.findMany.mockResolvedValueOnce([]);
+
+      await service.listChores(
+        { groupId: 1, fromDate: '2026-08-10', toDate: '2026-08-16' },
+        BigInt(9),
+      );
+
+      expect(prisma.chore.create).not.toHaveBeenCalled();
+    });
+
+    it('반복 종료일(dueDate) 이후로는 회차를 생성하지 않는다', async () => {
+      const endedSeries = { ...baseSeries, dueDate: new Date('2026-08-05T00:00:00.000Z') };
+
+      prisma.chore.findMany.mockResolvedValueOnce([endedSeries]);
+      prisma.chore.findMany.mockResolvedValueOnce([]);
+
+      await service.listChores(
+        { groupId: 1, fromDate: '2026-08-10', toDate: '2026-08-16' },
+        BigInt(9),
+      );
+
+      expect(prisma.chore.create).not.toHaveBeenCalled();
+    });
+
+    it('이미 다음 회차가 존재하는(꼬리가 아닌) 시리즈는 건너뛴다', async () => {
+      const nextOccurrence = {
+        ...baseSeries,
+        id: BigInt(2),
+        parentId: BigInt(1),
+        startDate: new Date('2026-08-10T00:00:00.000Z'),
+      };
+
+      prisma.chore.findMany.mockResolvedValueOnce([baseSeries, nextOccurrence]);
+      prisma.chore.findFirst.mockResolvedValue(null);
+      prisma.chore.findMany.mockResolvedValueOnce([]);
+
+      await service.listChores(
+        { groupId: 1, fromDate: '2026-08-10', toDate: '2026-08-16' },
+        BigInt(9),
+      );
+
+      // baseSeries는 nextOccurrence에 의해 참조되는 부모이므로 꼬리가 아니다.
+      // nextOccurrence(꼬리)에서 8/17이 toDate(8/16)를 넘어가므로 생성 없음.
+      expect(prisma.chore.create).not.toHaveBeenCalled();
     });
   });
 
