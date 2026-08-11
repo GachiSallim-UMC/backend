@@ -183,11 +183,6 @@ export const ErrorCode = {
     code: 'CHORE_409_NOT_DONE',
     message: '완료되지 않은 집안일입니다.',
   },
-  CHORE_NEXT_OCCURRENCE_DONE: {
-    status: 409,
-    code: 'CHORE_409_NEXT_DONE',
-    message: '다음 회차가 이미 완료되어 완료를 취소할 수 없습니다.',
-  },
 
   // Supply
   SUP_INVALID_CATEGORY: {
