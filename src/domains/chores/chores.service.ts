@@ -393,24 +393,66 @@ export class ChoresService {
       String(dto.assigneeId),
     );
 
-    const chore = await this.prisma.chore.update({
-      where: { id: choreId },
-      data: {
-        title: dto.title,
-        category: dto.category,
-        assigneeId: BigInt(dto.assigneeId),
-        startDate,
-        dueDate,
-        repeatType: repeat.repeatType,
-        customOption: repeat.customOption,
-        repeatInterval: repeat.repeatInterval,
-        repeatDays: [...repeat.repeatDays],
-        memo: dto.memo ?? null,
-      },
-      include: CHORE_WITH_USERS,
+    const descendantIds = await this.collectFutureOccurrenceIds(choreId);
+
+    // 회차별 처리 기준: 수정은 선택 회차 + 이후 미래 회차(이미 생성된 자식 체인)에 공통 적용.
+    // 각 회차 고유의 startDate는 유지하고, 선택 회차만 요청받은 startDate로 갱신한다.
+    const sharedFields = {
+      title: dto.title,
+      category: dto.category,
+      assigneeId: BigInt(dto.assigneeId),
+      dueDate,
+      repeatType: repeat.repeatType,
+      customOption: repeat.customOption,
+      repeatInterval: repeat.repeatInterval,
+      repeatDays: [...repeat.repeatDays],
+      memo: dto.memo ?? null,
+    };
+
+    const chore = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.chore.update({
+        where: { id: choreId },
+        data: { ...sharedFields, startDate },
+        include: CHORE_WITH_USERS,
+      });
+
+      if (descendantIds.length > 0) {
+        await tx.chore.updateMany({
+          where: { id: { in: descendantIds } },
+          data: sharedFields,
+        });
+      }
+
+      return updated;
     });
 
     return this.toUpdateResponse(chore);
+  }
+
+  /**
+   * choreId 이후로 이미 생성된 미래 회차 id들을 자식 체인을 따라 전부 수집한다.
+   * 부모(과거) 방향으로는 올라가지 않으므로 지나간/완료된 이전 회차는 포함되지 않는다.
+   */
+  private async collectFutureOccurrenceIds(choreId: bigint): Promise<bigint[]> {
+    const ids: bigint[] = [];
+    let frontier = [choreId];
+
+    while (frontier.length > 0) {
+      const children = await this.prisma.chore.findMany({
+        where: { parentId: { in: frontier } },
+        select: { id: true },
+      });
+
+      if (children.length === 0) {
+        break;
+      }
+
+      const childIds = children.map((child) => child.id);
+      ids.push(...childIds);
+      frontier = childIds;
+    }
+
+    return ids;
   }
 
   async completeChore(choreId: bigint, completedBy: bigint) {
@@ -541,15 +583,22 @@ export class ChoresService {
     };
   }
 
-  async deleteChore(choreId: bigint, requesterId: bigint): Promise<{ choreId: number }> {
+  async deleteChore(
+    choreId: bigint,
+    requesterId: bigint,
+  ): Promise<{ choreId: number; deletedChoreIds: number[] }> {
     const chore = await this.findChoreOrThrow(choreId);
 
     await this.requireActiveGroupMemberOrThrow(chore.groupId, requesterId);
     await this.assertDeletePermission(chore, requesterId);
 
-    await this.prisma.chore.delete({ where: { id: choreId } });
+    // 회차별 처리 기준: 삭제는 선택 회차를 포함해 이후 미래 회차를 모두 삭제한다.
+    const descendantIds = await this.collectFutureOccurrenceIds(choreId);
+    const idsToDelete = [choreId, ...descendantIds];
 
-    return { choreId: Number(chore.id) };
+    await this.prisma.chore.deleteMany({ where: { id: { in: idsToDelete } } });
+
+    return { choreId: Number(chore.id), deletedChoreIds: idsToDelete.map(Number) };
   }
 
   async shareChore(choreId: bigint, senderId: bigint, chatRoomId: bigint, content?: string) {

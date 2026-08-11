@@ -13,6 +13,7 @@ describe('ChoresService', () => {
       findUnique: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
+      updateMany: jest.Mock;
       delete: jest.Mock;
       deleteMany: jest.Mock;
     };
@@ -31,6 +32,7 @@ describe('ChoresService', () => {
         findUnique: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
         delete: jest.fn(),
         deleteMany: jest.fn(),
       },
@@ -497,6 +499,113 @@ describe('ChoresService', () => {
       ).rejects.toThrow(BusinessException);
 
       expect(prisma.chore.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateChore 회차별 처리 (선택 회차 + 이후 미래 회차)', () => {
+    const updateDto = {
+      title: '분리수거 (수정)',
+      category: ChoreCategory.TRASH,
+      assigneeId: 1,
+      startDate: '2026-08-10',
+      repeatType: RepeatType.WEEKLY,
+      repeatDays: [Weekday.MON],
+    };
+
+    const fullChoreRecord = {
+      id: BigInt(10),
+      parentId: null,
+      groupId: BigInt(1),
+      title: updateDto.title,
+      category: updateDto.category,
+      startDate: new Date('2026-08-10T00:00:00Z'),
+      dueDate: null,
+      repeatType: RepeatType.WEEKLY,
+      customOption: null,
+      repeatInterval: null,
+      repeatDays: [Weekday.MON],
+      memo: null,
+      status: ChoreStatus.PENDING,
+      createdAt: new Date('2026-08-01T00:00:00Z'),
+      updatedAt: new Date('2026-08-01T00:00:00Z'),
+      assignee: { id: BigInt(1), nickname: '홍길동' },
+      completer: null,
+      creator: { id: BigInt(1), nickname: '홍길동' },
+    };
+
+    beforeEach(() => {
+      prisma.chore.findUnique.mockResolvedValue({ id: BigInt(10), groupId: BigInt(1) });
+      prisma.chore.update.mockResolvedValue(fullChoreRecord);
+      prisma.chore.updateMany.mockResolvedValue({ count: 1 });
+    });
+
+    it('이미 생성된 미래 회차가 있으면 선택 회차와 함께 동일한 필드를 반영한다', async () => {
+      prisma.chore.findMany
+        .mockResolvedValueOnce([{ id: BigInt(11) }]) // choreId(10)의 자식
+        .mockResolvedValueOnce([]); // 11의 자식 없음(체인 종료)
+
+      await service.updateChore(BigInt(10), updateDto, BigInt(1));
+
+      /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+      expect(prisma.chore.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: BigInt(10) },
+          data: expect.objectContaining({
+            title: updateDto.title,
+            startDate: new Date('2026-08-10T00:00:00.000Z'),
+          }),
+        }),
+      );
+      expect(prisma.chore.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: [BigInt(11)] } },
+        data: expect.not.objectContaining({ startDate: expect.anything() }),
+      });
+      /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    });
+
+    it('미래 회차가 없으면 updateMany를 호출하지 않는다', async () => {
+      prisma.chore.findMany.mockResolvedValueOnce([]);
+
+      await service.updateChore(BigInt(10), updateDto, BigInt(1));
+
+      expect(prisma.chore.update).toHaveBeenCalledTimes(1);
+      expect(prisma.chore.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteChore 회차별 처리 (선택 회차 + 이후 미래 회차)', () => {
+    beforeEach(() => {
+      prisma.chore.findUnique.mockResolvedValue({
+        id: BigInt(10),
+        groupId: BigInt(1),
+        createdBy: BigInt(1),
+      });
+      prisma.chore.deleteMany.mockResolvedValue({ count: 1 });
+    });
+
+    it('선택 회차와 이미 생성된 이후 미래 회차를 모두 삭제한다', async () => {
+      prisma.chore.findMany
+        .mockResolvedValueOnce([{ id: BigInt(11) }])
+        .mockResolvedValueOnce([{ id: BigInt(12) }])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.deleteChore(BigInt(10), BigInt(1));
+
+      expect(prisma.chore.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: [BigInt(10), BigInt(11), BigInt(12)] } },
+      });
+      expect(result).toEqual({ choreId: 10, deletedChoreIds: [10, 11, 12] });
+    });
+
+    it('미래 회차가 없으면 선택 회차만 삭제한다', async () => {
+      prisma.chore.findMany.mockResolvedValueOnce([]);
+
+      const result = await service.deleteChore(BigInt(10), BigInt(1));
+
+      expect(prisma.chore.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: [BigInt(10)] } },
+      });
+      expect(result).toEqual({ choreId: 10, deletedChoreIds: [10] });
     });
   });
 
