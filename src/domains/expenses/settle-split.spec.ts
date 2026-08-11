@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ReceiptImageService } from './receipt-image.service';
+import { NotificationDeliveryService } from '../notifications/notification-delivery.service';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
@@ -62,6 +63,10 @@ describe('ExpensesService - settleSplit 완료/철회(isBulkComplete) 토글 검
         {
           provide: ReceiptImageService,
           useValue: {},
+        },
+        {
+          provide: NotificationDeliveryService,
+          useValue: { createNotification: jest.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();

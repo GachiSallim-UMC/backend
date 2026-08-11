@@ -13,6 +13,7 @@ import { ExpensesService } from './expenses.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExpenseNotFoundException } from './expenses.exception';
 import { ReceiptImageService } from './receipt-image.service';
+import { NotificationDeliveryService } from '../notifications/notification-delivery.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -24,6 +25,7 @@ const mockPrismaService = (): any => {
   const mockUserRepo = {
     findFirst: jest.fn(),
     findMany: jest.fn(),
+    findUnique: jest.fn(),
   };
 
   const mockGroupMemberRepo = {
@@ -58,6 +60,10 @@ const mockPrismaService = (): any => {
     create: jest.fn(),
   };
 
+  const mockUserBankAccountRepo = {
+    findFirst: jest.fn(),
+  };
+
   const serviceMock: any = {
     user: mockUserRepo,
     groupMember: mockGroupMemberRepo,
@@ -66,6 +72,7 @@ const mockPrismaService = (): any => {
     chatRoom: mockChatRoomRepo,
     chatRoomMember: mockChatRoomMemberRepo,
     message: mockMessageRepo,
+    userBankAccount: mockUserBankAccountRepo,
   };
 
   serviceMock.$transaction = jest.fn((callback: (tx: any) => any) => callback(serviceMock));
@@ -81,6 +88,7 @@ describe('ExpensesService', () => {
     assertObjectExists: jest.Mock;
     deleteObject: jest.Mock;
   };
+  let notificationDelivery: { createNotification: jest.Mock };
 
   const mockAuthContext: AuthContext = {
     cognitoSub: 'test-cognito-sub-123',
@@ -93,6 +101,9 @@ describe('ExpensesService', () => {
       assertObjectExists: jest.fn().mockResolvedValue(undefined),
       deleteObject: jest.fn().mockResolvedValue(undefined),
     };
+    notificationDelivery = {
+      createNotification: jest.fn().mockResolvedValue(undefined),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ExpensesService,
@@ -103,6 +114,10 @@ describe('ExpensesService', () => {
         {
           provide: ReceiptImageService,
           useValue: receiptImages,
+        },
+        {
+          provide: NotificationDeliveryService,
+          useValue: notificationDelivery,
         },
       ],
     }).compile();
@@ -116,6 +131,12 @@ describe('ExpensesService', () => {
       groupId: BigInt(1),
       userId: BigInt(12),
       role: GroupRole.MEMBER,
+    });
+    prisma.userBankAccount.findFirst.mockResolvedValue({
+      id: BigInt(1),
+      bankName: 'SHINHAN',
+      accountNumber: '110123456789',
+      isPrimary: true,
     });
   });
 
@@ -176,6 +197,34 @@ describe('ExpensesService', () => {
         where: { leftAt: null | Date };
       };
       expect(groupMembershipCallArgs.where.leftAt).toBeNull();
+    });
+
+    it('선지불자(payer)에게 등록된 계좌가 없으면 BadRequestException을 던져야 한다', async () => {
+      const dto: CreateExpenseDto = {
+        groupId: 1,
+        category: ExpenseCategory.FOOD,
+        payerId: '12',
+        date: '2026-07-23',
+        title: '점심 식대',
+        amount: 10000,
+        splitType: SplitType.EQUAL,
+        targetMemberIds: [{ userId: '12' }, { userId: '2' }],
+      };
+
+      prisma.user.findMany.mockResolvedValue([{ id: BigInt(12) }, { id: BigInt(2) }]);
+      prisma.groupMember.findMany.mockResolvedValue([
+        { userId: BigInt(12) },
+        { userId: BigInt(2) },
+      ]);
+      prisma.userBankAccount.findFirst.mockResolvedValue(null);
+
+      await expect(service.createExpense(mockAuthContext, dto)).rejects.toThrow(
+        '등록된 계좌가 없습니다. 계좌 등록 먼저 진행해주세요.',
+      );
+      expect(prisma.userBankAccount.findFirst).toHaveBeenCalledWith({
+        where: { userId: BigInt(12), isPrimary: true },
+      });
+      expect(prisma.expense.create).not.toHaveBeenCalled();
     });
 
     it('receiptUrl이 전달되면 지출이 속한 그룹 소속인지 검증해야 한다', async () => {
@@ -844,14 +893,151 @@ describe('updateExpense', () => {
       await expect(service.createPayLink(mockAuthContext, 999)).rejects.toThrow(BadRequestException);
     });
 
-    it('웹 표준 규격에 맞춘 토스 송금 링크를 정상적으로 발급하고 상태를 변경해야 한다', async () => {
-      prisma.expenseSplit.findUnique.mockResolvedValue({ id: BigInt(1), userId: BigInt(12), amount: 5000 });
-      prisma.expenseSplit.update.mockResolvedValue({ id: BigInt(1), status: 'TRANSFER_PENDING' });
+    it.each([
+      ['DONE', '이미 정산이 완료된 내역입니다.'],
+      ['PRE_PAID', '이미 정산이 완료된 내역입니다.'],
+      ['CANCELLED', '취소된 정산 내역입니다.'],
+    ])('분담 상태가 %s이면 "%s" 메시지로 BadRequestException을 던져야 한다', async (status, message) => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        amount: 5000,
+        status,
+        expense: { payerId: BigInt(99), groupId: BigInt(1) },
+      });
+
+      await expect(service.createPayLink(mockAuthContext, 1)).rejects.toThrow(message);
+    });
+
+    it('TRANSFER_PENDING 상태여도(재시도) 딥링크를 다시 발급해야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        amount: 5000,
+        status: 'TRANSFER_PENDING',
+        expense: { payerId: BigInt(99), groupId: BigInt(1) },
+      });
+      prisma.userBankAccount = {
+        findFirst: jest.fn().mockResolvedValue({
+          bankName: 'SHINHAN',
+          accountNumber: '110123456789',
+          isPrimary: true,
+        }),
+      };
 
       const result = await service.createPayLink(mockAuthContext, 1);
 
-      expect(result.deepLinkUrl).toContain('supertoss://send?bank=SHINHAN&accountNo=110123456789&amount=5000');
+      expect(result.deepLinkUrl).toContain(
+        'supertoss://send?bank=%EC%8B%A0%ED%95%9C&accountNo=110123456789&amount=5000',
+      );
+    });
+
+    it('딥링크 발급만으로는 분담 상태를 바꾸거나 알림을 보내지 않아야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        amount: 5000,
+        expense: { payerId: BigInt(99), groupId: BigInt(1) },
+      });
+      prisma.userBankAccount = {
+        findFirst: jest.fn().mockResolvedValue({
+          bankName: 'SHINHAN',
+          accountNumber: '110123456789',
+          isPrimary: true,
+        }),
+      };
+
+      const result = await service.createPayLink(mockAuthContext, 1);
+
+      expect(result).toEqual({
+        deepLinkUrl:
+          'supertoss://send?bank=%EC%8B%A0%ED%95%9C&accountNo=110123456789&amount=5000',
+      });
+      expect(prisma.expenseSplit.update).not.toHaveBeenCalled();
+      expect(notificationDelivery.createNotification).not.toHaveBeenCalled();
+    });
+
+    it('결제 상대방이 정산 수령용 계좌를 등록하지 않았으면 BadRequestException을 던져야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        amount: 5000,
+        expense: { payerId: BigInt(99) },
+      });
+      prisma.userBankAccount = { findFirst: jest.fn().mockResolvedValue(null) };
+
+      await expect(service.createPayLink(mockAuthContext, 1)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // =========================================================================
+  // 6-1. claimTransfer 검증
+  // =========================================================================
+  describe('claimTransfer', () => {
+    it('분담 내역이 존재하지 않으면 BadRequestException을 발생시켜야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue(null);
+      await expect(service.claimTransfer(mockAuthContext, 999)).rejects.toThrow(BadRequestException);
+    });
+
+    it.each([
+      ['DONE', '이미 정산이 완료된 내역입니다.'],
+      ['PRE_PAID', '이미 정산이 완료된 내역입니다.'],
+      ['TRANSFER_PENDING', '이미 송금 절차가 진행 중인 내역입니다.'],
+      ['PROCESSING', '이미 송금 절차가 진행 중인 내역입니다.'],
+      ['CANCELLED', '취소된 정산 내역입니다.'],
+    ])('분담 상태가 %s이면 "%s" 메시지로 BadRequestException을 던져야 한다', async (status, message) => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        amount: 5000,
+        status,
+        expense: { payerId: BigInt(99), groupId: BigInt(1) },
+      });
+
+      await expect(service.claimTransfer(mockAuthContext, 1)).rejects.toThrow(message);
+    });
+
+    it('본인의 분담금이 아니면 ForbiddenException을 던져야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(999),
+        amount: 5000,
+        expense: { payerId: BigInt(99), groupId: BigInt(1) },
+      });
+
+      await expect(service.claimTransfer(mockAuthContext, 1)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('분담 상태를 TRANSFER_PENDING으로 바꾸고 결제 상대방에게 알림을 보내야 한다', async () => {
+      prisma.expenseSplit.findUnique.mockResolvedValue({
+        id: BigInt(1),
+        userId: BigInt(12),
+        amount: 5000,
+        expense: { payerId: BigInt(99), groupId: BigInt(1) },
+      });
+      const updatedAt = new Date('2026-08-11T00:00:00.000Z');
+      prisma.expenseSplit.update.mockResolvedValue({
+        id: BigInt(1),
+        status: 'TRANSFER_PENDING',
+        updatedAt,
+      });
+      prisma.user.findUnique.mockResolvedValue({ nickname: '테스터' });
+
+      const result = await service.claimTransfer(mockAuthContext, 1);
+
+      expect(prisma.expenseSplit.update).toHaveBeenCalledWith({
+        where: { id: BigInt(1) },
+        data: { status: 'TRANSFER_PENDING' },
+      });
       expect(result.status).toBe('TRANSFER_PENDING');
+      expect(notificationDelivery.createNotification).toHaveBeenCalledWith({
+        userId: BigInt(99),
+        groupId: BigInt(1),
+        type: 'EXPENSE_TRANSFER_CLAIMED',
+        refId: BigInt(1),
+        message: '테스터님이 송금완료 표시를 했습니다. 확인하고 승인해주세요.',
+        dedupeKey: `expense-split:1:transfer-claimed:${updatedAt.toISOString()}`,
+      });
     });
   });
 

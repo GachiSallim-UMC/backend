@@ -14,6 +14,7 @@ import { GetExpenseQueryDto } from './dto/get-expense-query.dto';
 import { SettleSplitDto } from './dto/settle-split.dto';
 import { ExpenseNotFoundException } from './expenses.exception';
 import { ReceiptImageService } from './receipt-image.service';
+import { NotificationDeliveryService } from '../notifications/notification-delivery.service';
 import { AuthContext } from '../auth/common/auth-context.interface';
 import {
   ExpenseCategory,
@@ -21,16 +22,41 @@ import {
   ExpenseSplitStatus,
   SplitType,
   GroupRole,
+  Bank,
+  NotificationType,
 } from '@prisma/client';
 import { ErrorCode } from '../../common/constants/error-code.constant';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import * as crypto from 'crypto';
+
+// 토스 송금 딥링크(supertoss://send)의 bank 파라미터는 은행 코드가 아니라 한글 은행명을 받아야
+// 이체 화면에서 은행이 자동으로 선택된다.
+const TOSS_BANK_NAME: Record<Bank, string> = {
+  [Bank.KB]: '국민',
+  [Bank.SHINHAN]: '신한',
+  [Bank.WOORI]: '우리',
+  [Bank.HANA]: '하나',
+  [Bank.NH]: '농협',
+  [Bank.IBK]: '기업',
+  [Bank.KDB]: '산업',
+  [Bank.SC]: 'SC제일',
+  [Bank.CITI]: '씨티',
+  [Bank.KAKAOBANK]: '카카오',
+  [Bank.TOSSBANK]: '토스',
+  [Bank.SUHYUP]: '수협',
+  [Bank.POST]: '우체국',
+  [Bank.SAEMAUL]: '새마을',
+  [Bank.SINHYUP]: '신협',
+  [Bank.DGB]: '대구',
+  [Bank.BNK]: '부산',
+};
 
 @Injectable()
 export class ExpensesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly receiptImages: ReceiptImageService,
+    private readonly notificationDelivery: NotificationDeliveryService,
   ) {}
 
   // DB User.id 조회
@@ -134,6 +160,14 @@ export class ExpensesService {
     });
     if (groupMemberships.length !== allRequiredUserIds.length) {
       throw new ForbiddenException('해당 그룹의 멤버가 아니거나 이미 탈퇴한 사용자가 정산 대상에 포함되어 있습니다.');
+    }
+
+    // 1-3. 선결제자(payer)가 정산 수령용 계좌를 등록해두었는지 검증
+    const payerAccount = await this.prisma.userBankAccount.findFirst({
+      where: { userId: BigInt(numericPayerId), isPrimary: true },
+    });
+    if (!payerAccount) {
+      throw new BadRequestException('등록된 계좌가 없습니다. 계좌 등록 먼저 진행해주세요.');
     }
 
     if (receiptUrl) {
@@ -476,31 +510,88 @@ export class ExpensesService {
   }
 
   // 7. 송금 링크 생성
-  async createPayLink(auth: AuthContext, splitId: number) {
-    const currentUserId = await this.getUserIdByAuth(auth);
-
+  private async getOwnedSplitOrThrow(currentUserId: bigint, splitId: number) {
     const split = await this.prisma.expenseSplit.findUnique({
       where: { id: BigInt(splitId) },
+      include: { expense: true },
     });
 
     if (!split) throw new BadRequestException('존재하지 않는 분담 내역입니다.');
 
     if (split.userId !== currentUserId) {
-      throw new ForbiddenException('본인의 분담금에 대해서만 결제 링크를 생성할 수 있습니다.');
+      throw new ForbiddenException('본인의 분담금에 대해서만 이용할 수 있습니다.');
     }
 
-    const bank = 'SHINHAN';
-    const accountNo = '110123456789';
-    const amount = split.amount;
+    return split;
+  }
 
-    const deepLinkUrl = `supertoss://send?bank=${bank}&accountNo=${accountNo}&amount=${amount}`;
+  async createPayLink(auth: AuthContext, splitId: number) {
+    const currentUserId = await this.getUserIdByAuth(auth);
+    const split = await this.getOwnedSplitOrThrow(currentUserId, splitId);
+
+    switch (split.status) {
+      case ExpenseSplitStatus.DONE:
+      case ExpenseSplitStatus.PRE_PAID:
+        throw new BadRequestException('이미 정산이 완료된 내역입니다.');
+      case ExpenseSplitStatus.CANCELLED:
+        throw new BadRequestException('취소된 정산 내역입니다.');
+      default:
+        break;
+    }
+
+    const payerAccount = await this.prisma.userBankAccount.findFirst({
+      where: { userId: split.expense.payerId, isPrimary: true },
+    });
+
+    if (!payerAccount) {
+      throw new BadRequestException('결제 상대방이 정산 수령용 계좌를 등록하지 않았습니다.');
+    }
+
+    const amount = split.amount;
+    const bankName = TOSS_BANK_NAME[payerAccount.bankName];
+    const deepLinkUrl = `supertoss://send?bank=${encodeURIComponent(bankName)}&accountNo=${payerAccount.accountNumber}&amount=${amount}`;
+
+    return { deepLinkUrl };
+  }
+
+  // 7-1. 송금 완료 알림 전송 (딥링크를 열었다고 자동으로 처리하지 않고, 사용자가 직접 눌러야 함)
+  async claimTransfer(auth: AuthContext, splitId: number) {
+    const currentUserId = await this.getUserIdByAuth(auth);
+    const split = await this.getOwnedSplitOrThrow(currentUserId, splitId);
+
+    switch (split.status) {
+      case ExpenseSplitStatus.DONE:
+      case ExpenseSplitStatus.PRE_PAID:
+        throw new BadRequestException('이미 정산이 완료된 내역입니다.');
+      case ExpenseSplitStatus.TRANSFER_PENDING:
+      case ExpenseSplitStatus.PROCESSING:
+        throw new BadRequestException('이미 송금 절차가 진행 중인 내역입니다.');
+      case ExpenseSplitStatus.CANCELLED:
+        throw new BadRequestException('취소된 정산 내역입니다.');
+      default:
+        break;
+    }
 
     const updatedSplit = await this.prisma.expenseSplit.update({
       where: { id: BigInt(splitId) },
       data: { status: 'TRANSFER_PENDING' },
     });
 
-    return { deepLinkUrl, status: updatedSplit.status };
+    const debtor = await this.prisma.user.findUnique({
+      where: { id: currentUserId },
+      select: { nickname: true },
+    });
+
+    await this.notificationDelivery.createNotification({
+      userId: split.expense.payerId,
+      groupId: split.expense.groupId,
+      type: NotificationType.EXPENSE_TRANSFER_CLAIMED,
+      refId: split.id,
+      message: `${debtor?.nickname}님이 송금완료 표시를 했습니다. 확인하고 승인해주세요.`,
+      dedupeKey: `expense-split:${split.id}:transfer-claimed:${updatedSplit.updatedAt.toISOString()}`,
+    });
+
+    return { message: '송금 완료 알림이 전송되었습니다.', status: updatedSplit.status };
   }
 
   // 8. 핀테크 결제 POC
