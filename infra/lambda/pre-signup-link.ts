@@ -23,7 +23,6 @@ export function createPreSignupHandler(client: CognitoIdentityProviderClient) {
   return async (event: PreSignupEvent): Promise<PreSignupEvent> => {
     if (event.triggerSource === 'PreSignUp_SignUp') {
       event.response.autoConfirmUser = true;
-      event.response.autoVerifyEmail = true;
       return event;
     }
 

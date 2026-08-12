@@ -62,7 +62,8 @@ export class SignupResponseDto {
   email!: string;
 
   @ApiProperty({
-    description: '추가 이메일 확인이 필요한지 여부입니다. 현재 일반 가입은 즉시 확인됩니다.',
+    description:
+      '추가 가입 확인 절차가 필요한지 여부입니다. 현재 일반 가입은 이메일 소유권 검증 없이 즉시 완료됩니다.',
     example: false,
   })
   confirmationRequired!: boolean;
