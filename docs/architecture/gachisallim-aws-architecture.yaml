@@ -1,0 +1,508 @@
+# GachiSallim AWS architecture overview.
+#
+# Sources:
+#   - infra/lib/backend-stack.ts
+#   - infra/lib/deployment-stack.ts
+#   - .github/workflows/cd.yml
+#   - src/app.module.ts
+#
+# Rebuild with awsdac v0.23:
+#   awsdac docs/architecture/gachisallim-aws-architecture.yaml \
+#     --output docs/architecture/gachisallim-aws-architecture.png --force
+#
+# Repeated production/main and development/develop resources are collapsed into
+# one icon and marked with "x2" to keep this overview readable.
+
+Diagram:
+  DefinitionFiles:
+    - Type: URL
+      Url: "https://raw.githubusercontent.com/awslabs/diagram-as-code/v0.23/definitions/definition-for-aws-icons-light.yaml"
+
+  Resources:
+    Canvas:
+      Type: AWS::Diagram::Canvas
+      Direction: vertical
+      Children:
+        - ExternalActors
+        - AWSCloud
+
+    ExternalActors:
+      Type: AWS::Diagram::HorizontalStack
+      Align: center
+      Children:
+        - Clients
+        - GitHubActions
+        - SocialIdentityProviders
+        - BrowserPushServices
+
+    Clients:
+      Type: AWS::Diagram::Resource
+      Preset: User
+      Title: "Web and mobile clients"
+
+    SocialIdentityProviders:
+      Type: AWS::Diagram::Resource
+      Preset: User
+      Title: "Google and Kakao IdPs"
+
+    BrowserPushServices:
+      Type: AWS::Diagram::Resource
+      Preset: User
+      Title: "Browser push services"
+
+    GitHubActions:
+      Type: AWS::Diagram::Resource
+      Preset: User
+      Title: "GitHub Actions CD\nmain and develop"
+
+    AWSCloud:
+      Type: AWS::Diagram::Cloud
+      Preset: AWSCloudNoLogo
+      Direction: vertical
+      Align: center
+      Children:
+        - SeoulRegion
+
+    SeoulRegion:
+      Type: AWS::Region
+      Title: "ap-northeast-2"
+      Direction: vertical
+      Children:
+        - BackendStack
+        - DeploymentStack
+
+    BackendStack:
+      Type: AWS::Diagram::Resource
+      Title: "GachiSallimBackendStack - shared core with main/develop isolation"
+      FillColor: "rgba(251, 249, 254, 255)"
+      BorderColor: "rgba(116, 78, 172, 255)"
+      HeaderAlign: center
+      Direction: vertical
+      Children:
+        - EdgeServices
+        - BackendCore
+
+    EdgeServices:
+      Type: AWS::Diagram::HorizontalStack
+      Align: center
+      Children:
+        - HostedZone
+        - Certificate
+        - ProfileImageDistribution
+
+    HostedZone:
+      Type: AWS::Route53::HostedZone
+      Title: "Route 53 hosted zone\napi and dev-api aliases"
+
+    Certificate:
+      Type: AWS::CertificateManager
+      Title: "ACM certificate\napi and dev-api"
+
+    ProfileImageDistribution:
+      Type: AWS::CloudFront
+      Title: "CloudFront distribution\npublic profile images"
+
+    BackendCore:
+      Type: AWS::Diagram::HorizontalStack
+      Align: top
+      Children:
+        - BackendVpc
+        - ManagedServicePlane
+
+    BackendVpc:
+      Type: AWS::EC2::VPC
+      Title: "VPC 10.0.0.0/16 - 2 AZs"
+      Direction: vertical
+      Children:
+        - PublicSubnets
+        - PrivateBackendSubnets
+      BorderChildren:
+        - Position: N
+          Resource: InternetGateway
+
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Title: "Internet gateway"
+      IconFill:
+        Type: rect
+
+    PublicSubnets:
+      Type: AWS::EC2::Subnet
+      Preset: PublicSubnet
+      Title: "Public ingress subnets x2"
+      Direction: horizontal
+      Children:
+        - LoadBalancer
+        - NatInstance
+
+    LoadBalancer:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Preset: Application Load Balancer
+      Title: "Application Load Balancer\nHTTPS 443, host routing, JWT"
+
+    NatInstance:
+      Type: AWS::EC2::Instance
+      Title: "NAT instance\nt4g.nano"
+
+    PrivateBackendSubnets:
+      Type: AWS::EC2::Subnet
+      Preset: PrivateSubnet
+      Title: "Private backend subnets x2"
+      Direction: horizontal
+      Children:
+        - ApplicationInstance
+        - Database
+        - VpcEndpoints
+
+    ApplicationInstance:
+      Type: AWS::EC2::Instance
+      Title: "EC2 t4g.small\nNestJS and Prisma\nmain :3000 | develop :3001"
+
+    Database:
+      Type: AWS::RDS::DBInstance
+      Title: "RDS PostgreSQL 16\nt4g.micro\n1 instance, 2 logical DBs"
+
+    VpcEndpoints:
+      Type: AWS::EC2::VPCEndpoint
+      Title: "VPC endpoints x7\nS3, SQS, SSM, Logs,\nSecrets Manager, Scheduler"
+
+    ManagedServicePlane:
+      Type: AWS::Diagram::VerticalStack
+      Align: center
+      Children:
+        - AuthenticationServices
+        - ChatServices
+        - NotificationServices
+        - StorageAndOperations
+
+    AuthenticationServices:
+      Type: AWS::Cognito
+      Title: "Authentication - ALB JWT and EC2 Cognito SDK - main and develop"
+      Direction: horizontal
+      Children:
+        - UserPools
+        - CognitoTriggers
+        - EmailService
+
+    UserPools:
+      Type: AWS::Cognito::UserPool
+      Title: "User pools, domains, clients x2\nlocal, Google, Kakao"
+
+    CognitoTriggers:
+      Type: AWS::Lambda::Function
+      Title: "Cognito triggers\npre-sign-up shared\ncustom message x2"
+
+    EmailService:
+      Type: AWS::SES
+      Title: "SES email\nverification and reset"
+
+    ChatServices:
+      Type: AWS::ApiGatewayV2
+      Title: "Realtime chat - Lambda routes and EC2 broadcast - main and develop"
+      Direction: horizontal
+      Children:
+        - ChatWebSocketApis
+        - ChatWebSocketHandlers
+        - ChatConnectionsTables
+
+    ChatWebSocketApis:
+      Type: AWS::ApiGatewayV2::Api
+      Title: "WebSocket APIs x2\nconnect, disconnect, join, leave"
+
+    ChatWebSocketHandlers:
+      Type: AWS::Lambda::Function
+      Title: "WebSocket handlers\n5 Lambdas per environment"
+
+    ChatConnectionsTables:
+      Type: AWS::DynamoDB::Table
+      Title: "Connection tables x2\nTTL and room GSI"
+
+    NotificationServices:
+      Type: AWS::SQS
+      Title: "EC2 schedules, publishes and polls - main and develop"
+      Direction: horizontal
+      Children:
+        - ChoreScheduler
+        - CommandQueues
+        - PushQueues
+        - PushWorkers
+        - ResultQueues
+
+    ChoreScheduler:
+      Type: AWS::Scheduler::Schedule
+      Title: "EventBridge Scheduler\ngroups x2"
+
+    CommandQueues:
+      Type: AWS::SQS::Queue
+      Title: "Command queues x2\nplus DLQs x2"
+
+    PushQueues:
+      Type: AWS::SQS::Queue
+      Title: "Push queues x2\nplus DLQs x2"
+
+    PushWorkers:
+      Type: AWS::Lambda::Function
+      Title: "Web push workers x2\nNode.js 22 ARM64"
+
+    ResultQueues:
+      Type: AWS::SQS::Queue
+      Title: "Result queues x2\nplus DLQs x2"
+
+    StorageAndOperations:
+      Type: AWS::Diagram::HorizontalStack
+      Align: top
+      Children:
+        - ObjectStorage
+        - OperationsServices
+
+    ObjectStorage:
+      Type: AWS::S3
+      Title: "EC2 presigned object access"
+      Direction: horizontal
+      Children:
+        - ProfileImageBucket
+        - ReceiptImageBucket
+
+    ProfileImageBucket:
+      Type: AWS::S3::Bucket
+      Title: "Profile images\nCloudFront OAC"
+
+    ReceiptImageBucket:
+      Type: AWS::S3::Bucket
+      Title: "Receipt images\nprivate presigned access"
+
+    OperationsServices:
+      Type: AWS::CloudWatch
+      Title: "EC2 secrets, configuration and logs"
+      Direction: horizontal
+      Children:
+        - RuntimeSecrets
+        - ApplicationLogs
+        - RuntimeConfiguration
+        - NotificationQueueKey
+
+    RuntimeSecrets:
+      Type: AWS::SecretsManager::Secret
+      Title: "Secrets Manager\nDB, webhook, social, VAPID"
+
+    ApplicationLogs:
+      Type: AWS::Logs
+      Title: "CloudWatch Logs\napplication and Lambda logs"
+
+    RuntimeConfiguration:
+      Type: AWS::SSM::Document
+      Title: "SSM State Manager\nruntime configuration"
+
+    NotificationQueueKey:
+      Type: AWS::KMS
+      Title: "KMS key\nnotification queues"
+
+    DeploymentStack:
+      Type: AWS::Diagram::Resource
+      Title: "GachiSallimDeploymentStack - GitHub OIDC deployment plane"
+      FillColor: "rgba(247, 251, 255, 255)"
+      BorderColor: "rgba(65, 111, 154, 255)"
+      HeaderAlign: center
+      Direction: horizontal
+      Children:
+        - GitHubDeployRoles
+        - ArtifactBucket
+        - DeployDocuments
+
+    GitHubDeployRoles:
+      Type: AWS::IAM::Role
+      Title: "GitHub OIDC roles x2\nS3, SSM and Lambda deploy"
+
+    ArtifactBucket:
+      Type: AWS::S3::Bucket
+      Title: "Release artifact bucket\n30-day lifecycle"
+
+    DeployDocuments:
+      Type: AWS::SSM::Document
+      Title: "SSM deploy documents x2\nmain and develop"
+
+  Links:
+    # Client ingress and edge delivery.
+    - Source: Clients
+      SourcePosition: SSW
+      Target: HostedZone
+      TargetPosition: N
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+
+    - Source: HostedZone
+      SourcePosition: S
+      Target: LoadBalancer
+      TargetPosition: N
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "Alias records" }
+
+    - Source: Certificate
+      SourcePosition: SSW
+      Target: LoadBalancer
+      TargetPosition: NNE
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "TLS" }
+
+    - Source: Clients
+      SourcePosition: SSE
+      Target: ProfileImageDistribution
+      TargetPosition: N
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+
+    - Source: ProfileImageDistribution
+      SourcePosition: S
+      Target: ProfileImageBucket
+      TargetPosition: N
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "OAC GET" }
+
+    - Source: LoadBalancer
+      SourcePosition: S
+      Target: ApplicationInstance
+      TargetPosition: N
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "HTTP :3000 / :3001" }
+
+    # Core application dependencies are summarized at functional group boundaries.
+    - Source: ApplicationInstance
+      SourcePosition: E
+      Target: Database
+      TargetPosition: W
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "PostgreSQL :5432" }
+
+    - Source: SocialIdentityProviders
+      SourcePosition: S
+      Target: UserPools
+      TargetPosition: N
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "OIDC" }
+
+    - Source: UserPools
+      SourcePosition: E
+      Target: CognitoTriggers
+      TargetPosition: W
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+
+    - Source: UserPools
+      SourcePosition: ESE
+      Target: EmailService
+      TargetPosition: W
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+
+    # Realtime chat.
+    - Source: Clients
+      SourcePosition: ESE
+      Target: ChatWebSocketApis
+      TargetPosition: NW
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "WSS" }
+
+    - Source: ChatWebSocketApis
+      SourcePosition: E
+      Target: ChatWebSocketHandlers
+      TargetPosition: W
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "Routes" }
+
+    - Source: ChatWebSocketHandlers
+      SourcePosition: E
+      Target: ChatConnectionsTables
+      TargetPosition: W
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "Connection state" }
+
+    - Source: ChoreScheduler
+      SourcePosition: E
+      Target: CommandQueues
+      TargetPosition: W
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "Due command" }
+
+    - Source: PushQueues
+      SourcePosition: E
+      Target: PushWorkers
+      TargetPosition: W
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "SQS trigger" }
+
+    - Source: PushWorkers
+      SourcePosition: E
+      Target: ResultQueues
+      TargetPosition: W
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "Delivery result" }
+
+    - Source: PushWorkers
+      SourcePosition: N
+      Target: BrowserPushServices
+      TargetPosition: S
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      Labels:
+        AutoRight: { Title: "Web Push" }
+
+    # Deployment control plane. Dashed links are deployment/configuration flows.
+    - Source: GitHubActions
+      SourcePosition: S
+      Target: GitHubDeployRoles
+      TargetPosition: N
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      LineStyle: dashed
+      Labels:
+        AutoRight: { Title: "OIDC" }
+
+    - Source: GitHubDeployRoles
+      SourcePosition: E
+      Target: ArtifactBucket
+      TargetPosition: W
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      LineStyle: dashed
+
+    - Source: GitHubDeployRoles
+      SourcePosition: ESE
+      Target: DeployDocuments
+      TargetPosition: W
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      LineStyle: dashed
+
+    - Source: DeploymentStack
+      SourcePosition: NW
+      Target: ApplicationInstance
+      TargetPosition: S
+      TargetArrowHead: { Type: Open }
+      Type: orthogonal
+      LineStyle: dashed
+      Labels:
+        AutoRight: { Title: "SSM command and S3 release" }
