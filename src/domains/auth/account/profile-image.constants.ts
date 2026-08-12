@@ -1,0 +1,1 @@
+export const PROFILE_IMAGE_S3_CLIENT = Symbol('PROFILE_IMAGE_S3_CLIENT');

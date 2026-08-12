@@ -1,0 +1,85 @@
+name: Deploy OpenAPI Docs
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - openapi.json
+      - docs/swagger-ui/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch documentation branches
+        run: |
+          git fetch --no-tags --depth=1 origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/develop:refs/remotes/origin/develop
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare site
+        run: |
+          prepare_branch_docs() {
+            branch="$1"
+            mkdir -p "_site/${branch}"
+
+            if git show "origin/${branch}:openapi.json" > "_site/${branch}/openapi.json" 2>/dev/null; then
+              cp docs/swagger-ui/index.html "_site/${branch}/index.html"
+            else
+              rm -f "_site/${branch}/openapi.json"
+              cp docs/swagger-ui/unavailable.html "_site/${branch}/index.html"
+            fi
+          }
+
+          mkdir -p _site
+          cp docs/swagger-ui/root.html _site/index.html
+          prepare_branch_docs main
+          prepare_branch_docs develop
+
+          if [ ! -s _site/develop/openapi.json ]; then
+            echo "::error::develop/openapi.json was not included in the Pages artifact"
+            exit 1
+          fi
+
+          touch _site/.nojekyll
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

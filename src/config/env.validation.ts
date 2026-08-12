@@ -10,4 +10,75 @@ export const ENV_VALIDATION_SCHEMA = joi.object({
     .string()
     .uri({ scheme: ['postgresql', 'postgres'] })
     .required(),
+  AWS_REGION: joi.string().min(1).required(),
+  COGNITO_USER_POOL_ID: joi.string().min(1).required(),
+  COGNITO_CLIENT_ID: joi.string().min(1).required(),
+  PROFILE_IMAGE_BUCKET: joi.string().min(3).required(),
+  PROFILE_IMAGE_OBJECT_PREFIX: joi
+    .string()
+    .pattern(/^[0-9A-Za-z][0-9A-Za-z/_-]*[0-9A-Za-z]$/)
+    .max(128)
+    .required(),
+  PROFILE_IMAGE_PUBLIC_BASE_URL: joi
+    .string()
+    .uri({ scheme: ['https'] })
+    .required(),
+  RECEIPT_IMAGE_BUCKET: joi.string().min(3).required(),
+  RECEIPT_IMAGE_OBJECT_PREFIX: joi
+    .string()
+    .pattern(/^[0-9A-Za-z][0-9A-Za-z/_-]*[0-9A-Za-z]$/)
+    .max(128)
+    .required(),
+  NOTIFICATION_PUSH_QUEUE_URL: joi
+    .string()
+    .uri({ scheme: ['https'] })
+    .required(),
+  NOTIFICATION_PUSH_RESULT_QUEUE_URL: joi
+    .string()
+    .uri({ scheme: ['https'] })
+    .required(),
+  NOTIFICATION_VAPID_PUBLIC_KEY: joi.string().min(1).required(),
+  NOTIFICATION_OUTBOX_POLL_INTERVAL_MS: joi.number().integer().min(1000).default(5000),
+  NOTIFICATION_OUTBOX_BATCH_SIZE: joi.number().integer().min(1).max(100).default(10),
+  NOTIFICATION_OUTBOX_MAX_ATTEMPTS: joi.number().integer().min(1).max(100).default(10),
+  NOTIFICATION_RESULT_POLL_INTERVAL_MS: joi.number().integer().min(1000).default(5000),
+  NOTIFICATION_COMMAND_QUEUE_URL: joi
+    .string()
+    .uri({ scheme: ['https'] })
+    .required(),
+  NOTIFICATION_COMMAND_QUEUE_ARN: joi
+    .string()
+    .pattern(/^arn:aws[a-z-]*:sqs:/)
+    .required(),
+  NOTIFICATION_COMMAND_DLQ_ARN: joi
+    .string()
+    .pattern(/^arn:aws[a-z-]*:sqs:/)
+    .required(),
+  CHORE_DUE_SCHEDULE_GROUP: joi.string().min(1).max(64).required(),
+  CHORE_DUE_SCHEDULE_ROLE_ARN: joi
+    .string()
+    .pattern(/^arn:aws[a-z-]*:iam:/)
+    .required(),
+  CHORE_DUE_SCHEDULE_PREFIX: joi
+    .string()
+    .pattern(/^[0-9A-Za-z_-]+$/)
+    .max(40)
+    .required(),
+  CHORE_DUE_NOTIFICATION_TIME: joi
+    .string()
+    .pattern(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .default('09:00'),
+  CHORE_DUE_TIME_ZONE: joi.string().min(1).default('Asia/Seoul'),
+  NOTIFICATION_COMMAND_POLL_INTERVAL_MS: joi.number().integer().min(1000).default(5000),
+
+  // WEBHOOK_SECRET 필수값 설정 및 하드코딩 기본값 거부
+  WEBHOOK_SECRET: joi
+    .string()
+    .min(1)
+    .invalid('gachisallim-webhook-secret-key')
+    .required()
+    .messages({
+      'any.invalid': 'WEBHOOK_SECRET에 기본 하드코딩 키를 사용할 수 없습니다.',
+      'any.required': 'WEBHOOK_SECRET 환경변수는 필수 설정 항목입니다.',
+    }),
 });

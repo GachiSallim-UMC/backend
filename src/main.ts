@@ -6,13 +6,25 @@ import compression from 'compression';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
+import { validationExceptionFactory } from './common/exceptions/validation-exception.factory';
 import { parseCorsOrigin } from './config/cors';
+
+declare global {
+  interface BigInt {
+    toJSON(): string;
+  }
+}
+
+BigInt.prototype.toJSON = function (this: bigint): string {
+  return this.toString();
+};
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
   const corsOrigin = configService.getOrThrow<string>('CORS_ORIGIN');
 
+  app.setGlobalPrefix('api/v1');
   app.use(helmet());
   app.use(compression());
   app.enableCors({
@@ -24,6 +36,7 @@ async function bootstrap(): Promise<void> {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      exceptionFactory: validationExceptionFactory,
     }),
   );
 
@@ -31,6 +44,14 @@ async function bootstrap(): Promise<void> {
     .setTitle(configService.getOrThrow<string>('APP_NAME'))
     .setDescription('GachiSallim backend API')
     .setVersion(configService.getOrThrow<string>('APP_VERSION'))
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+      },
+      'BearerAuth',
+    )
     .build();
   const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api-docs', app, swaggerDocument);
