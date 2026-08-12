@@ -28,7 +28,10 @@ export class AuthRegistrationController {
 
   @Post('signup')
   @HttpCode(200)
-  @ApiOperation({ summary: '회원가입' })
+  @ApiOperation({
+    summary: '회원가입',
+    description: '현재 일반 이메일 가입은 별도 이메일 확인 없이 즉시 완료됩니다.',
+  })
   @ApiOkResponse({ type: SignupResponseDto })
   @ApiBadRequestResponse({ description: '요청 또는 비밀번호 정책이 올바르지 않습니다.' })
   @ApiConflictResponse({ description: '이미 가입된 이메일입니다.' })

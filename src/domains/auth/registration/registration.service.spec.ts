@@ -73,7 +73,34 @@ describe('AuthRegistrationService', () => {
     service = new AuthRegistrationService(cognitoClient, configService, prisma);
   });
 
-  it('creates an unconfirmed Cognito and database user', async () => {
+  it('creates an active database user when Cognito auto-confirms signup', async () => {
+    send.mockResolvedValueOnce({ UserSub: 'cognito-sub', UserConfirmed: true });
+
+    await expect(service.signup(signupDto)).resolves.toEqual({
+      userId: 1,
+      email: signupDto.email,
+      confirmationRequired: false,
+    });
+    expect(send).toHaveBeenCalledWith(expect.any(SignUpCommand));
+    expect(createUser).toHaveBeenCalledWith({
+      data: {
+        email: signupDto.email,
+        name: signupDto.name,
+        nickname: signupDto.nickname,
+        isActive: true,
+      },
+    });
+    expect(createIdentity).toHaveBeenCalledWith({
+      data: {
+        userId: 1n,
+        cognitoSub: 'cognito-sub',
+        provider: 'COGNITO',
+        email: signupDto.email,
+      },
+    });
+  });
+
+  it('preserves confirmation flow when Cognito does not auto-confirm signup', async () => {
     send.mockResolvedValueOnce({ UserSub: 'cognito-sub' });
 
     await expect(service.signup(signupDto)).resolves.toEqual({

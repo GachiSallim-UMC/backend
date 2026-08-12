@@ -6,14 +6,18 @@ import {
 
 import { createPreSignupHandler } from './pre-signup-link';
 
-describe('pre-signup social account linking', () => {
+describe('pre-signup handling', () => {
   const userPoolId = 'ap-northeast-2_pool';
 
-  it('leaves native Cognito signups unchanged', async () => {
+  it('auto-confirms native Cognito signups without sending a verification email', async () => {
     const send = jest.fn();
     const event = createEvent('PreSignUp_SignUp', 'native-user');
 
     await expect(run(send, event)).resolves.toBe(event);
+    expect(event.response).toEqual({
+      autoConfirmUser: true,
+      autoVerifyEmail: true,
+    });
     expect(send).not.toHaveBeenCalled();
   });
 
