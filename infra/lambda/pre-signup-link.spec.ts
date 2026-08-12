@@ -6,14 +6,15 @@ import {
 
 import { createPreSignupHandler } from './pre-signup-link';
 
-describe('pre-signup social account linking', () => {
+describe('pre-signup handling', () => {
   const userPoolId = 'ap-northeast-2_pool';
 
-  it('leaves native Cognito signups unchanged', async () => {
+  it('auto-confirms native Cognito signups without trusting the unverified email', async () => {
     const send = jest.fn();
     const event = createEvent('PreSignUp_SignUp', 'native-user');
 
     await expect(run(send, event)).resolves.toBe(event);
+    expect(event.response).toEqual({ autoConfirmUser: true });
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -68,6 +69,24 @@ describe('pre-signup social account linking', () => {
 
     await expect(run(send, event)).resolves.toBe(event);
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not link an external identity to an auto-confirmed unverified native user', async () => {
+    const send = jest.fn().mockResolvedValue({
+      Users: [
+        {
+          Username: 'unverified-native-user',
+          Enabled: true,
+          UserStatus: 'CONFIRMED',
+          Attributes: [{ Name: 'email_verified', Value: 'false' }],
+        },
+      ],
+    });
+    const event = createEvent('PreSignUp_ExternalProvider', 'Google_victim-sub');
+
+    await expect(run(send, event)).resolves.toBe(event);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalledWith(expect.any(AdminLinkProviderForUserCommand));
   });
 
   it.each([
