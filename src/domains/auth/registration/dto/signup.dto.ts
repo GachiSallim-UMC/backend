@@ -61,6 +61,10 @@ export class SignupResponseDto {
   @ApiProperty({ example: 'example@gmail.com' })
   email!: string;
 
-  @ApiProperty({ example: true })
-  confirmationRequired!: true;
+  @ApiProperty({
+    description:
+      '추가 가입 확인 절차가 필요한지 여부입니다. 현재 일반 가입은 이메일 소유권 검증 없이 즉시 완료됩니다.',
+    example: false,
+  })
+  confirmationRequired!: boolean;
 }

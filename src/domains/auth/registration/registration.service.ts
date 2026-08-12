@@ -35,6 +35,7 @@ export class AuthRegistrationService {
     const clientId = this.configService.getOrThrow<string>('COGNITO_CLIENT_ID');
     const userPoolId = this.configService.getOrThrow<string>('COGNITO_USER_POOL_ID');
     let cognitoSub: string;
+    let isConfirmed = false;
 
     try {
       const response = await this.cognitoClient.send(
@@ -54,6 +55,7 @@ export class AuthRegistrationService {
         throw new BusinessException(ErrorCode.AUTH_PROVIDER_ERROR);
       }
       cognitoSub = response.UserSub;
+      isConfirmed = response.UserConfirmed === true;
     } catch (error) {
       if (this.getErrorName(error) === 'LimitExceededException') {
         await this.compensateSignup(userPoolId, dto.email);
@@ -70,7 +72,7 @@ export class AuthRegistrationService {
             email: dto.email,
             name: dto.name,
             nickname: dto.nickname,
-            isActive: false,
+            isActive: isConfirmed,
           },
         });
 
@@ -86,7 +88,11 @@ export class AuthRegistrationService {
         return createdUser;
       });
 
-      return { userId: Number(user.id), email: user.email, confirmationRequired: true };
+      return {
+        userId: Number(user.id),
+        email: user.email,
+        confirmationRequired: !isConfirmed,
+      };
     } catch (databaseError) {
       await this.compensateSignup(userPoolId, dto.email);
 

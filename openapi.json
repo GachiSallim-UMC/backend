@@ -6129,7 +6129,7 @@
           "인증"
         ],
         "summary": "회원가입",
-        "description": "회원가입",
+        "description": "현재 일반 이메일 가입은 이메일 소유권 검증 없이 즉시 완료됩니다.",
         "operationId": "postAuthSignup",
         "responses": {
           "200": {
@@ -6154,7 +6154,9 @@
                           "format": "email"
                         },
                         "confirmationRequired": {
-                          "type": "boolean"
+                          "type": "boolean",
+                          "description": "추가 가입 확인 절차가 필요한지 여부입니다. 현재 일반 가입은 이메일 소유권 검증 없이 즉시 완료됩니다.",
+                          "example": false
                         }
                       },
                       "required": [
@@ -6173,7 +6175,7 @@
                   "data": {
                     "userId": 1,
                     "email": "example@gmail.com",
-                    "confirmationRequired": true
+                    "confirmationRequired": false
                   },
                   "error": null
                 }
