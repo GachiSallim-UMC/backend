@@ -219,33 +219,35 @@ describe('BackendStack', () => {
     }
   });
 
-  it('exposes Swagger documents only on the development domain', () => {
-    template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
-      Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
-      Conditions: Match.arrayWith([
-        {
-          Field: 'host-header',
-          HostHeaderConfig: { Values: ['dev-api.gachisallim.com'] },
-        },
-        {
-          Field: 'path-pattern',
-          PathPatternConfig: {
-            Values: ['/api-docs', '/api-docs/*', '/api-docs-json'],
+  it('exposes Swagger documents on both backend domains', () => {
+    for (const domain of ['api.gachisallim.com', 'dev-api.gachisallim.com']) {
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+        Actions: Match.arrayWith([Match.objectLike({ Type: 'forward' })]),
+        Conditions: Match.arrayWith([
+          {
+            Field: 'host-header',
+            HostHeaderConfig: { Values: [domain] },
           },
-        },
-        {
-          Field: 'http-request-method',
-          HttpRequestMethodConfig: { Values: ['GET'] },
-        },
-      ]),
-    });
+          {
+            Field: 'path-pattern',
+            PathPatternConfig: {
+              Values: ['/api-docs', '/api-docs/*', '/api-docs-json'],
+            },
+          },
+          {
+            Field: 'http-request-method',
+            HttpRequestMethodConfig: { Values: ['GET'] },
+          },
+        ]),
+      });
+    }
 
     const listenerRules = template.findResources('AWS::ElasticLoadBalancingV2::ListenerRule');
     const publicSwaggerRules = Object.values(listenerRules).filter((rule) =>
       JSON.stringify(rule).includes('/api-docs-json'),
     );
 
-    expect(publicSwaggerRules).toHaveLength(1);
+    expect(publicSwaggerRules).toHaveLength(2);
   });
 
   it('creates DNS-validated TLS and aliases for both backend domains', () => {
@@ -334,7 +336,9 @@ describe('BackendStack', () => {
     const userData = JSON.stringify(template.findResources('AWS::EC2::Instance'));
     expect(userData).toContain("DATABASE_NAME='gachisallim'");
     expect(userData).toContain("DATABASE_NAME='gachisallim_develop'");
-    expect(userData).toContain("CORS_ORIGIN='https://gachisallim.com'");
+    expect(userData).toContain(
+      "CORS_ORIGIN='https://gachisallim.com,https://gachisallim-umc.github.io'",
+    );
     expect(userData).toContain("CORS_ORIGIN='*'");
     expect(userData).toContain('gachisallim@.service');
   });

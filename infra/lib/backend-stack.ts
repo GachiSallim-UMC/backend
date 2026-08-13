@@ -67,7 +67,7 @@ const RUNTIME_ENVIRONMENTS: RuntimeEnvironment[] = [
   {
     authDomainPrefix: 'gachisallim-prod-auth',
     branch: 'main',
-    corsOrigin: 'https://gachisallim.com',
+    corsOrigin: 'https://gachisallim.com,https://gachisallim-umc.github.io',
     databaseName: 'gachisallim',
     domain: PRODUCTION_DOMAIN,
     id: 'Production',
@@ -1214,17 +1214,15 @@ done`,
         ],
         action: elbv2.ListenerAction.forward([targetGroup]),
       });
-      if (environment.branch === 'develop') {
-        httpsListener.addAction('DevelopmentPublicSwagger', {
-          priority: priorityOffset + 21,
-          conditions: [
-            hostCondition,
-            elbv2.ListenerCondition.pathPatterns(['/api-docs', '/api-docs/*', '/api-docs-json']),
-            elbv2.ListenerCondition.httpRequestMethods(['GET']),
-          ],
-          action: elbv2.ListenerAction.forward([targetGroup]),
-        });
-      }
+      httpsListener.addAction(`${environment.id}PublicSwagger`, {
+        priority: priorityOffset + 21,
+        conditions: [
+          hostCondition,
+          elbv2.ListenerCondition.pathPatterns(['/api-docs', '/api-docs/*', '/api-docs-json']),
+          elbv2.ListenerCondition.httpRequestMethods(['GET']),
+        ],
+        action: elbv2.ListenerAction.forward([targetGroup]),
+      });
       httpsListener.addAction(`${environment.id}CorsPreflight`, {
         priority: priorityOffset + 30,
         conditions: [hostCondition, elbv2.ListenerCondition.httpRequestMethods(['OPTIONS'])],

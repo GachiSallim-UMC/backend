@@ -44,7 +44,15 @@ jobs:
             branch="$1"
             mkdir -p "_site/${branch}"
 
-            if git show "origin/${branch}:openapi.json" > "_site/${branch}/openapi.json" 2>/dev/null; then
+            case "${branch}" in
+              main) server_url='https://api.gachisallim.com' ;;
+              develop) server_url='https://dev-api.gachisallim.com' ;;
+              *) echo "Unsupported documentation branch: ${branch}" >&2; return 1 ;;
+            esac
+
+            if git show "origin/${branch}:openapi.json" 2>/dev/null |
+              jq --arg server_url "${server_url}" '.servers = [{ url: $server_url }]' \
+                > "_site/${branch}/openapi.json"; then
               cp docs/swagger-ui/index.html "_site/${branch}/index.html"
             else
               rm -f "_site/${branch}/openapi.json"
