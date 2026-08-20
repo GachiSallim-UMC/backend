@@ -72,6 +72,17 @@ export class GroupsService {
             permission: {
               create: {},
             },
+            chatRooms: {
+              create: {
+                name: dto.name,
+                isDefault: true,
+                createdBy,
+                ownerId: createdBy,
+                members: {
+                  create: { userId: createdBy },
+                },
+              },
+            },
           },
         });
       } catch (error) {
