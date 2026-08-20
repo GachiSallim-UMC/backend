@@ -14,11 +14,11 @@ export class CreateGroupDto {
   @Length(0, 255)
   description?: string;
 
-  @ApiProperty({ description: '최대 인원', example: 4, minimum: 2, maximum: 12, required: false })
+  @ApiProperty({ description: '최대 인원', example: 4, minimum: 2, maximum: 20, required: false })
   @IsOptional()
   @IsInt()
   @Min(2)
-  @Max(12)
+  @Max(20)
   maxMembers?: number;
 
   @ApiProperty({ description: '거주 타입', enum: ResidenceType, example: ResidenceType.ROOMMATE, required: false })

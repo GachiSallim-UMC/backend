@@ -25,10 +25,10 @@ export class UpdateGroupDto {
   @MaxLength(512)
   groupImage?: string | null;
 
-  @ApiPropertyOptional({ description: '최대 인원', example: 4, minimum: 2, maximum: 12 })
+  @ApiPropertyOptional({ description: '최대 인원', example: 4, minimum: 2, maximum: 20 })
   @IsOptional()
   @IsInt()
   @Min(2)
-  @Max(12)
+  @Max(20)
   maxMembers?: number;
 }
