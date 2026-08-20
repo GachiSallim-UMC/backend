@@ -24,6 +24,13 @@ type MockedPrisma = {
   groupPermission: {
     upsert: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
   };
+  chatRoom: {
+    findFirst: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+  };
+  chatRoomMember: {
+    upsert: jest.MockedFunction<(args: unknown) => Promise<unknown>>;
+    deleteMany: jest.MockedFunction<(args: unknown) => Promise<{ count: number }>>;
+  };
   $transaction: jest.MockedFunction<(fn: (tx: unknown) => Promise<unknown>, options?: unknown) => Promise<unknown>>;
 };
 
@@ -58,6 +65,13 @@ describe('GroupsService', () => {
       },
       groupPermission: {
         upsert: jest.fn<() => Promise<unknown>>(),
+      },
+      chatRoom: {
+        findFirst: jest.fn<() => Promise<unknown>>().mockResolvedValue(null),
+      },
+      chatRoomMember: {
+        upsert: jest.fn<() => Promise<unknown>>(),
+        deleteMany: jest.fn<() => Promise<{ count: number }>>().mockResolvedValue({ count: 0 }),
       },
       $transaction: jest.fn(),
     };
@@ -411,6 +425,36 @@ describe('GroupsService', () => {
     });
   });
 
+  it('removes the leaving member from the default chat room', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique
+      .mockResolvedValueOnce({ userId: 20n, groupId: 1n, role: 'MEMBER', leftAt: null })
+      .mockResolvedValueOnce({ userId: 20n, groupId: 1n, role: 'MEMBER', leftAt: null });
+    prisma.chatRoom.findFirst.mockResolvedValue({ id: 100n, groupId: 1n, isDefault: true });
+
+    await service.removeMember(1n, 20n, 20n);
+
+    expect(prisma.chatRoom.findFirst).toHaveBeenCalledWith({
+      where: { groupId: 1n, isDefault: true },
+    });
+    expect(prisma.chatRoomMember.deleteMany).toHaveBeenCalledWith({
+      where: { chatRoomId: 100n, userId: 20n },
+    });
+  });
+
+  it('skips chat room cleanup when the member was already removed concurrently', async () => {
+    prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
+    prisma.groupMember.findUnique
+      .mockResolvedValueOnce({ userId: 20n, groupId: 1n, role: 'MEMBER', leftAt: null })
+      .mockResolvedValueOnce({ userId: 20n, groupId: 1n, role: 'MEMBER', leftAt: null });
+    prisma.groupMember.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await service.removeMember(1n, 20n, 20n);
+
+    expect(prisma.chatRoom.findFirst).not.toHaveBeenCalled();
+    expect(prisma.chatRoomMember.deleteMany).not.toHaveBeenCalled();
+  });
+
   it('lets an ADMIN kick a different member', async () => {
     prisma.group.findUnique.mockResolvedValue({ id: 1n, isDeleted: false });
     prisma.groupMember.findUnique
@@ -563,6 +607,50 @@ describe('GroupsService', () => {
       data: { userId: 30n, groupId: 1n, role: 'MEMBER' },
     });
     expect(runWithGroupRecalculation).toHaveBeenCalledWith(1n, expect.any(Function));
+  });
+
+  it('adds the new member to the default chat room when joining', async () => {
+    prisma.group.findUnique.mockResolvedValue({
+      id: 1n,
+      isDeleted: false,
+      inviteCode: 'ABCDEF',
+      inviteExpiredAt: new Date(Date.now() + 1000 * 60),
+      currentMembers: 1,
+      maxMembers: 4,
+    });
+    prisma.groupMember.findUnique.mockResolvedValue(null);
+    prisma.groupMember.create.mockResolvedValue({ userId: 30n, groupId: 1n, role: 'MEMBER' });
+    prisma.group.update.mockResolvedValue({ id: 1n, currentMembers: 2 });
+    prisma.chatRoom.findFirst.mockResolvedValue({ id: 100n, groupId: 1n, isDefault: true });
+
+    await service.joinGroup({ inviteCode: 'ABCDEF' }, 30n);
+
+    expect(prisma.chatRoom.findFirst).toHaveBeenCalledWith({
+      where: { groupId: 1n, isDefault: true },
+    });
+    expect(prisma.chatRoomMember.upsert).toHaveBeenCalledWith({
+      where: { chatRoomId_userId: { chatRoomId: 100n, userId: 30n } },
+      create: { chatRoomId: 100n, userId: 30n },
+      update: {},
+    });
+  });
+
+  it('skips chat room join when the group has no default chat room', async () => {
+    prisma.group.findUnique.mockResolvedValue({
+      id: 1n,
+      isDeleted: false,
+      inviteCode: 'ABCDEF',
+      inviteExpiredAt: new Date(Date.now() + 1000 * 60),
+      currentMembers: 1,
+      maxMembers: 4,
+    });
+    prisma.groupMember.findUnique.mockResolvedValue(null);
+    prisma.groupMember.create.mockResolvedValue({ userId: 30n, groupId: 1n, role: 'MEMBER' });
+    prisma.group.update.mockResolvedValue({ id: 1n, currentMembers: 2 });
+
+    await service.joinGroup({ inviteCode: 'ABCDEF' }, 30n);
+
+    expect(prisma.chatRoomMember.upsert).not.toHaveBeenCalled();
   });
 
   it('throws when the invite code does not match any group', async () => {
