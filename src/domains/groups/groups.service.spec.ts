@@ -98,6 +98,7 @@ describe('GroupsService', () => {
         createdBy: bigint;
         inviteCode: string;
         members: unknown;
+        chatRooms: unknown;
       };
     };
 
@@ -109,6 +110,15 @@ describe('GroupsService', () => {
         createdBy: 10n,
         members: { create: { userId: 10n, role: 'ADMIN' } },
         permission: { create: {} },
+        chatRooms: {
+          create: {
+            name: '우리집',
+            isDefault: true,
+            createdBy: 10n,
+            ownerId: 10n,
+            members: { create: { userId: 10n } },
+          },
+        },
       }),
     );
     expect(typeof createArgs.data.inviteCode).toBe('string');
