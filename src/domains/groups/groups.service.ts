@@ -242,6 +242,16 @@ export class GroupsService {
           where: { id: groupId },
           data: { currentMembers: { decrement: 1 } },
         });
+
+        const defaultChatRoom = await tx.chatRoom.findFirst({
+          where: { groupId, isDefault: true },
+        });
+
+        if (defaultChatRoom) {
+          await tx.chatRoomMember.deleteMany({
+            where: { chatRoomId: defaultChatRoom.id, userId: targetUserId },
+          });
+        }
       }
     });
   }
@@ -350,6 +360,18 @@ export class GroupsService {
         : tx.groupMember.create({
             data: { userId: currentUserId, groupId: group.id, role: GroupRole.MEMBER },
           }));
+
+      const defaultChatRoom = await tx.chatRoom.findFirst({
+        where: { groupId: group.id, isDefault: true },
+      });
+
+      if (defaultChatRoom) {
+        await tx.chatRoomMember.upsert({
+          where: { chatRoomId_userId: { chatRoomId: defaultChatRoom.id, userId: currentUserId } },
+          create: { chatRoomId: defaultChatRoom.id, userId: currentUserId },
+          update: {},
+        });
+      }
 
       return updatedGroup;
     });
